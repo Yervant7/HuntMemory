@@ -1,6 +1,10 @@
 package com.yervant.huntmem.ui.menu
 
 import android.annotation.SuppressLint
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,6 +14,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -23,8 +28,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
+import com.yervant.huntmem.backend.AttachedProcessRepository
 import com.yervant.huntmem.backend.MemoryScanner
 import com.yervant.huntmem.backend.MemoryScanner.MemoryRegion
 import com.yervant.huntmem.backend.Process
@@ -35,64 +43,54 @@ private var customRegionFilter: String? = null
 fun getSelectedRegions(): List<MemoryRegion> {
     return regionsSelected.ifEmpty {
         listOf(
-            MemoryRegion.ALLOC,
-            MemoryRegion.BSS,
-            MemoryRegion.DATA,
-            MemoryRegion.HEAP,
-            MemoryRegion.JAVA_HEAP,
-            MemoryRegion.ANONYMOUS,
-            MemoryRegion.STACK,
-            MemoryRegion.ASHMEM
+            MemoryRegion.ALLOC, MemoryRegion.BSS, MemoryRegion.DATA, MemoryRegion.HEAP,
+            MemoryRegion.JAVA_HEAP, MemoryRegion.ANONYMOUS, MemoryRegion.STACK, MemoryRegion.ASHMEM
         )
     }
 }
-
-fun getCustomFilter(): String? {
-    return customRegionFilter
-}
-
+fun getCustomFilter(): String? = customRegionFilter
 fun setRegions(regions: List<MemoryRegion>, customFilter: String? = null) {
     regionsSelected = regions
     customRegionFilter = customFilter
 }
 
-fun calculateRegionSize(pid: Int, region: MemoryRegion, customFilter: String? = null): Float {
-    val memoryMaps = MemoryScanner(pid).readMemoryMaps()
-    val matchingRegions = memoryMaps.filter { region.matches(it, customFilter) }
-
-    val totalBytes = matchingRegions.sumOf { it.end - it.start }
-    return (totalBytes / (1024f * 1024f))
-}
+typealias MemoryMapEntry = MemoryScanner.MemoryRegions
 
 @SuppressLint("DefaultLocale")
-fun formatSize(sizeInMb: Float): String {
+fun formatSize(sizeInBytes: Long): String {
+    val sizeInMb = sizeInBytes / (1024f * 1024f)
     return String.format("%.2f MB", sizeInMb)
 }
 
 @Composable
 fun SettingsMenu() {
-    val regions = listOf(
-        MemoryRegion.ALLOC,
-        MemoryRegion.BSS,
-        MemoryRegion.DATA,
-        MemoryRegion.HEAP,
-        MemoryRegion.JAVA_HEAP,
-        MemoryRegion.ANONYMOUS,
-        MemoryRegion.STACK,
-        MemoryRegion.CODE_SYSTEM,
-        MemoryRegion.ASHMEM
-    )
+    val allRegions = remember {
+        listOf(
+            MemoryRegion.ALLOC, MemoryRegion.BSS, MemoryRegion.DATA, MemoryRegion.HEAP,
+            MemoryRegion.JAVA_HEAP, MemoryRegion.ANONYMOUS, MemoryRegion.STACK,
+            MemoryRegion.CODE_SYSTEM, MemoryRegion.ASHMEM, MemoryRegion.LIBS
+        )
+    }
     val selectedRegions = remember { mutableStateListOf<MemoryRegion>() }
     val customRegion = remember { mutableStateOf("") }
 
-    val regionSizes = remember { mutableStateMapOf<MemoryRegion, Float>() }
+    val expandedRegion = remember { mutableStateOf<MemoryRegion?>(null) }
 
-    val pid = isattached().currentPid()
-    val lastPid = isattached().lastPid()
+    val memoryDetailsMap = remember { mutableStateMapOf<MemoryRegion, List<MemoryMapEntry>>() }
 
-    LaunchedEffect(pid != -1 && Process().processIsRunning(pid.toString()) && !(lastPid != -1 && lastPid != pid)) {
-        regions.forEach { region ->
-            regionSizes[region] = calculateRegionSize(pid, region)
+    val pid = AttachedProcessRepository.getAttachedPid()
+
+    LaunchedEffect(key1 = pid) {
+        if (pid != null && Process().processIsRunning(pid.toString())) {
+            val allMemoryMaps = MemoryScanner(pid).readMemoryMaps()
+
+            val details = mutableMapOf<MemoryRegion, List<MemoryMapEntry>>()
+            allRegions.forEach { region ->
+                details[region] = allMemoryMaps.filter { entry -> region.matches(entry, null) }
+            }
+
+            memoryDetailsMap.clear()
+            memoryDetailsMap.putAll(details)
         }
     }
 
@@ -111,58 +109,26 @@ fun SettingsMenu() {
                     .padding(bottom = 16.dp)
             ) {
                 Column(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxSize()
+                    modifier = Modifier.padding(16.dp).fillMaxSize()
                 ) {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        items(regions) { region ->
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (selectedRegions.contains(region)) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(allRegions) { region ->
+                            RegionItem(
+                                region = region,
+                                isSelected = selectedRegions.contains(region),
+                                isExpanded = expandedRegion.value == region,
+                                details = memoryDetailsMap[region] ?: emptyList(),
+                                onToggleSelection = {
+                                    if (selectedRegions.contains(region)) {
+                                        selectedRegions.remove(region)
+                                    } else {
+                                        selectedRegions.add(region)
+                                    }
+                                },
+                                onClick = {
+                                    expandedRegion.value = if (expandedRegion.value == region) null else region
                                 }
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 8.dp)
-                                ) {
-                                    Checkbox(
-                                        checked = selectedRegions.contains(region),
-                                        onCheckedChange = { checked ->
-                                            if (checked) selectedRegions.add(region)
-                                            else selectedRegions.remove(region)
-                                        },
-                                        colors = CheckboxDefaults.colors(
-                                            checkedColor = MaterialTheme.colorScheme.primary
-                                        )
-                                    )
-
-                                    Text(
-                                        text = region.name,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.weight(1f)
-                                    )
-
-                                    Text(
-                                        text = formatSize(regionSizes[region] ?: 0f),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.width(90.dp),
-                                        textAlign = TextAlign.End
-                                    )
-                                }
-                            }
+                            )
                         }
                     }
 
@@ -177,7 +143,7 @@ fun SettingsMenu() {
                             value = customRegion.value,
                             onValueChange = { customRegion.value = it },
                             label = { Text("Custom Region Filter") },
-                            placeholder = { Text("Example: libunity.so") },
+                            placeholder = { Text("Example: libgame.so") },
                             modifier = Modifier
                                 .weight(1f)
                                 .heightIn(min = 56.dp),
@@ -207,6 +173,166 @@ fun SettingsMenu() {
                     Spacer(modifier = Modifier.height(40.dp))
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun RegionItem(
+    region: MemoryRegion,
+    isSelected: Boolean,
+    isExpanded: Boolean,
+    details: List<MemoryMapEntry>,
+    onToggleSelection: () -> Unit,
+    onClick: () -> Unit
+) {
+    val totalSize = remember(details) { details.sumOf { it.end - it.start } }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        onClick = onClick,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelection() },
+                    colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
+                )
+
+                Text(
+                    text = region.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+
+                Text(
+                    text = formatSize(totalSize),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(90.dp),
+                    textAlign = TextAlign.End
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically(animationSpec = tween(300)),
+                exit = shrinkVertically(animationSpec = tween(300))
+            ) {
+                RegionDetails(details)
+            }
+        }
+    }
+}
+
+private fun getFileName(path: String): String {
+    if (path.isBlank() || !path.contains("/")) {
+        return path
+    }
+    return path.substringAfterLast('/')
+}
+
+@Composable
+fun RegionDetails(details: List<MemoryMapEntry>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp)
+    ) {
+        if (details.isNotEmpty()) {
+            Row(modifier = Modifier.padding(bottom = 4.dp)) {
+                Text(
+                    text = "Name",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1.5f)
+                )
+                Text(
+                    text = "Perm",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.End
+                )
+                Text(
+                    text = "Start",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.End
+                )
+                Text(
+                    text = "End",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.End
+                )
+            }
+            HorizontalDivider()
+
+            details.take(10).forEach { entry ->
+                Row(
+                    modifier = Modifier.padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = getFileName(entry.path),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1.5f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = entry.permissions,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                        textAlign = TextAlign.End
+                    )
+                    Text(
+                        text = String.format("0x%X", entry.start),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                        textAlign = TextAlign.End
+                    )
+                    Text(
+                        text = String.format("0x%X", entry.end),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                        textAlign = TextAlign.End
+                    )
+                }
+            }
+            if (details.size > 10) {
+                Text(
+                    text = "... and ${details.size - 10} more entries",
+                    style = MaterialTheme.typography.labelSmall,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                )
+            }
+        } else {
+            Text(
+                text = "No memory entries found for this region.",
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            )
         }
     }
 }

@@ -1,10 +1,16 @@
 package com.yervant.huntmem.backend
 
 import com.topjohnwu.superuser.Shell
+import android.graphics.drawable.Drawable
+
+data class ProcessInfo(
+    val pid: String,
+    val packageName: String,
+    val memory: String,
+    val icon: Drawable? = null
+)
 
 class Process {
-
-    data class ProcessInfo(val pid: String, val packageName: String, val memory: String)
 
     fun getRunningProcesses(): List<ProcessInfo> {
         val processes = mutableListOf<ProcessInfo>()

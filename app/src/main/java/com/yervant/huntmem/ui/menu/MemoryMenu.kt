@@ -58,7 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yervant.huntmem.backend.HuntMem
+import com.yervant.huntmem.backend.AttachedProcessRepository
 import com.yervant.huntmem.backend.HuntSettings
 import com.yervant.huntmem.backend.Memory
 import kotlinx.coroutines.CoroutineScope
@@ -69,11 +69,9 @@ import kotlin.time.Duration.Companion.seconds
 import com.yervant.huntmem.backend.Memory.Companion.matches
 import com.yervant.huntmem.backend.Process
 import com.yervant.huntmem.ui.DialogCallback
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.internal.synchronized
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
 import java.util.UUID
 
 private var defaultValueInitialized: Boolean = false
@@ -88,8 +86,6 @@ private val isRefreshOnGoing: MutableState<Boolean> = mutableStateOf(false)
 
 private val valueTypeEnabled: MutableState<Boolean> = mutableStateOf(false)
 
-private val wpactive: MutableState<Boolean> = mutableStateOf(false)
-
 private var currentMatchesList: MutableState<List<MatchInfo>> = mutableStateOf(emptyList())
 private var matchesStatusText: MutableState<String> = mutableStateOf("0 matches")
 
@@ -97,7 +93,8 @@ private val operatorOptions = listOf("=", "!=", ">", "<", ">=", "<=")
 private val operatorSelectedOptionIdx = mutableIntStateOf(0)
 
 data class MatchInfo(
-    val id: String = UUID.randomUUID().toString(),
+    val id: String,
+    val pid: Int,
     val address: Long,
     val prevValue: Number,
     val valueType: String,
@@ -143,10 +140,9 @@ fun InitialMemoryMenu(context: Context?, dialogCallback: DialogCallback) {
 
 @OptIn(InternalCoroutinesApi::class)
 suspend fun refreshValues(context: Context, dialogCallback: DialogCallback) {
-    val pid = isattached().currentPid()
-    val lastPid = isattached().lastPid()
+    val pid = AttachedProcessRepository.getAttachedPid()
 
-    if (pid < 0) {
+    if (pid == null) {
         dialogCallback.showInfoDialog(
             title = "Hunt Games",
             message = "No Process Attached",
@@ -166,26 +162,23 @@ suspend fun refreshValues(context: Context, dialogCallback: DialogCallback) {
 
         resetMatches()
         initialScanDone.value = false
-        isattached().reset()
-        isattached().resetLast()
         return
     }
 
-    if (lastPid != -1 && lastPid != pid) {
+    if (isScanOnGoing.value) {
+        return
+    }
+
+    if (matches.isNotEmpty() && matches.first().pid != pid) {
         dialogCallback.showInfoDialog(
             title = "Info",
             message = "Process changed cleaning...",
             onConfirm = {},
             onDismiss = {}
         )
-
-        resetMatches()
-        initialScanDone.value = false
-        isattached().resetLast()
-        return
-    }
-
-    if (isScanOnGoing.value) {
+        synchronized(matches) {
+            matches.clear()
+        }
         return
     }
 
@@ -220,7 +213,7 @@ fun MemoryMenu(
         valueTypeSelectedOptionIdx.intValue = 0
         defaultValueInitialized = true
     }
-    val isAttached: Boolean = isattached().alert()
+    val isAttached: Boolean = (AttachedProcessRepository.getAttachedPid() != null)
     valueTypeEnabled.value = isAttached && !initialScanDone.value
 
     val showErrorDialog = remember { mutableStateOf(false) }

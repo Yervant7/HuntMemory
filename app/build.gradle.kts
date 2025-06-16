@@ -8,14 +8,14 @@ android {
     namespace = "com.yervant.huntmem"
     compileSdk = 35
 
-    ndkVersion = "29.0.13113456 rc1"
+    ndkVersion = "29.0.13599879 rc2"
 
     defaultConfig {
         applicationId = "com.yervant.huntmem"
         minSdk = 29
         targetSdk = 35
-        versionCode = 90
-        versionName = "1.0.0"
+        versionCode = 100
+        versionName = "1.1.0"
 
         ndk {
             abiFilters.add("arm64-v8a")
@@ -55,6 +55,7 @@ android {
 
 dependencies {
 
+    implementation(libs.coil.compose)
     implementation(libs.libsu)
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.activity.compose)
@@ -63,6 +64,8 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.lifecycle.viewmodel.android)
+    implementation(libs.androidx.lifecycle.viewmodel.compose.android)
     debugImplementation(libs.androidx.ui.tooling)
     implementation(libs.androidx.material3.android)
     implementation(libs.androidx.ui.tooling.preview.android)

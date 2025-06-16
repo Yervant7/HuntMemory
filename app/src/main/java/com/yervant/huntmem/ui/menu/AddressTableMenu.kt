@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yervant.huntmem.backend.AttachedProcessRepository
 import com.yervant.huntmem.backend.Editor
 import com.yervant.huntmem.backend.HuntMem
 import com.yervant.huntmem.backend.Memory
@@ -78,11 +79,6 @@ fun AddressTableAddAddress(matchInfo: MatchInfo) {
 @Composable
 fun AddressTableMenu(context: Context?, dialogCallback: DialogCallback) {
     val coroutineScope = rememberCoroutineScope()
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var showEditDialog by remember { mutableStateOf(false) }
-    var showFreezeDialog by remember { mutableStateOf(false) }
-    var selectedAddressIndex by remember { mutableStateOf<Int?>(null) }
-    var selectedAddressInfo by remember { mutableStateOf<AddressInfo?>(null) }
 
     LaunchedEffect(savedAddresList.isNotEmpty()) {
         while (isActive) {
@@ -100,10 +96,9 @@ fun AddressTableMenu(context: Context?, dialogCallback: DialogCallback) {
     ) {
 
         ControlButtonsRow(
-            showDeleteDialog = { showDeleteDialog = true },
-            showEditDialog = { showEditDialog = true },
-            showFreezeDialog = { showFreezeDialog = true },
-            coroutineScope = coroutineScope
+            dialogCallback = dialogCallback, // Passe o callback
+            coroutineScope = coroutineScope,
+            context = context!!
         )
 
         Card(
@@ -123,11 +118,41 @@ fun AddressTableMenu(context: Context?, dialogCallback: DialogCallback) {
                     itemsIndexed(savedAddresList) { index, item ->
                         AddressTableRow(
                             item = item,
-                            index = index,
-                            onAddressClick = { selectedAddressIndex = index },
-                            onValueClick = { selectedAddressInfo = item },
+                            onAddressClick = {
+                                dialogCallback.showInfoDialog(
+                                    title = "Delete Address",
+                                    message = "Delete this address from the list?",
+                                    onConfirm = { savedAddresList.removeAt(index) },
+                                    onDismiss = {}
+                                )
+                            },
+                            onValueClick = {
+                                dialogCallback.showInputDialog(
+                                    title = "Edit Value",
+                                    defaultValue = item.matchInfo.prevValue.toString(),
+                                    onConfirm = { newValue ->
+                                        val huntmem = HuntMem()
+                                        context.let {
+                                            coroutineScope.launch {
+                                                val pid = AttachedProcessRepository.getAttachedPid()
+                                                if (pid != null) {
+                                                    huntmem.writeMem(
+                                                        pid,
+                                                        item.matchInfo.address,
+                                                        item.matchInfo.valueType,
+                                                        newValue,
+                                                        context
+                                                    )
+                                                    refreshValue(context, dialogCallback)
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onDismiss = {}
+                                )
+                            },
                             coroutineScope = coroutineScope,
-                            context = context!!
+                            context = context
                         )
                         if (index < savedAddresList.lastIndex) {
                             HorizontalDivider(
@@ -141,30 +166,13 @@ fun AddressTableMenu(context: Context?, dialogCallback: DialogCallback) {
             }
         }
     }
-
-    DialogHandling(
-        context = context,
-        dialogCallback = dialogCallback,
-        coroutineScope = coroutineScope,
-        showDeleteDialog = showDeleteDialog,
-        showEditDialog = showEditDialog,
-        showFreezeDialog = showFreezeDialog,
-        selectedAddressIndex = selectedAddressIndex,
-        selectedAddressInfo = selectedAddressInfo,
-        onDismissDelete = { showDeleteDialog = false },
-        onDismissEdit = { showEditDialog = false },
-        onDismissFreeze = { showFreezeDialog = false },
-        onDismissAddress = { selectedAddressIndex = null },
-        onDismissValue = { selectedAddressInfo = null }
-    )
 }
 
 @Composable
 private fun ControlButtonsRow(
-    showDeleteDialog: () -> Unit,
-    showEditDialog: () -> Unit,
-    showFreezeDialog: () -> Unit,
-    coroutineScope: CoroutineScope
+    dialogCallback: DialogCallback,
+    coroutineScope: CoroutineScope,
+    context: Context
 ) {
     val configuration = LocalConfiguration.current
     val isPortrait = configuration.screenHeightDp > configuration.screenWidthDp
@@ -184,14 +192,35 @@ private fun ControlButtonsRow(
                     icon = Icons.Filled.Delete,
                     text = "Delete All",
                     containerColor = MaterialTheme.colorScheme.error,
-                    onClick = showDeleteDialog,
+                    onClick = {
+                        dialogCallback.showInfoDialog(
+                            title = "Delete All Addresses",
+                            message = "Are you sure you want to delete all saved addresses?",
+                            onConfirm = { savedAddresList.clear() },
+                            onDismiss = {}
+                        )
+                    },
                     modifier = Modifier.weight(1f)
                 )
+
                 ControlButton(
                     icon = Icons.Filled.Edit,
                     text = "Edit All",
                     containerColor = MaterialTheme.colorScheme.tertiary,
-                    onClick = showEditDialog,
+                    onClick = {
+                        dialogCallback.showInputDialog(
+                            title = "Edit All Values",
+                            defaultValue = "999999999",
+                            onConfirm = { input ->
+                                context.let {
+                                    coroutineScope.launch {
+                                        Editor().writeall(savedAddresList, input, context)
+                                    }
+                                }
+                            },
+                            onDismiss = {}
+                        )
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -204,7 +233,20 @@ private fun ControlButtonsRow(
                     icon = Icons.Filled.CheckCircle,
                     text = "Freeze All",
                     containerColor = MaterialTheme.colorScheme.primary,
-                    onClick = showFreezeDialog,
+                    onClick = {
+                        dialogCallback.showInputDialog(
+                            title = "Freeze All Values",
+                            defaultValue = "999999999",
+                            onConfirm = { input ->
+                                context.let {
+                                    coroutineScope.launch {
+                                        Editor().freezeall(savedAddresList, input, context)
+                                    }
+                                }
+                            },
+                            onDismiss = {}
+                        )
+                    },
                     modifier = Modifier.weight(1f)
                 )
                 ControlButton(
@@ -234,19 +276,56 @@ private fun ControlButtonsRow(
                 icon = Icons.Filled.Delete,
                 text = "Delete All",
                 containerColor = MaterialTheme.colorScheme.error,
-                onClick = showDeleteDialog
+                onClick = {
+                    dialogCallback.showInfoDialog(
+                        title = "Delete All Addresses",
+                        message = "Are you sure you want to delete all saved addresses?",
+                        onConfirm = { savedAddresList.clear() },
+                        onDismiss = {}
+                    )
+                },
+                modifier = Modifier.weight(1f)
             )
+
             ControlButton(
                 icon = Icons.Filled.Edit,
                 text = "Edit All",
                 containerColor = MaterialTheme.colorScheme.tertiary,
-                onClick = showEditDialog
+                onClick = {
+                    dialogCallback.showInputDialog(
+                        title = "Edit All Values",
+                        defaultValue = "999999999",
+                        onConfirm = { input ->
+                            context.let {
+                                coroutineScope.launch {
+                                    Editor().writeall(savedAddresList, input, context)
+                                }
+                            }
+                        },
+                        onDismiss = {}
+                    )
+                },
+                modifier = Modifier.weight(1f)
             )
             ControlButton(
                 icon = Icons.Filled.CheckCircle,
                 text = "Freeze All",
                 containerColor = MaterialTheme.colorScheme.primary,
-                onClick = showFreezeDialog
+                onClick = {
+                    dialogCallback.showInputDialog(
+                        title = "Freeze All Values",
+                        defaultValue = "999999999",
+                        onConfirm = { input ->
+                            context.let {
+                                coroutineScope.launch {
+                                    Editor().freezeall(savedAddresList, input, context)
+                                }
+                            }
+                        },
+                        onDismiss = {}
+                    )
+                },
+                modifier = Modifier.weight(1f)
             )
             ControlButton(
                 icon = Icons.Filled.PlayDisabled,
@@ -347,9 +426,8 @@ private fun AddressTableHeader() {
 @Composable
 private fun AddressTableRow(
     item: AddressInfo,
-    index: Int,
-    onAddressClick: (Int) -> Unit,
-    onValueClick: (AddressInfo) -> Unit,
+    onAddressClick: () -> Unit,
+    onValueClick: () -> Unit,
     coroutineScope: CoroutineScope,
     context: Context
 ) {
@@ -358,7 +436,7 @@ private fun AddressTableRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp)
-            .clickable { onAddressClick(index) },
+            .clickable { onAddressClick() },
         elevation = CardDefaults.cardElevation(2.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -394,7 +472,7 @@ private fun AddressTableRow(
                     color = MaterialTheme.colorScheme.tertiary,
                     fontWeight = FontWeight.Medium
                 ),
-                onClick = { onValueClick(item) }
+                onClick = { onValueClick() }
             )
             Box(
                 modifier = Modifier
@@ -462,7 +540,6 @@ private fun DialogHandling(
             message = "Are you sure you want to delete all saved addresses?",
             onConfirm = {
                 savedAddresList.clear()
-                onDismissDelete()
             },
             onDismiss = onDismissDelete
         )
@@ -478,7 +555,6 @@ private fun DialogHandling(
                         Editor().writeall(savedAddresList, input, context)
                     }
                 }
-                onDismissEdit()
             },
             onDismiss = onDismissEdit
         )
@@ -494,7 +570,6 @@ private fun DialogHandling(
                         Editor().freezeall(savedAddresList, input, context)
                     }
                 }
-                onDismissFreeze()
             },
             onDismiss = onDismissFreeze
         )
@@ -506,7 +581,6 @@ private fun DialogHandling(
             message = "Delete this address from the list?",
             onConfirm = {
                 savedAddresList.removeAt(index)
-                onDismissAddress()
             },
             onDismiss = onDismissAddress
         )
@@ -522,17 +596,19 @@ private fun DialogHandling(
                 val huntmem = HuntMem()
                 context?.let {
                     coroutineScope.launch {
-                        huntmem.writeMem(
-                            isattached().currentPid(),
-                            info.matchInfo.address,
-                            info.matchInfo.valueType,
-                            newValue,
-                            context
-                        )
-                        refreshValue(context, dialogCallback)
+                        val pid = AttachedProcessRepository.getAttachedPid()
+                        if (pid != null) {
+                            huntmem.writeMem(
+                                pid,
+                                info.matchInfo.address,
+                                info.matchInfo.valueType,
+                                newValue,
+                                context
+                            )
+                            refreshValue(context, dialogCallback)
+                        }
                     }
                 }
-                onDismissValue()
             },
             onDismiss = onDismissValue
         )
@@ -541,10 +617,9 @@ private fun DialogHandling(
 
 private suspend fun refreshValue(context: Context, dialogCallback: DialogCallback) {
     val mem = Memory()
-    val pid = isattached().currentPid()
-    val lastPid = isattached().lastPid()
+    val pid = AttachedProcessRepository.getAttachedPid()
 
-    if (pid < 0) {
+    if (pid == null) {
         dialogCallback.showInfoDialog(
             title = "Error",
             message = "No process attached",
@@ -564,12 +639,10 @@ private suspend fun refreshValue(context: Context, dialogCallback: DialogCallbac
         withContext(Dispatchers.Main) {
             savedAddresList.clear()
         }
-        isattached().reset()
-        isattached().resetLast()
         return
     }
 
-    if (lastPid != -1 && lastPid != pid) {
+    if (savedAddresList.isNotEmpty() && savedAddresList.first().matchInfo.pid != pid) {
         dialogCallback.showInfoDialog(
             title = "Info",
             message = "Process changed cleaning...",
@@ -579,7 +652,6 @@ private suspend fun refreshValue(context: Context, dialogCallback: DialogCallbac
         withContext(Dispatchers.Main) {
             savedAddresList.clear()
         }
-        isattached().resetLast()
         return
     }
 

@@ -40,7 +40,11 @@ suspend fun onNextScanClicked(
             if (scanOptions.inputVal.contains(" ")) {
                 throw Exception("Input value cannot contain spaces")
             } else if (scanOptions.inputVal.contains("0x")) {
-                mem.gotoOffset(scanOptions.inputVal, context)
+                if (scanOptions.inputVal.contains("+")) {
+                    mem.gotoAddrOffset(scanOptions.inputVal, context)
+                } else {
+                    mem.gotoOffset(scanOptions.inputVal, context)
+                }
             } else {
                 mem.scanValues(
                     scanOptions.inputVal,

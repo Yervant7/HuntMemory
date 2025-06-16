@@ -22,6 +22,7 @@ class MemoryScanner(private val pid: Int) {
         CODE_SYSTEM,
         STACK,
         ASHMEM,
+        LIBS,
         CUSTOM;
 
         companion object {
@@ -41,6 +42,7 @@ class MemoryScanner(private val pid: Int) {
                 CODE_SYSTEM -> entry.path.contains("/system")
                 STACK -> entry.path.contains("[stack]")
                 ASHMEM -> entry.path.contains("/dev/ashmem/dalvik")
+                LIBS -> entry.path.contains("libil2cpp.so") || entry.path.contains("libUE4.so")
                 CUSTOM -> customFilter?.let { entry.path.contains(it) } ?: false
             }
         }

@@ -25,6 +25,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.OutputStream
 
+class ShellCommandException(message: String) : Exception(message)
+
 @Composable
 fun MainScreen(openBootPicker: () -> Unit) {
     val ctx = LocalContext.current
@@ -145,19 +147,23 @@ private fun PatchBootTab(
                         scope.launch {
                             isPatching = true
                             logs.clear()
+                            logs.add("🚀 Starting patch process...")
                             try {
                                 var key = "yervant7github"
                                 val skey = getSharedKey(ctx, "user_key")
                                 if (!skey.isNullOrEmpty()) {
                                     key = skey
                                 }
+
                                 val result = patchBootImage(ctx, key, logs)
+
                                 if (result) {
                                     logs.add("✅ Patching completed successfully!")
-                                    logs.add("Check downloads folder for patched_boot")
+                                    logs.add("   Saving patched_boot.img to Downloads folder...")
                                     copyFileToDownloads(ctx, "patched_boot.img")
+                                    logs.add("   File saved successfully.")
                                 } else {
-                                    logs.add("❌ Patching failed!")
+                                    logs.add("❌ Patching failed! Check logs for details.")
                                 }
                             } finally {
                                 isPatching = false
@@ -167,7 +173,11 @@ private fun PatchBootTab(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isPatching
                 ) {
-                    Text("Start Patching")
+                    if (isPatching) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
+                    } else {
+                        Text("Start Patching")
+                    }
                 }
             }
         }
@@ -181,13 +191,21 @@ private fun PatchBootTab(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                reverseLayout = true
             ) {
                 items(logs.size) { index ->
+                    val log = logs.reversed()[index]
+                    val color = when {
+                        log.startsWith("✅") -> Color(0xFF4CAF50)
+                        log.startsWith("❌") -> Color(0xFFF44336)
+                        log.startsWith("$>") -> Color.Gray
+                        else -> MaterialTheme.colorScheme.onSurface
+                    }
                     Text(
-                        text = logs[index],
+                        text = log,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (logs[index].startsWith("✅")) Color.Green else MaterialTheme.colorScheme.onSurface
+                        color = color
                     )
                 }
             }
@@ -195,13 +213,28 @@ private fun PatchBootTab(
     }
 }
 
-private fun executeShell(cmd: String, allowNonZeroExit: Boolean = false): String {
-    val res = Shell.cmd(cmd).exec()
-    return if (res.code == 0 || allowNonZeroExit) {
-        res.out.joinToString("\n")
-    } else {
-        "Error executing command: $cmd\nExit Code: ${res.code}\n${res.err.joinToString("\n")}"
+private fun executeShell(cmd: String, logs: SnapshotStateList<String>, allowNonZeroExit: Boolean = false): String {
+    logs.add("$> $cmd")
+
+    val stdout: MutableList<String> = ArrayList()
+    val stderr: MutableList<String> = ArrayList()
+
+    val result = Shell.cmd(cmd).to(stdout, stderr).exec()
+
+    if (stdout.isNotEmpty()) {
+        logs.add(stdout.joinToString("\n"))
     }
+    if (stderr.isNotEmpty()) {
+        logs.add("stderr: ${stderr.joinToString("\n")}")
+    }
+
+    if (result.code != 0 && !allowNonZeroExit) {
+        val errorMsg = "Command failed with exit code ${result.code}"
+        logs.add("❌ $errorMsg")
+        throw ShellCommandException("$errorMsg\n---STDERR---\n${stderr.joinToString("\n")}")
+    }
+
+    return stdout.joinToString("\n")
 }
 
 private suspend fun patchBootImage(
@@ -210,36 +243,81 @@ private suspend fun patchBootImage(
     logs: SnapshotStateList<String>
 ): Boolean {
     return withContext(Dispatchers.IO) {
+        val dir = File(context.filesDir, "patch")
         try {
-            val dir = File(context.filesDir, "patch")
-            executeShell("cd ${dir.absolutePath}")
-            var log = executeShell("${dir.absolutePath}/magiskboot unpack ${dir.absolutePath}/boot.img")
-            logs.add(log)
-            var kpimgver = "kpimg"
+            executeShell("rm -f ${dir.absolutePath}/*", logs, allowNonZeroExit = true)
 
-            log = executeShell("${dir.absolutePath}/kptools -c -i ${dir.absolutePath}/kernel", allowNonZeroExit = true)
-            if (log.contains("is PATCHED.")) {
-                kpimgver = "kpimg-with-kp"
+            preparePatchEnvironment(context, dir, logs)
+
+            executeShell("cp ${context.filesDir.absolutePath}/boot.img ${dir.absolutePath}/", logs)
+
+            executeShell("cd ${dir.absolutePath} && ${dir.absolutePath}/magiskboot unpack ${dir.absolutePath}/boot.img", logs)
+
+            val checkResult = executeShell("${dir.absolutePath}/kptools -c -i ${dir.absolutePath}/kernel", logs, allowNonZeroExit = true)
+            val kpimgver = if (checkResult.contains("is PATCHED.")) {
+                logs.add("ℹ️ Kernel already patched. Using kpimg-with-kp.")
+                "kpimg-with-kp"
+            } else {
+                logs.add("ℹ️ Kernel not patched. Using kpimg.")
+                "kpimg"
             }
-            logs.add(log)
 
-            log = executeShell("${dir.absolutePath}/kptools -p -i ${dir.absolutePath}/kernel -S \"$superkey\" -k ${dir.absolutePath}/$kpimgver -o ${dir.absolutePath}/new-kernel")
-            logs.add(log)
-            log = executeShell("rm ${dir.absolutePath}/kernel")
-            logs.add(log)
-            log = executeShell("mv ${dir.absolutePath}/new-kernel ${dir.absolutePath}/kernel")
-            logs.add(log)
-            log = executeShell("${dir.absolutePath}/magiskboot repack ${dir.absolutePath}/boot.img")
-            logs.add(log)
-            log = executeShell("mv ${dir.absolutePath}/new-boot.img ${dir.absolutePath}/patched_boot.img")
-            logs.add(log)
+            executeShell("${dir.absolutePath}/kptools -p -i ${dir.absolutePath}/kernel -S \"$superkey\" -k ${dir.absolutePath}/$kpimgver -o ${dir.absolutePath}/new-kernel", logs)
+            executeShell("rm ${dir.absolutePath}/kernel", logs)
+            executeShell("mv ${dir.absolutePath}/new-kernel ${dir.absolutePath}/kernel", logs)
+            executeShell("cd ${dir.absolutePath} && ${dir.absolutePath}/magiskboot repack ${dir.absolutePath}/boot.img", logs)
+            executeShell("mv ${dir.absolutePath}/new-boot.img ${dir.absolutePath}/patched_boot.img", logs)
 
-            logs.add("Boot image patched successfully!")
             true
+        } catch (e: ShellCommandException) {
+            Log.e("PatchBoot", "A shell command failed: ${e.message}")
+            false
         } catch (e: Exception) {
-            logs.add("Error: ${e.message}")
+            Log.e("PatchBoot", "An unexpected error occurred during patching", e)
+            logs.add("❌ Unexpected Error: ${e.message}")
             false
         }
+    }
+}
+
+private fun copyAssetToFile(context: Context, assetName: String, destFile: File) {
+    if (!destFile.exists()) {
+        context.assets.open(assetName).use { inputStream ->
+            destFile.outputStream().use { outputStream ->
+                inputStream.copyTo(outputStream)
+            }
+        }
+    }
+}
+
+private fun preparePatchEnvironment(context: Context, dir: File, logs: SnapshotStateList<String>) {
+    logs.add("ℹ️ Preparing environment...")
+    try {
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+
+        val binaries = listOf("magiskboot", "kptools")
+        val otherFiles = listOf("kpimg", "kpimg-with-kp")
+
+        (binaries + otherFiles).forEach { fileName ->
+            val destFile = File(dir, fileName)
+            logs.add("   - Checking $fileName...")
+            copyAssetToFile(context, fileName, destFile)
+
+            if (binaries.contains(fileName)) {
+                if (destFile.setExecutable(true, false)) {
+                    logs.add("     ✓ Set as executable.")
+                } else {
+                    logs.add("     ⚠️ Failed to set as executable.")
+                }
+            }
+        }
+        logs.add("✅ Environment ready.")
+    } catch (e: Exception) {
+        logs.add("❌ Failed to prepare environment: ${e.message}")
+        Log.e("PrepareEnv", "Error preparing patch environment", e)
+        throw e
     }
 }
 

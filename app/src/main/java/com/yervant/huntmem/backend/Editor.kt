@@ -3,7 +3,6 @@ package com.yervant.huntmem.backend
 import android.content.Context
 import android.util.Log
 import com.yervant.huntmem.ui.menu.AddressInfo
-import com.yervant.huntmem.ui.menu.isattached
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 
@@ -15,7 +14,7 @@ class Editor {
     }
 
     suspend fun writeall(addrs: MutableList<AddressInfo>, value: String, context: Context) {
-        val pid = isattached().currentPid()
+        val pid = AttachedProcessRepository.getAttachedPid() ?: return
         val huntmem = HuntMem()
 
         addrs.forEach { addressInfo ->
@@ -44,7 +43,7 @@ class Editor {
         context: Context,
         intervalMs: Long = 100
     ) {
-        val pid = isattached().currentPid()
+        val pid = AttachedProcessRepository.getAttachedPid() ?: return
         val huntmem = HuntMem()
         val address = addressInfo.matchInfo.address.toString(16)
         val dataType = addressInfo.matchInfo.valueType

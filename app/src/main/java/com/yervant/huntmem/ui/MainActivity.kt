@@ -1,7 +1,6 @@
 package com.yervant.huntmem.ui
 
 import android.Manifest
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -25,7 +24,6 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import androidx.core.net.toUri
 import com.yervant.huntmem.ui.theme.HuntMemTheme
-import java.io.IOException
 
 
 class MainActivity : ComponentActivity() {
@@ -62,27 +60,6 @@ class MainActivity : ComponentActivity() {
             executeSuCommand("rm -rf ${dir.absolutePath}/*")
         } else {
             dir.mkdirs()
-        }
-
-        val file = File(filesDir, "patch/magiskboot")
-        if (!file.exists()) {
-            copyfile.FileUtil.copyAssetFileToInternalStorage(this, "magiskboot", "patch/magiskboot")
-        }
-        val f = file.absolutePath
-        executeSuCommand("chmod +x $f")
-        val fil = File(filesDir, "patch/kptools")
-        if (!fil.exists()) {
-            copyfile.FileUtil.copyAssetFileToInternalStorage(this, "kptools", "patch/kptools")
-        }
-        val fi = fil.absolutePath
-        executeSuCommand("chmod +x $fi")
-        val afil = File(filesDir, "patch/kpimg")
-        if (!afil.exists()) {
-            copyfile.FileUtil.copyAssetFileToInternalStorage(this, "kpimg", "patch/kpimg")
-        }
-        val bfil = File(filesDir, "patch/kpimg-with-kp")
-        if (!bfil.exists()) {
-            copyfile.FileUtil.copyAssetFileToInternalStorage(this, "kpimg-with-kp", "patch/kpimg-with-kp")
         }
 
         if (!Settings.canDrawOverlays(this)) {
@@ -156,7 +133,7 @@ class MainActivity : ComponentActivity() {
         if (fileName.endsWith(".img")) {
             val inputStream: InputStream? = contentResolver.openInputStream(uri)
             inputStream?.let {
-                val file = File(filesDir, "patch/boot.img")
+                val file = File(filesDir, "boot.img")
                 if (file.exists()) {
                     file.delete()
                 }
@@ -180,22 +157,5 @@ class MainActivity : ComponentActivity() {
             }
         }
         return name
-    }
-}
-
-class copyfile {
-
-    object FileUtil {
-
-        @Throws(IOException::class)
-        fun copyAssetFileToInternalStorage(context: Context, assetFileName: String, internalFilePath: String) {
-            context.assets.open(assetFileName).use { inputStream ->
-                val internalFile = File(context.filesDir, internalFilePath)
-                internalFile.parentFile?.mkdirs()
-                FileOutputStream(internalFile).use { outputStream ->
-                    inputStream.copyTo(outputStream)
-                }
-            }
-        }
     }
 }

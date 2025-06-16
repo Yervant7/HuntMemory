@@ -6,7 +6,6 @@ import com.yervant.huntmem.ui.menu.MatchInfo
 import com.yervant.huntmem.ui.menu.getCurrentScanOption
 import com.yervant.huntmem.ui.menu.getCustomFilter
 import com.yervant.huntmem.ui.menu.getSelectedRegions
-import com.yervant.huntmem.ui.menu.isattached
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.UUID
@@ -71,7 +70,7 @@ class Memory {
     suspend fun gotoOffset(address: String, context: Context) {
         val cleanedaddr = address.removePrefix("0x").toLong(16)
         val scanOptions = getCurrentScanOption()
-        val pid = isattached().currentPid()
+        val pid = AttachedProcessRepository.getAttachedPid() ?: return
 
         val value = readMemory(pid, cleanedaddr, scanOptions.valueType, context)
         val matchs: MutableList<MatchInfo> = mutableListOf()
@@ -82,7 +81,42 @@ class Memory {
         }
         matchs.add(MatchInfo(
             id = UUID.randomUUID().toString(),
+            pid,
             address = cleanedaddr,
+            prevValue = value,
+            valueType = scanOptions.valueType,
+            size = size
+        ))
+        synchronized(matches) {
+            matches.clear()
+            matches.addAll(matchs)
+        }
+    }
+
+    suspend fun gotoAddrOffset(values: String, context: Context) {
+        val offs = values.split("+")
+
+        val cleanedaddr = offs[0].removePrefix("0x").toLong(16)
+        val cleanedoffset = if (offs[1].startsWith("0x")) {
+            offs[1].removePrefix("0x").toLong(16)
+        } else {
+            offs[1].toLong(16)
+        }
+
+        val scanOptions = getCurrentScanOption()
+        val pid = AttachedProcessRepository.getAttachedPid() ?: return
+
+        val value = readMemory(pid, cleanedaddr + cleanedoffset, scanOptions.valueType, context)
+        val matchs: MutableList<MatchInfo> = mutableListOf()
+        val size = when (scanOptions.valueType.lowercase()) {
+            "int", "float" -> 4
+            "long", "double" -> 8
+            else -> Log.e(TAG, "Unsupported data type: ${scanOptions.valueType}.")
+        }
+        matchs.add(MatchInfo(
+            id = UUID.randomUUID().toString(),
+            pid = pid,
+            address = cleanedaddr + cleanedoffset,
             prevValue = value,
             valueType = scanOptions.valueType,
             size = size
@@ -95,7 +129,7 @@ class Memory {
 
     suspend fun scanValues(numValStr: String, context: Context) {
         try {
-            val pid = isattached().currentPid()
+            val pid = AttachedProcessRepository.getAttachedPid() ?: throw Exception("pid is null")
             val results: MutableList<MatchInfo> = mutableListOf()
             val localMatches = synchronized(matches) { matches.toList() }
             val scanOptions = getCurrentScanOption()
