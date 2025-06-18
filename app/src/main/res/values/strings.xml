@@ -1,3 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Hunt Memory</string>
+    <string name="app_name" translatable="false">Hunt Memory</string>
+
+    <!-- MainActivity -->
+    <string name="main_activity_permission_overlay_denied">Permission to display overlay was denied.</string>
+    <string name="main_activity_error_root_access_missing">Error: Root access is missing.</string>
+    <string name="main_activity_only_import_files_img">Only .img files can be imported.</string>
+    <string name="main_activity_not_a_img_file">This is not a valid .img file.</string>
+    <string name="main_activity_only_import_files_lua">Only .lua files can be imported.</string>
+    <string name="main_activity_not_a_lua_file">This is not a valid .lua file.</string>
+
+    <!-- Main Screen -->
+    <string name="main_screen_home_tab">Home</string>
+    <string name="main_screen_patch_boot_tab">Patch Boot</string>
+    <string name="main_screen_happy_hunting_title">Happy Hunting!</string>
+    <string name="main_screen_enter_key_label">Enter a key</string>
+    <string name="main_screen_key_saved_toast">Key saved</string>
+    <string name="main_screen_save_key_button">Save Key</string>
+    <string name="main_screen_start_hunting_button">Start Hunting</string>
+    <string name="main_screen_stop_hunting_button">Stop Hunting</string>
+    <string name="main_screen_import_lua_script_button">Import Lua Script</string>
+    <string name="main_screen_boot_image_patching_title">Boot Image Patching</string>
+    <string name="main_screen_select_boot_image_button">Select Boot Image</string>
+    <string name="main_screen_start_patching_button">Start Patching</string>
+    <string name="main_screen_change_language_button">Change Language</string>
+    <string name="main_screen_system_default_dropdown">System Default</string>
+
+    <!-- Overlay UI -->
+    <string name="overlay_ui_open_menu_icon_description">Open Menu</string>
+    <string name="overlay_ui_processes_tab">Processes</string>
+    <string name="overlay_ui_memory_tab">Memory</string>
+    <string name="overlay_ui_editor_tab">Editor</string>
+    <string name="overlay_ui_settings_tab_and_title">Settings</string>
+    <string name="overlay_ui_manager_tab">Manager</string>
+    <string name="overlay_ui_close_menu_icon_description">Close Menu</string>
+    <string name="overlay_ui_current_menu_label">Current Menu: %1$s</string>
+    <string name="overlay_ui_switch_to_another_menu_label">Switch to another menu:</string>
+    <string name="overlay_ui_switch_to_menu_button">Switch to %1$s</string>
+    <string name="overlay_ui_dialog_ok_button">OK</string>
+    <string name="overlay_ui_dialog_cancel_button">Cancel</string>
+    <string name="overlay_ui_dialog_confirm_button">Confirm</string>
+
+    <!-- Address Table -->
+    <string name="address_table_delete_address_dialog_title">Delete Address</string>
+    <string name="address_table_delete_address_dialog_message">Delete this address from the list?</string>
+    <string name="address_table_edit_value_dialog_title">Edit Value</string>
+    <string name="address_table_delete_all_button">Delete All</string>
+    <string name="address_table_delete_all_addresses_dialog_title">Delete All Addresses</string>
+    <string name="address_table_delete_all_warning_message">Are you sure you want to delete all saved addresses?</string>
+    <string name="address_table_edit_all_button">Edit All</string>
+    <string name="address_table_edit_all_values_dialog_title">Edit All Values</string>
+    <string name="address_table_freeze_all_button">Freeze All</string>
+    <string name="address_table_freeze_all_values_dialog_title">Freeze All Values</string>
+    <string name="address_table_unfreeze_all_button">Unfreeze</string>
+    <string name="address_table_header_address">Address</string>
+    <string name="address_table_header_type">Type</string>
+    <string name="address_table_header_value">Value</string>
+    <string name="address_table_header_freeze">Freeze</string>
+    <string name="address_table_error_dialog_title">Error</string>
+    <string name="address_table_no_process_attached_error">No process attached.</string>
+    <string name="address_table_process_not_running_error">The selected process is no longer running.</string>
+    <string name="address_table_info_dialog_title">Info</string>
+    <string name="address_table_process_changed_info">Process has changed. Clearing the address list…</string>
+
+    <!-- Hunt Settings -->
+    <string name="hunt_settings_memory_regions_title">Memory Regions</string>
+    <string name="hunt_settings_custom_filter_label">Custom Filter</string>
+    <string name="hunt_settings_save_button">Save</string>
+    <string name="hunt_settings_switch_to_menu_button">Switch to %1$s</string>
+    <string name="hunt_settings_region_details_name_header">Name</string>
+    <string name="hunt_settings_region_details_perm_header">Permission</string>
+    <string name="hunt_settings_region_details_start_header">Start</string>
+    <string name="hunt_settings_region_details_end_header">End</string>
+    <string name="hunt_settings_no_memory_entries_found">No memory entries found for this region.</string>
+    <plurals name="hunt_settings_and_more_entries_label">
+        <item quantity="one">… and %d more entry</item>
+        <item quantity="other">… and %d more entries</item>
+    </plurals>
+
+    <!-- Memory Menu -->
+    <string name="memory_menu_status_no_matches">0 matches</string>
+    <string name="memory_menu_error_dialog_title">Error</string>
+    <string name="memory_menu_no_process_attached_error">No process attached.</string>
+    <string name="memory_menu_process_not_exist_error">The selected process does not exist anymore.</string>
+    <string name="memory_menu_info_dialog_title">Info</string>
+    <string name="memory_menu_process_changed_info">Process has changed. Clearing search results…</string>
+    <string name="memory_menu_added_to_address_table_snackbar">Added %1$s to Address Table</string>
+    <string name="memory_menu_snackbar_ok_action">OK</string>
+    <string name="memory_menu_added_all_to_address_table_snackbar">Added all matches to Address Table.</string>
+    <string name="memory_menu_copy_all_button">Copy All</string>
+    <string name="memory_menu_match_item_value_label">Value: %1$s</string>
+    <string name="memory_menu_status_showing_count">(showing %1$d)</string>
+    <string name="memory_menu_scan_settings_title">Scan Settings</string>
+    <string name="memory_menu_scan_value_label">Scan Value</string>
+    <string name="memory_menu_scan_value_placeholder">Enter target value…</string>
+    <string name="memory_menu_operator_dropdown_label">Operator</string>
+    <string name="memory_menu_value_type_dropdown_label">Value Type</string>
+    <string name="memory_menu_new_scan_button">New Scan</string>
+    <string name="memory_menu_next_scan_button">Next Scan</string>
+    <plurals name="memory_menu_status_full">
+        <item quantity="one">%d match</item>
+        <item quantity="other">%d matches</item>
+    </plurals>
+    <plurals name="memory_menu_status_full_with_showing">
+        <item quantity="one">%d match (showing %d)</item>
+        <item quantity="other">%d matches (showing %d)</item>
+    </plurals>
+
+    <!-- Process Menu -->
+    <string name="process_menu_attached_process_none">None</string>
+    <string name="process_menu_attached_process_label">Attached Process</string>
+    <string name="process_menu_search_processes_label">Search processes</string>
+    <string name="process_menu_search_icon_description">Search</string>
+    <string name="process_menu_refresh_icon_description">Refresh</string>
+    <string name="process_menu_item_attached_icon_description">Attached</string>
+    <string name="process_menu_no_processes_found_message">No processes found</string>
+
+    <!-- Script Menu -->
+    <string name="script_menu_no_scripts_found_message">No scripts found.\nUse the import button to add new ones.</string>
+    <string name="script_menu_script_execution_dialog_title">Script Execution</string>
+    <string name="script_menu_error_dialog_title">Error</string>
+    <string name="script_menu_error_reading_script_message">Error reading script: %1$s</string>
+    <string name="script_menu_confirm_deletion_dialog_title">Confirm Deletion</string>
+    <string name="script_menu_confirm_deletion_message">Are you sure you want to delete the script \'%1$s\'?</string>
+    <string name="script_menu_script_deletion_dialog_title">Script Deletion</string>
+    <string name="script_menu_script_deleted_message">Script \'%1$s\' was deleted.</string>
+    <string name="script_menu_failed_to_delete_script_message">Failed to delete script.</string>
+    <string name="script_menu_execute_script_icon_description">Execute Script</string>
+    <string name="script_menu_delete_script_icon_description">Delete Script</string>
+
 </resources>

@@ -18,9 +18,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.topjohnwu.superuser.Shell
+import com.yervant.huntmem.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -35,7 +37,10 @@ class ShellCommandException(message: String) : Exception(message)
 fun MainScreen(openBootPicker: () -> Unit, openFilePicker: () -> Unit) {
     val ctx = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Home", "Patch Boot")
+    val tabs = listOf(
+        stringResource(id = R.string.main_screen_home_tab),
+        stringResource(id = R.string.main_screen_patch_boot_tab)
+    )
 
     Column(
         modifier = Modifier
@@ -62,6 +67,7 @@ fun MainScreen(openBootPicker: () -> Unit, openFilePicker: () -> Unit) {
 @Composable
 private fun HomeTab(ctx: Context, openFilePicker: () -> Unit) {
     var textInput by remember { mutableStateOf("") }
+    var showLanguageMenu by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -71,25 +77,26 @@ private fun HomeTab(ctx: Context, openFilePicker: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "Happy Hunting!",
+            text = stringResource(id = R.string.main_screen_happy_hunting_title),
             style = MaterialTheme.typography.headlineMedium
         )
 
         OutlinedTextField(
             value = textInput,
             onValueChange = { textInput = it },
-            label = { Text("Enter a key") },
+            label = { Text(stringResource(id = R.string.main_screen_enter_key_label)) },
             modifier = Modifier.fillMaxWidth()
         )
 
+        val keySavedToast = stringResource(id = R.string.main_screen_key_saved_toast)
         Button(
             onClick = {
                 saveSharedKey(ctx, "user_key", textInput)
-                Toast.makeText(ctx, "Key saved", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, keySavedToast, Toast.LENGTH_SHORT).show()
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Save Key")
+            Text(stringResource(id = R.string.main_screen_save_key_button))
         }
 
         val startMenu: (MenuType) -> Unit = { menuType ->
@@ -103,7 +110,7 @@ private fun HomeTab(ctx: Context, openFilePicker: () -> Unit) {
             onClick = { startMenu(MenuType.HUNTING) },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Start Hunting")
+            Text(stringResource(id = R.string.main_screen_start_hunting_button))
         }
 
         Button(
@@ -113,14 +120,46 @@ private fun HomeTab(ctx: Context, openFilePicker: () -> Unit) {
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Stop Hunting")
+            Text(stringResource(id = R.string.main_screen_stop_hunting_button))
         }
 
         Button(
             onClick = openFilePicker,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Import Lua Script")
+            Text(stringResource(id = R.string.main_screen_import_lua_script_button))
+        }
+
+        Box {
+            Button(
+                onClick = { showLanguageMenu = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(id = R.string.main_screen_change_language_button))
+            }
+
+            DropdownMenu(
+                expanded = showLanguageMenu,
+                onDismissRequest = { showLanguageMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(id = R.string.main_screen_system_default_dropdown)) },
+                    onClick = {
+                        LocaleManager.setLocale(ctx, "")
+                        showLanguageMenu = false
+                    }
+                )
+
+                LocaleManager.getSupportedLanguages().forEach { language ->
+                    DropdownMenuItem(
+                        text = { Text(language.nativeName) },
+                        onClick = {
+                            LocaleManager.setLocale(ctx, language.code)
+                            showLanguageMenu = false
+                        }
+                    )
+                }
+            }
         }
     }
 }
@@ -147,14 +186,14 @@ private fun PatchBootTab(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Boot Image Patching", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(id = R.string.main_screen_boot_image_patching_title), style = MaterialTheme.typography.titleMedium)
 
                 Button(
                     onClick = openBootPicker,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isPatching
                 ) {
-                    Text("Select Boot Image")
+                    Text(stringResource(id = R.string.main_screen_select_boot_image_button))
                 }
 
                 Button(
@@ -191,7 +230,7 @@ private fun PatchBootTab(
                     if (isPatching) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
                     } else {
-                        Text("Start Patching")
+                        Text(stringResource(id = R.string.main_screen_start_patching_button))
                     }
                 }
             }

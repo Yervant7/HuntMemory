@@ -29,8 +29,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.yervant.huntmem.R
 import com.yervant.huntmem.backend.LuaAPI
 import com.yervant.huntmem.ui.DialogCallback
 import kotlinx.coroutines.Dispatchers
@@ -112,7 +114,7 @@ fun ScriptMenu(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "No scripts found. \nUse the import button to add.",
+                    stringResource(R.string.script_menu_no_scripts_found_message),
                     style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center
                 )
@@ -131,16 +133,19 @@ fun ScriptMenu(
                                 val contentResult = ScriptManager.getScriptContent(script)
                                 contentResult.onSuccess { content ->
                                     val result = LuaAPI.executeScript(content)
+                                    val title = context.getString(R.string.script_menu_script_execution_dialog_title)
                                     dialogCallback.showInfoDialog(
-                                        title = "Script Execution",
+                                        title = title,
                                         message = result,
                                         onConfirm = {},
                                         onDismiss = {}
                                     )
                                 }.onFailure { exception ->
+                                    val err = context.getString(R.string.script_menu_error_dialog_title)
+                                    val msg = context.getString(R.string.script_menu_error_reading_script_message, exception.message)
                                     dialogCallback.showInfoDialog(
-                                        title = "Error",
-                                        message = "Error reading script: ${exception.message}",
+                                        title = err,
+                                        message = msg,
                                         onConfirm = {},
                                         onDismiss = {}
                                     )
@@ -148,24 +153,30 @@ fun ScriptMenu(
                             }
                         },
                         onDelete = {
+                            val title = context.getString(R.string.script_menu_confirm_deletion_dialog_title)
+                            val msg = context.getString(R.string.script_menu_confirm_deletion_message, script.name)
                             dialogCallback.showInfoDialog(
-                                title = "Confirm Deletion",
-                                message = "Are you sure you want to delete the script? '${script.name}'?",
+                                title = title,
+                                message = msg,
                                 onConfirm = {
                                     coroutineScope.launch {
                                         val deleted = ScriptManager.deleteScript(script)
                                         if (deleted) {
                                             refreshScripts()
+                                            val titl = context.getString(R.string.script_menu_script_deletion_dialog_title)
+                                            val ms = context.getString(R.string.script_menu_script_deleted_message, script.name)
                                             dialogCallback.showInfoDialog(
-                                                title = "Script Deletion",
-                                                message = "Script '${script.name}' deleted.",
+                                                title = titl,
+                                                message = ms,
                                                 onConfirm = {},
                                                 onDismiss = {}
                                             )
                                         } else {
+                                            val err = context.getString(R.string.script_menu_error_dialog_title)
+                                            val ms = context.getString(R.string.script_menu_failed_to_delete_script_message)
                                             dialogCallback.showInfoDialog(
-                                                title = "Error",
-                                                message = "Failed to delete script.",
+                                                title = err,
+                                                message = ms,
                                                 onConfirm = {},
                                                 onDismiss = {}
                                             )
@@ -207,14 +218,14 @@ private fun ScriptItem(
                 IconButton(onClick = onExecute) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Execute Script",
+                        contentDescription = stringResource(R.string.script_menu_execute_script_icon_description),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
                 IconButton(onClick = onDelete) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete Script",
+                        contentDescription = stringResource(R.string.script_menu_delete_script_icon_description),
                         tint = MaterialTheme.colorScheme.error
                     )
                 }

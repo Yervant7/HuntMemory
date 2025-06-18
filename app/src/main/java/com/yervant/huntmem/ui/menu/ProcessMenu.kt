@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,7 +65,7 @@ fun ProcessScreen(
 
 @Composable
 private fun AttachedProcessIndicator(attachedProcess: ProcessInfo?) {
-    val statusText = attachedProcess?.let { "${it.pid} - ${it.packageName}" } ?: "None"
+    val statusText = attachedProcess?.let { "${it.pid} - ${it.packageName}" } ?: stringResource(R.string.process_menu_attached_process_none)
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -82,7 +83,7 @@ private fun AttachedProcessIndicator(attachedProcess: ProcessInfo?) {
             )
             Spacer(modifier = Modifier.width(8.dp))
             Column {
-                Text("Attached Process", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.process_menu_attached_process_label), style = MaterialTheme.typography.labelMedium)
                 Text(
                     text = statusText,
                     style = MaterialTheme.typography.bodyMedium,
@@ -104,15 +105,15 @@ private fun SearchAndRefreshRow(
             modifier = Modifier.weight(1f),
             value = searchQuery,
             onValueChange = onSearchQueryChanged,
-            label = { Text("Search processes") },
-            leadingIcon = { Icon(Icons.Filled.Search, "Search") },
+            label = { Text(stringResource(R.string.process_menu_search_processes_label)) },
+            leadingIcon = { Icon(Icons.Filled.Search, stringResource(R.string.process_menu_search_icon_description)) },
             singleLine = true
         )
         Spacer(modifier = Modifier.width(8.dp))
         IconButton(onClick = onRefreshClicked) {
             Icon(
                 painter = painterResource(R.drawable.ic_refresh),
-                contentDescription = "Refresh",
+                contentDescription = stringResource(R.string.process_menu_refresh_icon_description),
                 tint = MaterialTheme.colorScheme.primary
             )
         }
@@ -200,7 +201,7 @@ private fun ProcessListItem(
                 if (isAttached) {
                     Icon(
                         imageVector = Icons.Default.Check,
-                        contentDescription = "Attached",
+                        contentDescription = stringResource(R.string.process_menu_item_attached_icon_description),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp).padding(top = 4.dp)
                     )
@@ -217,7 +218,7 @@ private fun EmptyStateMessage() {
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = "No processes found",
+            text = stringResource(R.string.process_menu_no_processes_found_message),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
         )

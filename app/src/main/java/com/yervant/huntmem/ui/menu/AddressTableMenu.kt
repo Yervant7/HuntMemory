@@ -39,12 +39,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yervant.huntmem.R
 import com.yervant.huntmem.backend.AttachedProcessRepository
 import com.yervant.huntmem.backend.Editor
 import com.yervant.huntmem.backend.HuntMem
@@ -92,7 +94,7 @@ fun AddressTableMenu(context: Context?, dialogCallback: DialogCallback) {
     ) {
 
         ControlButtonsRow(
-            dialogCallback = dialogCallback, // Passe o callback
+            dialogCallback = dialogCallback,
             coroutineScope = coroutineScope,
             context = context!!
         )
@@ -115,16 +117,19 @@ fun AddressTableMenu(context: Context?, dialogCallback: DialogCallback) {
                         AddressTableRow(
                             item = item,
                             onAddressClick = {
+                                val da = context.getString(R.string.address_table_delete_address_dialog_title)
+                                val dtafl = context.getString(R.string.address_table_delete_address_dialog_message)
                                 dialogCallback.showInfoDialog(
-                                    title = "Delete Address",
-                                    message = "Delete this address from the list?",
+                                    title = da,
+                                    message = dtafl,
                                     onConfirm = { savedAddresList.removeAt(index) },
                                     onDismiss = {}
                                 )
                             },
                             onValueClick = {
+                                val ev = context.getString(R.string.address_table_edit_value_dialog_title)
                                 dialogCallback.showInputDialog(
-                                    title = "Edit Value",
+                                    title = ev,
                                     defaultValue = item.matchInfo.prevValue.toString(),
                                     onConfirm = { newValue ->
                                         val huntmem = HuntMem()
@@ -186,12 +191,14 @@ private fun ControlButtonsRow(
             ) {
                 ControlButton(
                     icon = Icons.Filled.Delete,
-                    text = "Delete All",
+                    text = stringResource(R.string.address_table_delete_all_button),
                     containerColor = MaterialTheme.colorScheme.error,
                     onClick = {
+                        val daa = context.getString(R.string.address_table_delete_all_addresses_dialog_title)
+                        val awsa = context.getString(R.string.address_table_delete_all_warning_message)
                         dialogCallback.showInfoDialog(
-                            title = "Delete All Addresses",
-                            message = "Are you sure you want to delete all saved addresses?",
+                            title = daa,
+                            message = awsa,
                             onConfirm = { savedAddresList.clear() },
                             onDismiss = {}
                         )
@@ -201,11 +208,12 @@ private fun ControlButtonsRow(
 
                 ControlButton(
                     icon = Icons.Filled.Edit,
-                    text = "Edit All",
+                    text = stringResource(R.string.address_table_edit_all_button),
                     containerColor = MaterialTheme.colorScheme.tertiary,
                     onClick = {
+                        val eav = context.getString(R.string.address_table_edit_all_values_dialog_title)
                         dialogCallback.showInputDialog(
-                            title = "Edit All Values",
+                            title = eav,
                             defaultValue = "999999999",
                             onConfirm = { input ->
                                 context.let {
@@ -227,11 +235,12 @@ private fun ControlButtonsRow(
             ) {
                 ControlButton(
                     icon = Icons.Filled.CheckCircle,
-                    text = "Freeze All",
+                    text = stringResource(R.string.address_table_freeze_all_button),
                     containerColor = MaterialTheme.colorScheme.primary,
                     onClick = {
+                        val fav = context.getString(R.string.address_table_freeze_all_values_dialog_title)
                         dialogCallback.showInputDialog(
-                            title = "Freeze All Values",
+                            title = fav,
                             defaultValue = "999999999",
                             onConfirm = { input ->
                                 context.let {
@@ -247,7 +256,7 @@ private fun ControlButtonsRow(
                 )
                 ControlButton(
                     icon = Icons.Filled.PlayDisabled,
-                    text = "Unfreeze",
+                    text = stringResource(R.string.address_table_unfreeze_all_button),
                     containerColor = MaterialTheme.colorScheme.secondary,
                     onClick = {
                         coroutineScope.launch {
@@ -270,12 +279,14 @@ private fun ControlButtonsRow(
         ) {
             ControlButton(
                 icon = Icons.Filled.Delete,
-                text = "Delete All",
+                text = stringResource(R.string.address_table_delete_all_button),
                 containerColor = MaterialTheme.colorScheme.error,
                 onClick = {
+                    val daa = context.getString(R.string.address_table_delete_all_addresses_dialog_title)
+                    val awsa = context.getString(R.string.address_table_delete_all_warning_message)
                     dialogCallback.showInfoDialog(
-                        title = "Delete All Addresses",
-                        message = "Are you sure you want to delete all saved addresses?",
+                        title = daa,
+                        message = awsa,
                         onConfirm = { savedAddresList.clear() },
                         onDismiss = {}
                     )
@@ -285,11 +296,12 @@ private fun ControlButtonsRow(
 
             ControlButton(
                 icon = Icons.Filled.Edit,
-                text = "Edit All",
+                text = stringResource(R.string.address_table_edit_all_button),
                 containerColor = MaterialTheme.colorScheme.tertiary,
                 onClick = {
+                    val eav = context.getString(R.string.address_table_edit_all_values_dialog_title)
                     dialogCallback.showInputDialog(
-                        title = "Edit All Values",
+                        title = eav,
                         defaultValue = "999999999",
                         onConfirm = { input ->
                             context.let {
@@ -305,11 +317,12 @@ private fun ControlButtonsRow(
             )
             ControlButton(
                 icon = Icons.Filled.CheckCircle,
-                text = "Freeze All",
+                text = stringResource(R.string.address_table_freeze_all_button),
                 containerColor = MaterialTheme.colorScheme.primary,
                 onClick = {
+                    val fav = context.getString(R.string.address_table_freeze_all_values_dialog_title)
                     dialogCallback.showInputDialog(
-                        title = "Freeze All Values",
+                        title = fav,
                         defaultValue = "999999999",
                         onConfirm = { input ->
                             context.let {
@@ -325,7 +338,7 @@ private fun ControlButtonsRow(
             )
             ControlButton(
                 icon = Icons.Filled.PlayDisabled,
-                text = "Unfreeze",
+                text = stringResource(R.string.address_table_unfreeze_all_button),
                 containerColor = MaterialTheme.colorScheme.secondary,
                 onClick = {
                     coroutineScope.launch {
@@ -385,7 +398,7 @@ private fun AddressTableHeader() {
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         TableCell(
-            text = "Address",
+            text = stringResource(R.string.address_table_header_address),
             weight = 0.3f,
             textStyle = MaterialTheme.typography.labelLarge.copy(
                 fontWeight = FontWeight.Bold,
@@ -393,7 +406,7 @@ private fun AddressTableHeader() {
             )
         )
         TableCell(
-            text = "Type",
+            text = stringResource(R.string.address_table_header_type),
             weight = 0.2f,
             textStyle = MaterialTheme.typography.labelLarge.copy(
                 fontWeight = FontWeight.Bold,
@@ -401,7 +414,7 @@ private fun AddressTableHeader() {
             )
         )
         TableCell(
-            text = "Value",
+            text = stringResource(R.string.address_table_header_value),
             weight = 0.3f,
             textStyle = MaterialTheme.typography.labelLarge.copy(
                 fontWeight = FontWeight.Bold,
@@ -409,7 +422,7 @@ private fun AddressTableHeader() {
             )
         )
         TableCell(
-            text = "Freeze",
+            text = stringResource(R.string.address_table_header_freeze),
             weight = 0.2f,
             textStyle = MaterialTheme.typography.labelLarge.copy(
                 fontWeight = FontWeight.Bold,
@@ -518,10 +531,12 @@ private suspend fun refreshValue(context: Context, dialogCallback: DialogCallbac
     val mem = Memory()
     val pid = AttachedProcessRepository.getAttachedPid()
 
+    val err = context.getString(R.string.address_table_error_dialog_title)
     if (pid == null) {
+        val npa = context.getString(R.string.address_table_no_process_attached_error)
         dialogCallback.showInfoDialog(
-            title = "Error",
-            message = "No process attached",
+            title = err,
+            message = npa,
             onConfirm = {},
             onDismiss = {}
         )
@@ -529,9 +544,10 @@ private suspend fun refreshValue(context: Context, dialogCallback: DialogCallbac
     }
 
     if (!Process().processIsRunning(pid.toString())) {
+        val pnr = context.getString(R.string.address_table_process_not_running_error)
         dialogCallback.showInfoDialog(
-            title = "Error",
-            message = "Process not running",
+            title = err,
+            message = pnr,
             onConfirm = {},
             onDismiss = {}
         )
@@ -542,9 +558,11 @@ private suspend fun refreshValue(context: Context, dialogCallback: DialogCallbac
     }
 
     if (savedAddresList.isNotEmpty() && savedAddresList.first().matchInfo.pid != pid) {
+        val info = context.getString(R.string.address_table_info_dialog_title)
+        val processchanged = context.getString(R.string.address_table_process_changed_info)
         dialogCallback.showInfoDialog(
-            title = "Info",
-            message = "Process changed cleaning...",
+            title = info,
+            message = processchanged,
             onConfirm = {},
             onDismiss = {}
         )

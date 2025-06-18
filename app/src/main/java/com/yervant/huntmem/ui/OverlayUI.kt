@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -84,7 +85,7 @@ fun OverlayScreen(
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.overlay_icon),
-                    contentDescription = "Open Menu",
+                    contentDescription = stringResource(id = R.string.overlay_ui_open_menu_icon_description),
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
@@ -108,8 +109,16 @@ fun MenuContent(
     onSwitchMenu: (MenuType) -> Unit
 ) {
     val tabs = when (activeMenu) {
-        MenuType.HUNTING -> listOf("Processes", "Memory", "Editor", "Settings")
-        MenuType.SCRIPTS -> listOf("Manager", "Settings")
+        MenuType.HUNTING -> listOf(
+            stringResource(id = R.string.overlay_ui_processes_tab),
+            stringResource(id = R.string.overlay_ui_memory_tab),
+            stringResource(id = R.string.overlay_ui_editor_tab),
+            stringResource(id = R.string.overlay_ui_settings_tab_and_title)
+        )
+        MenuType.SCRIPTS -> listOf(
+            stringResource(id = R.string.overlay_ui_manager_tab),
+            stringResource(id = R.string.overlay_ui_settings_tab_and_title)
+        )
     }
 
     Surface(
@@ -137,7 +146,7 @@ fun MenuContent(
                         IconButton(onClick = onClose) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "Close Menu",
+                                contentDescription = stringResource(id = R.string.overlay_ui_close_menu_icon_description),
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -159,13 +168,13 @@ fun MenuContent(
                             0 -> ProcessScreen(viewModel = viewModel)
                             1 -> InitialMemoryMenu(context, dialogCallback = dialogCallback)
                             2 -> AddressTableMenu(context, dialogCallback = dialogCallback)
-                            3 -> HuntSettings(activeMenu = activeMenu, onSwitchMenu = onSwitchMenu)
+                            3 -> HuntSettings(activeMenu = activeMenu, onSwitchMenu = onSwitchMenu, context)
                         }
                     }
                     MenuType.SCRIPTS -> {
                         when (selectedTab) {
                             0 -> ScriptMenu(context, dialogCallback)
-                            1 -> SettingsMenu(activeMenu = activeMenu, onSwitchMenu = onSwitchMenu)
+                            1 -> SettingsMenu(activeMenu = activeMenu, onSwitchMenu = onSwitchMenu, context)
                         }
                     }
                 }
@@ -177,18 +186,20 @@ fun MenuContent(
 @Composable
 fun SettingsMenu(
     activeMenu: MenuType,
-    onSwitchMenu: (MenuType) -> Unit
+    onSwitchMenu: (MenuType) -> Unit,
+    context: Context
 ) {
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Settings", style = MaterialTheme.typography.headlineSmall)
-        Text("Current Menu: ${activeMenu.title}", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(id = R.string.overlay_ui_settings_tab_and_title), style = MaterialTheme.typography.headlineSmall)
+        val menu = context.getString(R.string.overlay_ui_current_menu_label, activeMenu.title)
+        Text(menu, style = MaterialTheme.typography.titleMedium)
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text("Switch to another menu:", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(id = R.string.overlay_ui_switch_to_another_menu_label), style = MaterialTheme.typography.titleSmall)
 
         MenuType.entries.forEach { menuType ->
             if (menuType != activeMenu) {
@@ -196,7 +207,8 @@ fun SettingsMenu(
                     onClick = { onSwitchMenu(menuType) },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Switch to ${menuType.title}")
+                    val m = context.getString(R.string.overlay_ui_switch_to_menu_button, menuType.title)
+                    Text(m)
                 }
             }
         }
@@ -225,7 +237,7 @@ fun DialogManager(dialogState: DialogState) {
                         horizontalArrangement = Arrangement.End
                     ) {
                         Button(onClick = dialogState.onConfirm) {
-                            Text("OK")
+                            Text(stringResource(R.string.overlay_ui_dialog_ok_button))
                         }
                     }
                 }
@@ -253,11 +265,11 @@ fun DialogManager(dialogState: DialogState) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         TextButton(onClick = dialogState.onDismiss) {
-                            Text("Cancel")
+                            Text(stringResource(R.string.overlay_ui_dialog_cancel_button))
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(onClick = { dialogState.onConfirm(text) }) {
-                            Text("Confirm")
+                            Text(stringResource(R.string.overlay_ui_dialog_confirm_button))
                         }
                     }
                 }

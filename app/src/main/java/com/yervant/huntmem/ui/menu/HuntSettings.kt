@@ -1,11 +1,19 @@
 package com.yervant.huntmem.ui.menu
 
 import android.annotation.SuppressLint
+import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,10 +34,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
+import com.yervant.huntmem.R
 import com.yervant.huntmem.backend.AttachedProcessRepository
 import com.yervant.huntmem.backend.MemoryScanner
 import com.yervant.huntmem.backend.MemoryScanner.MemoryRegion
@@ -64,7 +74,8 @@ fun formatSize(sizeInBytes: Long): String {
 @Composable
 fun HuntSettings(
     activeMenu: MenuType,
-    onSwitchMenu: (MenuType) -> Unit
+    onSwitchMenu: (MenuType) -> Unit,
+    context: Context
 ) {
     val allRegions = remember {
         listOf(
@@ -98,7 +109,7 @@ fun HuntSettings(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
-            text = "Memory Regions",
+            text = stringResource(R.string.hunt_settings_memory_regions_title),
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(bottom = 4.dp)
         )
@@ -109,6 +120,7 @@ fun HuntSettings(
         ) {
             items(allRegions) { region ->
                 RegionItem(
+                    context = context,
                     region = region,
                     isSelected = selectedRegions.contains(region),
                     isExpanded = expandedRegion.value == region,
@@ -134,7 +146,7 @@ fun HuntSettings(
             OutlinedTextField(
                 value = customRegion.value,
                 onValueChange = { customRegion.value = it },
-                label = { Text("Custom Filter") },
+                label = { Text(stringResource(R.string.hunt_settings_custom_filter_label)) },
                 placeholder = { Text("libgame.so") },
                 modifier = Modifier.weight(1f),
                 colors = TextFieldDefaults.colors(
@@ -154,7 +166,7 @@ fun HuntSettings(
                 modifier = Modifier.height(56.dp),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Text("Save")
+                Text(stringResource(R.string.hunt_settings_save_button))
             }
         }
 
@@ -169,7 +181,8 @@ fun HuntSettings(
                         onClick = { onSwitchMenu(menuType) },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Switch to ${menuType.title}")
+                        val switt = context.getString(R.string.hunt_settings_switch_to_menu_button, menuType.title)
+                        Text(switt)
                     }
                 }
             }
@@ -179,6 +192,7 @@ fun HuntSettings(
 
 @Composable
 fun RegionItem(
+    context: Context,
     region: MemoryRegion,
     isSelected: Boolean,
     isExpanded: Boolean,
@@ -230,7 +244,7 @@ fun RegionItem(
                 enter = expandVertically(animationSpec = tween(300)),
                 exit = shrinkVertically(animationSpec = tween(300))
             ) {
-                RegionDetails(details)
+                RegionDetails(details, context)
             }
         }
     }
@@ -244,7 +258,7 @@ private fun getFileName(path: String): String {
 }
 
 @Composable
-fun RegionDetails(details: List<MemoryMapEntry>) {
+fun RegionDetails(details: List<MemoryMapEntry>, context: Context) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -253,27 +267,27 @@ fun RegionDetails(details: List<MemoryMapEntry>) {
         if (details.isNotEmpty()) {
             Row(modifier = Modifier.padding(bottom = 4.dp)) {
                 Text(
-                    text = "Name",
+                    text = stringResource(R.string.hunt_settings_region_details_name_header),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1.5f)
                 )
                 Text(
-                    text = "Perm",
+                    text = stringResource(R.string.hunt_settings_region_details_perm_header),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
                     textAlign = TextAlign.End
                 )
                 Text(
-                    text = "Start",
+                    text = stringResource(R.string.hunt_settings_region_details_start_header),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
                     textAlign = TextAlign.End
                 )
                 Text(
-                    text = "End",
+                    text = stringResource(R.string.hunt_settings_region_details_end_header),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
@@ -315,8 +329,14 @@ fun RegionDetails(details: List<MemoryMapEntry>) {
                 }
             }
             if (details.size > 10) {
+                val remainingEntries = details.size - 10
+                val label = context.resources.getQuantityString(
+                    R.plurals.hunt_settings_and_more_entries_label,
+                    remainingEntries,
+                    remainingEntries
+                )
                 Text(
-                    text = "... and ${details.size - 10} more entries",
+                    text = label,
                     style = MaterialTheme.typography.labelSmall,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
@@ -326,7 +346,7 @@ fun RegionDetails(details: List<MemoryMapEntry>) {
             }
         } else {
             Text(
-                text = "No memory entries found for this region.",
+                text = stringResource(R.string.hunt_settings_no_memory_entries_found),
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
                 modifier = Modifier

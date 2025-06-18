@@ -23,6 +23,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import androidx.core.net.toUri
+import com.yervant.huntmem.R
 import com.yervant.huntmem.ui.theme.HuntMemTheme
 
 
@@ -41,11 +42,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        LocaleManager.initialize(this)
+
         overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (Settings.canDrawOverlays(this)) {
                 showMainScreen()
             } else {
-                Toast.makeText(this, "Permission to display overlay denied.", Toast.LENGTH_SHORT).show()
+                val overl = this.getString(R.string.main_activity_permission_overlay_denied)
+                Toast.makeText(this, overl, Toast.LENGTH_SHORT).show()
                 finish()
             }
         }
@@ -55,7 +59,8 @@ class MainActivity : ComponentActivity() {
         }
 
         if (!suCheck()) {
-            Toast.makeText(this, "ERROR Root access missing", Toast.LENGTH_SHORT).show()
+            val rootd = this.getString(R.string.main_activity_error_root_access_missing)
+            Toast.makeText(this, rootd, Toast.LENGTH_SHORT).show()
             finish()
             return
         }
@@ -148,8 +153,10 @@ class MainActivity : ComponentActivity() {
                 it.close()
             }
         } else {
-            Toast.makeText(this@MainActivity, "Only import files .img", Toast.LENGTH_SHORT).show()
-            throw Exception("not a img file")
+            val oif = this@MainActivity.getString(R.string.main_activity_only_import_files_img)
+            Toast.makeText(this@MainActivity, oif, Toast.LENGTH_SHORT).show()
+            val nif = this@MainActivity.getString(R.string.main_activity_not_a_img_file)
+            throw Exception(nif)
         }
     }
 
@@ -169,8 +176,10 @@ class MainActivity : ComponentActivity() {
                 it.close()
             }
         } else {
-            Toast.makeText(this@MainActivity, "Only import files .lua", Toast.LENGTH_SHORT).show()
-            throw Exception("not a lua file")
+            val oif = this@MainActivity.getString(R.string.main_activity_only_import_files_lua)
+            Toast.makeText(this@MainActivity, oif, Toast.LENGTH_SHORT).show()
+            val nlf = this@MainActivity.getString(R.string.main_activity_not_a_lua_file)
+            throw Exception(nlf)
         }
     }
 

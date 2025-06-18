@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Hunt Memory</string>
+
+    <!-- MainActivity -->
+    <string name="main_activity_permission_overlay_denied">Permissão para exibir sobreposição foi negada.</string>
+    <string name="main_activity_error_root_access_missing">Erro: Acesso root ausente.</string>
+    <string name="main_activity_only_import_files_img">Apenas arquivos .img podem ser importados.</string>
+    <string name="main_activity_not_a_img_file">Este não é um arquivo .img válido.</string>
+    <string name="main_activity_only_import_files_lua">Apenas arquivos .lua podem ser importados.</string>
+    <string name="main_activity_not_a_lua_file">Este não é um arquivo .lua válido.</string>
+
+    <!-- Main Screen -->
+    <string name="main_screen_home_tab">Início</string>
+    <string name="main_screen_patch_boot_tab">Patch do Boot</string>
+    <string name="main_screen_happy_hunting_title">Boa Caçada!</string>
+    <string name="main_screen_enter_key_label">Insira uma chave</string>
+    <string name="main_screen_key_saved_toast">Chave salva</string>
+    <string name="main_screen_save_key_button">Salvar Chave</string>
+    <string name="main_screen_start_hunting_button">Iniciar Caçada</string>
+    <string name="main_screen_stop_hunting_button">Parar Caçada</string>
+    <string name="main_screen_import_lua_script_button">Importar Script Lua</string>
+    <string name="main_screen_boot_image_patching_title">Patch da Imagem de Boot</string>
+    <string name="main_screen_select_boot_image_button">Selecionar Imagem de Boot</string>
+    <string name="main_screen_start_patching_button">Iniciar Patch</string>
+    <string name="main_screen_change_language_button">Mudar Idioma</string>
+    <string name="main_screen_system_default_dropdown">Padrão do Sistema</string>
+
+    <!-- Overlay UI -->
+    <string name="overlay_ui_open_menu_icon_description">Abrir Menu</string>
+    <string name="overlay_ui_processes_tab">Processos</string>
+    <string name="overlay_ui_memory_tab">Memória</string>
+    <string name="overlay_ui_editor_tab">Editor</string>
+    <string name="overlay_ui_settings_tab_and_title">Configurações</string>
+    <string name="overlay_ui_manager_tab">Gerenciador</string>
+    <string name="overlay_ui_close_menu_icon_description">Fechar Menu</string>
+    <string name="overlay_ui_current_menu_label">Menu Atual: %1$s</string>
+    <string name="overlay_ui_switch_to_another_menu_label">Mudar para outro menu:</string>
+    <string name="overlay_ui_switch_to_menu_button">Mudar para %1$s</string>
+    <string name="overlay_ui_dialog_ok_button">OK</string>
+    <string name="overlay_ui_dialog_cancel_button">Cancelar</string>
+    <string name="overlay_ui_dialog_confirm_button">Confirmar</string>
+
+    <!-- Address Table -->
+    <string name="address_table_delete_address_dialog_title">Excluir Endereço</string>
+    <string name="address_table_delete_address_dialog_message">Excluir este endereço da lista?</string>
+    <string name="address_table_edit_value_dialog_title">Editar Valor</string>
+    <string name="address_table_delete_all_button">Excluir Tudo</string>
+    <string name="address_table_delete_all_addresses_dialog_title">Excluir Todos os Endereços</string>
+    <string name="address_table_delete_all_warning_message">Tem certeza de que deseja excluir todos os endereços salvos?</string>
+    <string name="address_table_edit_all_button">Editar Tudo</string>
+    <string name="address_table_edit_all_values_dialog_title">Editar Todos os Valores</string>
+    <string name="address_table_freeze_all_button">Congelar Tudo</string>
+    <string name="address_table_freeze_all_values_dialog_title">Congelar Todos os Valores</string>
+    <string name="address_table_unfreeze_all_button">Descongelar</string>
+    <string name="address_table_header_address">Endereço</string>
+    <string name="address_table_header_type">Tipo</string>
+    <string name="address_table_header_value">Valor</string>
+    <string name="address_table_header_freeze">Congelar</string>
+    <string name="address_table_error_dialog_title">Erro</string>
+    <string name="address_table_no_process_attached_error">Nenhum processo anexado.</string>
+    <string name="address_table_process_not_running_error">O processo selecionado não está mais em execução.</string>
+    <string name="address_table_info_dialog_title">Informação</string>
+    <string name="address_table_process_changed_info">O processo mudou. Limpando a lista de endereços…</string>
+
+    <!-- Hunt Settings -->
+    <string name="hunt_settings_memory_regions_title">Regiões de Memória</string>
+    <string name="hunt_settings_custom_filter_label">Filtro Personalizado</string>
+    <string name="hunt_settings_save_button">Salvar</string>
+    <string name="hunt_settings_switch_to_menu_button">Mudar para %1$s</string>
+    <string name="hunt_settings_region_details_name_header">Nome</string>
+    <string name="hunt_settings_region_details_perm_header">Permissão</string>
+    <string name="hunt_settings_region_details_start_header">Início</string>
+    <string name="hunt_settings_region_details_end_header">Fim</string>
+    <string name="hunt_settings_no_memory_entries_found">Nenhuma entrada de memória encontrada para esta região.</string>
+    <plurals name="hunt_settings_and_more_entries_label">
+        <item quantity="one">… e mais %d entrada</item>
+        <item quantity="many">… e mais %d entradas</item>
+        <item quantity="other">… e mais %d entradas</item>
+    </plurals>
+
+    <!-- Memory Menu -->
+    <string name="memory_menu_status_no_matches">0 resultados</string>
+    <string name="memory_menu_error_dialog_title">Erro</string>
+    <string name="memory_menu_no_process_attached_error">Nenhum processo anexado.</string>
+    <string name="memory_menu_process_not_exist_error">O processo selecionado não existe mais.</string>
+    <string name="memory_menu_info_dialog_title">Informação</string>
+    <string name="memory_menu_process_changed_info">O processo mudou. Limpando os resultados da busca…</string>
+    <string name="memory_menu_added_to_address_table_snackbar">%1$s adicionado à Tabela de Endereços</string>
+    <string name="memory_menu_snackbar_ok_action">OK</string>
+    <string name="memory_menu_added_all_to_address_table_snackbar">Todos os resultados foram adicionados à Tabela de Endereços.</string>
+    <string name="memory_menu_copy_all_button">Copiar Tudo</string>
+    <string name="memory_menu_match_item_value_label">Valor: %1$s</string>
+    <string name="memory_menu_status_showing_count">(exibindo %1$d)</string>
+    <string name="memory_menu_scan_settings_title">Configurações de Busca</string>
+    <string name="memory_menu_scan_value_label">Valor da Busca</string>
+    <string name="memory_menu_scan_value_placeholder">Insira o valor alvo…</string>
+    <string name="memory_menu_operator_dropdown_label">Operador</string>
+    <string name="memory_menu_value_type_dropdown_label">Tipo de Valor</string>
+    <string name="memory_menu_new_scan_button">Nova Busca</string>
+    <string name="memory_menu_next_scan_button">Próxima Busca</string>
+    <plurals name="memory_menu_status_full">
+        <item quantity="one">%d resultado</item>
+        <item quantity="many">%d resultados</item>
+        <item quantity="other">%d resultados</item>
+    </plurals>
+    <plurals name="memory_menu_status_full_with_showing">
+        <item quantity="one">%d resultado (exibindo %d)</item>
+        <item quantity="many">%d resultados (exibindo %d)</item>
+        <item quantity="other">%d resultados (exibindo %d)</item>
+    </plurals>
+
+    <!-- Process Menu -->
+    <string name="process_menu_attached_process_none">Nenhum</string>
+    <string name="process_menu_attached_process_label">Processo Anexado</string>
+    <string name="process_menu_search_processes_label">Buscar processos</string>
+    <string name="process_menu_search_icon_description">Buscar</string>
+    <string name="process_menu_refresh_icon_description">Atualizar</string>
+    <string name="process_menu_item_attached_icon_description">Anexado</string>
+    <string name="process_menu_no_processes_found_message">Nenhum processo encontrado</string>
+
+    <!-- Script Menu -->
+    <string name="script_menu_no_scripts_found_message">Nenhum script encontrado.\nUse o botão de importação para adicionar novos.</string>
+    <string name="script_menu_script_execution_dialog_title">Execução de Script</string>
+    <string name="script_menu_error_dialog_title">Erro</string>
+    <string name="script_menu_error_reading_script_message">Erro ao ler o script: %1$s</string>
+    <string name="script_menu_confirm_deletion_dialog_title">Confirmar Exclusão</string>
+    <string name="script_menu_confirm_deletion_message">Tem certeza que deseja excluir o script \'%1$s\'?</string>
+    <string name="script_menu_script_deletion_dialog_title">Exclusão de Script</string>
+    <string name="script_menu_script_deleted_message">O script \'%1$s\' foi excluído.</string>
+    <string name="script_menu_failed_to_delete_script_message">Falha ao excluir o script.</string>
+    <string name="script_menu_execute_script_icon_description">Executar Script</string>
+    <string name="script_menu_delete_script_icon_description">Excluir Script</string>
+
+</resources>

@@ -54,10 +54,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yervant.huntmem.R
 import com.yervant.huntmem.backend.AttachedProcessRepository
 import com.yervant.huntmem.backend.Memory
 import kotlinx.coroutines.CoroutineScope
@@ -140,10 +142,12 @@ fun InitialMemoryMenu(context: Context?, dialogCallback: DialogCallback) {
 suspend fun refreshValues(context: Context, dialogCallback: DialogCallback) {
     val pid = AttachedProcessRepository.getAttachedPid()
 
+    val err = context.getString(R.string.memory_menu_error_dialog_title)
     if (pid == null) {
+        val npa = context.getString(R.string.memory_menu_no_process_attached_error)
         dialogCallback.showInfoDialog(
-            title = "Error",
-            message = "No Process Attached",
+            title = err,
+            message = npa,
             onConfirm = {},
             onDismiss = {}
         )
@@ -151,14 +155,15 @@ suspend fun refreshValues(context: Context, dialogCallback: DialogCallback) {
     }
 
     if (!Process().processIsRunning(pid.toString())) {
+        val pnea = context.getString(R.string.memory_menu_process_not_exist_error)
         dialogCallback.showInfoDialog(
-            title = "Error",
-            message = "Process Not Exist Anymore",
+            title = err,
+            message = pnea,
             onConfirm = {},
             onDismiss = {}
         )
 
-        resetMatches()
+        resetMatches(context)
         initialScanDone.value = false
         return
     }
@@ -168,9 +173,11 @@ suspend fun refreshValues(context: Context, dialogCallback: DialogCallback) {
     }
 
     if (matches.isNotEmpty() && matches.first().pid != pid) {
+        val info = context.getString(R.string.memory_menu_info_dialog_title)
+        val processchanged = context.getString(R.string.memory_menu_process_changed_info)
         dialogCallback.showInfoDialog(
-            title = "Info",
-            message = "Process changed cleaning...",
+            title = info,
+            message = processchanged,
             onConfirm = {},
             onDismiss = {}
         )
@@ -193,7 +200,7 @@ suspend fun refreshValues(context: Context, dialogCallback: DialogCallback) {
         matches.clear()
         matches.addAll(newList)
     }
-    updateMatches()
+    updateMatches(context)
     isRefreshOnGoing.value = false
 }
 
@@ -218,7 +225,7 @@ fun MemoryMenu(
     val errorDialogMsg = remember { mutableStateOf("") }
     if (showErrorDialog.value) {
         dialogCallback.showInfoDialog(
-            title = "Error",
+            title = stringResource(R.string.memory_menu_error_dialog_title),
             message = errorDialogMsg.value,
             onConfirm = { showErrorDialog.value = false },
             onDismiss = {}
@@ -231,27 +238,30 @@ fun MemoryMenu(
             MatchesTable(
                 modifier = matchesTableModifier,
                 matches = currentMatchesList.value,
+                context = context,
                 matchesStatusText = matchesStatusText.value,
                 onMatchClicked = { matchInfo: MatchInfo ->
                     AddressTableAddAddress(matchInfo = matchInfo)
                     coroutineScope.launch {
+                        val added = context.getString(R.string.memory_menu_added_to_address_table_snackbar, matchInfo.address.toString(16))
+                        val ok = context.getString(R.string.memory_menu_snackbar_ok_action)
                         snackbarHostState.showSnackbar(
-                            message = "Added ${matchInfo.address} to Address Table",
+                            message = added,
                             duration = SnackbarDuration.Short,
-                            actionLabel = "Ok"
+                            actionLabel = ok
                         )
                     }
                 },
-                onMatchLongPress = { match: MatchInfo -> },
-                dialogCallback = dialogCallback,
                 onCopyAllMatchesToAddressTable = {
                     for (matchInfo in currentMatchesList.value)
                         AddressTableAddAddress(matchInfo = matchInfo)
                     coroutineScope.launch {
+                        val amat = context.getString(R.string.memory_menu_added_all_to_address_table_snackbar)
+                        val ok = context.getString(R.string.memory_menu_snackbar_ok_action)
                         snackbarHostState.showSnackbar(
-                            message = "Added all matches to Address Table",
+                            message = amat,
                             duration = SnackbarDuration.Short,
-                            actionLabel = "Ok"
+                            actionLabel = ok
                         )
                     }
                 },
@@ -270,7 +280,7 @@ fun MemoryMenu(
                             onScanDone = {
                                 isScanOnGoing.value = false
                                 initialScanDone.value = true
-                                updateMatches()
+                                updateMatches(context)
                             },
                             onScanError = { e: Exception ->
                                 showErrorDialog.value = true
@@ -283,8 +293,8 @@ fun MemoryMenu(
                 newScanEnabled = isAttached && initialScanDone.value && !isScanOnGoing.value,
                 newScanClicked = {
                     coroutineScope.launch {
-                        resetMatches()
-                        updateMatches()
+                        resetMatches(context)
+                        updateMatches(context)
                         initialScanDone.value = false
                     }
                 },
@@ -323,22 +333,21 @@ fun MemoryMenu(
 }
 
 @OptIn(InternalCoroutinesApi::class)
-fun resetMatches() {
+fun resetMatches(context: Context) {
     synchronized(matches) {
         matches.clear()
     }
     currentMatchesList.value = emptyList()
-    matchesStatusText.value = "0 matches"
+    matchesStatusText.value = context.getString(R.string.memory_menu_status_no_matches)
 }
 
 @Composable
 private fun MatchesTable(
     modifier: Modifier = Modifier,
     matches: List<MatchInfo>,
+    context: Context,
     matchesStatusText: String,
     onMatchClicked: (MatchInfo) -> Unit,
-    onMatchLongPress: (MatchInfo) -> Unit,
-    dialogCallback: DialogCallback,
     onCopyAllMatchesToAddressTable: () -> Unit
 ) {
     Card(
@@ -377,7 +386,7 @@ private fun MatchesTable(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Copy All", fontSize = 14.sp)
+                    Text(stringResource(R.string.memory_menu_copy_all_button), fontSize = 14.sp)
                 }
             }
 
@@ -394,7 +403,7 @@ private fun MatchesTable(
                     items = matches,
                     key = { match -> match.id }
                 ) { match ->
-                    MatchItem(match, onMatchClicked, onMatchLongPress, dialogCallback)
+                    MatchItem(match, context, onMatchClicked)
                 }
             }
         }
@@ -404,11 +413,9 @@ private fun MatchesTable(
 @Composable
 private fun MatchItem(
     match: MatchInfo,
-    onClick: (MatchInfo) -> Unit = {},
-    onLongClick: (MatchInfo) -> Unit = {},
-    dialogCallback: DialogCallback
+    context: Context,
+    onClick: (MatchInfo) -> Unit = {}
 ) {
-    val coroutineScope = rememberCoroutineScope()
     val isLongPressHandled = remember { mutableStateOf(false) }
 
     Card(
@@ -416,37 +423,7 @@ private fun MatchItem(
             .fillMaxWidth()
             .pointerInput(match.id) {
                 detectTapGestures(
-                    onLongPress = {
-                        coroutineScope.launch {
-                            delay(2000)
-                            if (!isLongPressHandled.value) {
-                                isLongPressHandled.value = true
-                                dialogCallback.showInfoDialog(
-                                    title = "HW Watchpoint",
-                                    message = """
-                                        Address: 0x${match.address.toString(16).uppercase()}
-                                        Value: ${match.prevValue}
-                                        Size: ${match.size}
-                                        Type: ${match.valueType}
-                                        Region: ${match.regionType} (${match.memoryRegion})
-                                        Range: 0x${match.regionStart.toString(16)} - 0x${
-                                        match.regionEnd.toString(
-                                            16
-                                        )
-                                    }
-                                        Permissions: ${match.permissions}
-                                    """.trimIndent(),
-                                    onConfirm = {
-                                        onLongClick(match)
-                                        isLongPressHandled.value = false
-                                    },
-                                    onDismiss = {
-                                        isLongPressHandled.value = false
-                                    }
-                                )
-                            }
-                        }
-                    },
+                    onLongPress = { },
                     onTap = {
                         onClick(match)
                         isLongPressHandled.value = false
@@ -477,8 +454,9 @@ private fun MatchItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
             ) {
+                val value = context.getString(R.string.memory_menu_match_item_value_label, match.prevValue)
                 Text(
-                    text = "Value: ${match.prevValue}",
+                    text = value,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -498,7 +476,7 @@ private fun MatchItem(
 }
 
 @OptIn(InternalCoroutinesApi::class)
-fun updateMatches() {
+fun updateMatches(context: Context) {
     val mem = Memory()
     val matchesCount: Int
     val shownMatchesCount: Int
@@ -516,8 +494,20 @@ fun updateMatches() {
         }
     }
 
-    matchesStatusText.value = "$matchesCount matches" +
-            if (matchesCount > 0) " (showing $shownMatchesCount)" else ""
+    matchesStatusText.value = if (matchesCount > 0) {
+        context.resources.getQuantityString(
+            R.plurals.memory_menu_status_full_with_showing,
+            matchesCount,
+            matchesCount,
+            shownMatchesCount
+        )
+    } else {
+        context.resources.getQuantityString(
+            R.plurals.memory_menu_status_full,
+            matchesCount,
+            matchesCount
+        )
+    }
 }
 
 @Composable
@@ -541,7 +531,7 @@ private fun MatchesSetting(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "Scan Settings",
+                text = stringResource(R.string.memory_menu_scan_settings_title),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -549,8 +539,8 @@ private fun MatchesSetting(
             OutlinedTextField(
                 value = scanInputVal.value,
                 onValueChange = { scanInputVal.value = it },
-                label = { Text("Scan Value") },
-                placeholder = { Text("Enter target value...") },
+                label = { Text(stringResource(R.string.memory_menu_scan_value_label)) },
+                placeholder = { Text(stringResource(R.string.memory_menu_scan_value_placeholder)) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -561,7 +551,7 @@ private fun MatchesSetting(
 
             if (initialScanDone.value) {
                 CustomDropdown(
-                    label = "Operator",
+                    label = stringResource(R.string.memory_menu_operator_dropdown_label),
                     options = operatorOptions,
                     selectedIndex = operatorSelectedOptionIdx.intValue,
                     onOptionSelected = { operatorSelectedOptionIdx.intValue = it },
@@ -570,7 +560,7 @@ private fun MatchesSetting(
             }
 
             CustomDropdown(
-                label = "Value Type",
+                label = stringResource(R.string.memory_menu_value_type_dropdown_label),
                 options = valuestype,
                 selectedIndex = valueTypeSelectedOptionIdx.intValue,
                 onOptionSelected = { valueTypeSelectedOptionIdx.intValue = it },
@@ -584,14 +574,14 @@ private fun MatchesSetting(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 ScanButton(
-                    text = "New Scan",
+                    text = stringResource(R.string.memory_menu_new_scan_button),
                     enabled = newScanEnabled,
                     isLoading = isScanOnGoing.value,
                     onClick = newScanClicked,
                     modifier = Modifier.weight(1f)
                 )
                 ScanButton(
-                    text = "Next Scan",
+                    text = stringResource(R.string.memory_menu_next_scan_button),
                     enabled = nextScanEnabled,
                     isLoading = isScanOnGoing.value,
                     onClick = nextScanClicked,
