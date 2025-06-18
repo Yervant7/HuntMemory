@@ -33,12 +33,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -514,103 +510,6 @@ private fun TableCell(
             style = textStyle,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-private fun DialogHandling(
-    context: Context?,
-    dialogCallback: DialogCallback,
-    coroutineScope: CoroutineScope,
-    showDeleteDialog: Boolean,
-    showEditDialog: Boolean,
-    showFreezeDialog: Boolean,
-    selectedAddressIndex: Int?,
-    selectedAddressInfo: AddressInfo?,
-    onDismissDelete: () -> Unit,
-    onDismissEdit: () -> Unit,
-    onDismissFreeze: () -> Unit,
-    onDismissAddress: () -> Unit,
-    onDismissValue: () -> Unit
-) {
-    if (showDeleteDialog) {
-        dialogCallback.showInfoDialog(
-            title = "Delete All Addresses",
-            message = "Are you sure you want to delete all saved addresses?",
-            onConfirm = {
-                savedAddresList.clear()
-            },
-            onDismiss = onDismissDelete
-        )
-    }
-
-    if (showEditDialog) {
-        dialogCallback.showInputDialog(
-            title = "Edit All Values",
-            defaultValue = "999999999",
-            onConfirm = { input ->
-                context?.let {
-                    coroutineScope.launch {
-                        Editor().writeall(savedAddresList, input, context)
-                    }
-                }
-            },
-            onDismiss = onDismissEdit
-        )
-    }
-
-    if (showFreezeDialog) {
-        dialogCallback.showInputDialog(
-            title = "Freeze All Values",
-            defaultValue = "999999999",
-            onConfirm = { input ->
-                context?.let {
-                    coroutineScope.launch {
-                        Editor().freezeall(savedAddresList, input, context)
-                    }
-                }
-            },
-            onDismiss = onDismissFreeze
-        )
-    }
-
-    selectedAddressIndex?.let { index ->
-        dialogCallback.showInfoDialog(
-            title = "Delete Address",
-            message = "Delete this address from the list?",
-            onConfirm = {
-                savedAddresList.removeAt(index)
-            },
-            onDismiss = onDismissAddress
-        )
-    }
-
-    selectedAddressInfo?.let { info ->
-        val value = info.matchInfo.prevValue.toString()
-
-        dialogCallback.showInputDialog(
-            title = "Edit Value",
-            defaultValue = value,
-            onConfirm = { newValue ->
-                val huntmem = HuntMem()
-                context?.let {
-                    coroutineScope.launch {
-                        val pid = AttachedProcessRepository.getAttachedPid()
-                        if (pid != null) {
-                            huntmem.writeMem(
-                                pid,
-                                info.matchInfo.address,
-                                info.matchInfo.valueType,
-                                newValue,
-                                context
-                            )
-                            refreshValue(context, dialogCallback)
-                        }
-                    }
-                }
-            },
-            onDismiss = onDismissValue
         )
     }
 }

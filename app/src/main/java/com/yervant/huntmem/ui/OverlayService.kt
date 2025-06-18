@@ -1,5 +1,6 @@
 package com.yervant.huntmem.ui
 
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -38,7 +39,8 @@ data class OverlayUiState(
     val isMenuVisible: Boolean = false,
     val iconPosition: IntOffset = IntOffset(0, 100),
     val selectedTab: Int = 0,
-    val dialogState: DialogState = DialogState.Hidden
+    val dialogState: DialogState = DialogState.Hidden,
+    val activeMenu: MenuType = MenuType.HUNTING
 )
 
 sealed interface DialogState {
@@ -50,7 +52,14 @@ sealed interface DialogState {
 class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegistryOwner, DialogCallback {
     private lateinit var windowManager: WindowManager
     private lateinit var composeView: ComposeView
-    private lateinit var viewModel: ProcessViewModel
+
+    private val viewModels = mutableMapOf<MenuType, ProcessViewModel>()
+
+    private fun getViewModelForMenu(menuType: MenuType): ProcessViewModel {
+        return viewModels.getOrPut(menuType) {
+            ProcessViewModel(application.packageManager)
+        }
+    }
 
     override val viewModelStore = ViewModelStore()
     private lateinit var savedStateRegistryController: SavedStateRegistryController
@@ -75,18 +84,35 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
         y = uiState.value.iconPosition.y
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+
+        intent?.getStringExtra("MENU_TYPE_EXTRA")?.let { menuTypeName ->
+            val menuType = MenuType.valueOf(menuTypeName)
+
+            _uiState.update { currentState ->
+                currentState.copy(
+                    activeMenu = menuType,
+                    selectedTab = 0
+                )
+            }
+        }
+
+        return START_STICKY
+    }
+
     override fun onBind(intent: Intent): IBinder? {
         super.onBind(intent)
         return null
     }
 
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onCreate() {
         savedStateRegistryController = SavedStateRegistryController.create(this)
         savedStateRegistryController.performRestore(null)
         super.onCreate()
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        viewModel = ProcessViewModel(application.packageManager)
 
         composeView = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@OverlayService)
@@ -95,9 +121,12 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
 
             setContent {
                 val currentUiState by uiState.collectAsState()
+
+                val currentViewModel = getViewModelForMenu(currentUiState.activeMenu)
+
                 OverlayScreen(
                     uiState = currentUiState,
-                    viewModel = viewModel,
+                    viewModel = currentViewModel,
                     context = context,
                     dialogCallback = this@OverlayService,
                     onUpdateIconPosition = { newPosition ->
@@ -108,6 +137,9 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
                     },
                     onTabSelected = { tabIndex ->
                         _uiState.update { it.copy(selectedTab = tabIndex) }
+                    },
+                    onSwitchMenu = { newMenuType ->
+                        switchMenu(newMenuType)
                     }
                 )
             }
@@ -125,6 +157,12 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
 
         observeUiStateForWindowChanges()
         setupNotification()
+    }
+
+    fun switchMenu(newMenu: MenuType) {
+        _uiState.update {
+            it.copy(activeMenu = newMenu, selectedTab = 0)
+        }
     }
 
     private fun observeUiStateForWindowChanges() {

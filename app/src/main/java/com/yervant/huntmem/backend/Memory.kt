@@ -127,12 +127,11 @@ class Memory {
         }
     }
 
-    suspend fun scanValues(numValStr: String, context: Context) {
+    suspend fun scanValues(numValStr: String, valueType: String, operator: String, context: Context) {
         try {
             val pid = AttachedProcessRepository.getAttachedPid() ?: throw Exception("pid is null")
             val results: MutableList<MatchInfo> = mutableListOf()
             val localMatches = synchronized(matches) { matches.toList() }
-            val scanOptions = getCurrentScanOption()
             val selectedRegions = getSelectedRegions()
             val customFilter = getCustomFilter()
             val regions = MemoryScanner(pid).getMemoryRegions(selectedRegions, customFilter)
@@ -142,7 +141,7 @@ class Memory {
                     val res = HuntMem().searchGroup(
                                 pid,
                                 numValStr,
-                                scanOptions.valueType.lowercase(),
+                                valueType,
                                 context,
                                 regions
                             ).getOrNull()
@@ -152,7 +151,7 @@ class Memory {
                 } else {
                     val split = numValStr.split(":")
                     val values = split[0].split(";")
-                    val res = MemoryScanner(pid).filterGroupAddressesAuto(localMatches, values, context, scanOptions.operator)
+                    val res = MemoryScanner(pid).filterGroupAddressesAuto(localMatches, values, context, operator)
                     results.addAll(res)
                 }
             } else if (numValStr.contains("..")) {
@@ -162,7 +161,7 @@ class Memory {
                                 pid,
                                 values[0],
                                 values[1],
-                                scanOptions.valueType.lowercase(),
+                                valueType,
                                 context,
                                 regions
                             ).getOrNull()
@@ -180,12 +179,12 @@ class Memory {
                 }
             } else {
                 if (localMatches.isEmpty()) {
-                    val res = HuntMem().search(pid, numValStr, scanOptions.valueType.lowercase(), context, regions).getOrNull()
+                    val res = HuntMem().search(pid, numValStr, valueType, context, regions).getOrNull()
                     if (!res.isNullOrEmpty()) {
                         results.addAll(res)
                     }
                 } else {
-                    val matchs = MemoryScanner(pid).filterAddressesAuto(localMatches, numValStr, context, scanOptions.operator)
+                    val matchs = MemoryScanner(pid).filterAddressesAuto(localMatches, numValStr, context, operator)
                     results.addAll(matchs)
                 }
             }
@@ -205,11 +204,5 @@ class Memory {
     companion object {
         const val TAG = "Memory"
         var matches: MutableList<MatchInfo> = mutableListOf()
-    }
-}
-
-class HuntSettings {
-    companion object {
-        const val maxShownMatchesCount: Int = 1000
     }
 }

@@ -32,6 +32,10 @@ class MainActivity : ComponentActivity() {
         uri?.let { handleBootImport(it) }
     }
 
+    private val getContent = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let { handleFileImport(it) }
+    }
+
     private lateinit var overlayPermissionLauncher: ActivityResultLauncher<Intent>
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -81,7 +85,8 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     MainScreen(
-                        openBootPicker = { getContentBoot.launch("*/*") }
+                        openBootPicker = { getContentBoot.launch("*/*") },
+                        openFilePicker = { getContent.launch("*/*") }
                     )
                 }
             }
@@ -145,6 +150,27 @@ class MainActivity : ComponentActivity() {
         } else {
             Toast.makeText(this@MainActivity, "Only import files .img", Toast.LENGTH_SHORT).show()
             throw Exception("not a img file")
+        }
+    }
+
+    private fun handleFileImport(uri: Uri) {
+        val fileName = getFileName(uri)
+        if (fileName.endsWith(".lua")) {
+            val inputStream: InputStream? = contentResolver.openInputStream(uri)
+            inputStream?.let {
+                val folder = File(filesDir, "scripts")
+                if (!folder.exists()) {
+                    folder.mkdirs()
+                }
+                val file = File(folder, fileName)
+                val outputStream = FileOutputStream(file)
+                it.copyTo(outputStream)
+                outputStream.close()
+                it.close()
+            }
+        } else {
+            Toast.makeText(this@MainActivity, "Only import files .lua", Toast.LENGTH_SHORT).show()
+            throw Exception("not a lua file")
         }
     }
 

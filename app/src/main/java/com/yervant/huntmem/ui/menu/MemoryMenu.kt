@@ -59,7 +59,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yervant.huntmem.backend.AttachedProcessRepository
-import com.yervant.huntmem.backend.HuntSettings
 import com.yervant.huntmem.backend.Memory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -72,7 +71,6 @@ import com.yervant.huntmem.ui.DialogCallback
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.internal.synchronized
 import kotlinx.coroutines.isActive
-import java.util.UUID
 
 private var defaultValueInitialized: Boolean = false
 
@@ -144,7 +142,7 @@ suspend fun refreshValues(context: Context, dialogCallback: DialogCallback) {
 
     if (pid == null) {
         dialogCallback.showInfoDialog(
-            title = "Hunt Games",
+            title = "Error",
             message = "No Process Attached",
             onConfirm = {},
             onDismiss = {}
@@ -154,7 +152,7 @@ suspend fun refreshValues(context: Context, dialogCallback: DialogCallback) {
 
     if (!Process().processIsRunning(pid.toString())) {
         dialogCallback.showInfoDialog(
-            title = "Hunt Games",
+            title = "Error",
             message = "Process Not Exist Anymore",
             onConfirm = {},
             onDismiss = {}
@@ -507,7 +505,7 @@ fun updateMatches() {
 
     synchronized(matches) {
         matchesCount = matches.size
-        shownMatchesCount = min(matchesCount, HuntSettings.maxShownMatchesCount)
+        shownMatchesCount = min(matchesCount, 1000)
 
         if (matchesCount > 0) {
             currentMatchesList.value =

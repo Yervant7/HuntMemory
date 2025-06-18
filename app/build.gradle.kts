@@ -12,10 +12,10 @@ android {
 
     defaultConfig {
         applicationId = "com.yervant.huntmem"
-        minSdk = 29
+        minSdk = 28
         targetSdk = 35
-        versionCode = 100
-        versionName = "1.1.0"
+        versionCode = 120
+        versionName = "1.2.0"
 
         ndk {
             abiFilters.add("arm64-v8a")
@@ -55,6 +55,7 @@ android {
 
 dependencies {
 
+    implementation(libs.luaj.jse)
     implementation(libs.coil.compose)
     implementation(libs.libsu)
     implementation(libs.androidx.activity.ktx)

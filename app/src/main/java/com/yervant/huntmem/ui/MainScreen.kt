@@ -3,6 +3,8 @@ package com.yervant.huntmem.ui
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.media.MediaScannerConnection
+import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
@@ -17,18 +19,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
-import java.io.OutputStream
+import java.io.FileOutputStream
+import java.io.IOException
 
 class ShellCommandException(message: String) : Exception(message)
 
 @Composable
-fun MainScreen(openBootPicker: () -> Unit) {
+fun MainScreen(openBootPicker: () -> Unit, openFilePicker: () -> Unit) {
     val ctx = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Home", "Patch Boot")
@@ -49,14 +53,14 @@ fun MainScreen(openBootPicker: () -> Unit) {
         }
 
         when (selectedTab) {
-            0 -> HomeTab(ctx)
+            0 -> HomeTab(ctx, openFilePicker)
             1 -> PatchBootTab(openBootPicker, ctx)
         }
     }
 }
 
 @Composable
-private fun HomeTab(ctx: Context) {
+private fun HomeTab(ctx: Context, openFilePicker: () -> Unit) {
     var textInput by remember { mutableStateOf("") }
 
     Column(
@@ -88,11 +92,15 @@ private fun HomeTab(ctx: Context) {
             Text("Save Key")
         }
 
+        val startMenu: (MenuType) -> Unit = { menuType ->
+            val serviceIntent = Intent(ctx, OverlayService::class.java).apply {
+                putExtra("MENU_TYPE_EXTRA", menuType.name)
+            }
+            ctx.startForegroundService(serviceIntent)
+        }
+
         Button(
-            onClick = {
-                val serviceIntent = Intent(ctx, OverlayService::class.java)
-                ctx.startForegroundService(serviceIntent)
-            },
+            onClick = { startMenu(MenuType.HUNTING) },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Start Hunting")
@@ -106,6 +114,13 @@ private fun HomeTab(ctx: Context) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Stop Hunting")
+        }
+
+        Button(
+            onClick = openFilePicker,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Import Lua Script")
         }
     }
 }
@@ -326,28 +341,56 @@ fun copyFileToDownloads(context: Context, fileName: String) {
     val sourceFile = File(dir, fileName)
 
     if (!sourceFile.exists()) {
-        Log.e("CopyToDownloads", "File not found!")
+        Log.e("CopyToDownloads", "Source file not found: ${sourceFile.absolutePath}")
         return
     }
 
-    val resolver = context.contentResolver
-    val fileMimeType = "*/*"
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val resolver = context.contentResolver
+        val fileMimeType = context.contentResolver.getType(sourceFile.toUri()) ?: "*/*"
 
-    val outputStream: OutputStream?
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(MediaStore.MediaColumns.MIME_TYPE, fileMimeType)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+        }
 
-    val contentValues = ContentValues().apply {
-        put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-        put(MediaStore.Downloads.MIME_TYPE, fileMimeType)
-        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-    }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
 
-    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+        uri?.let {
+            try {
+                resolver.openOutputStream(it)?.use { outputStream ->
+                    FileInputStream(sourceFile).use { inputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+                Log.d("CopyToDownloads", "File successfully copied to the Downloads folder (Android 10+).")
+            } catch (e: IOException) {
+                Log.e("CopyToDownloads", "Error copying file (Android 10+)", e)
+            }
+        }
+    } else {
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val destinationFile = File(downloadsDir, fileName)
 
-    outputStream = uri?.let { resolver.openOutputStream(it) }
+        try {
+            downloadsDir.mkdirs()
 
-    outputStream?.use { output ->
-        FileInputStream(sourceFile).use { input ->
-            input.copyTo(output)
+            FileOutputStream(destinationFile).use { outputStream ->
+                FileInputStream(sourceFile).use { inputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+
+            MediaScannerConnection.scanFile(
+                context,
+                arrayOf(destinationFile.absolutePath),
+                null,
+                null
+            )
+            Log.d("CopyToDownloads", "File successfully copied to the Downloads folder (Android 9).")
+        } catch (e: IOException) {
+            Log.e("CopyToDownloads", "Error copying file (Android 9)", e)
         }
     }
 }

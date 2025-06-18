@@ -48,6 +48,8 @@ suspend fun onNextScanClicked(
             } else {
                 mem.scanValues(
                     scanOptions.inputVal,
+                    scanOptions.valueType.lowercase(),
+                    scanOptions.operator.lowercase(),
                     context
                 )
             }

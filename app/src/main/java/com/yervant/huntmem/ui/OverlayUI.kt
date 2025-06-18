@@ -19,12 +19,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.yervant.huntmem.R
 import com.yervant.huntmem.ui.menu.AddressTableMenu
+import com.yervant.huntmem.ui.menu.HuntSettings
 import com.yervant.huntmem.ui.menu.InitialMemoryMenu
 import com.yervant.huntmem.ui.menu.ProcessScreen
 import com.yervant.huntmem.ui.menu.ProcessViewModel
-import com.yervant.huntmem.ui.menu.SettingsMenu
+import com.yervant.huntmem.ui.menu.ScriptMenu
 import com.yervant.huntmem.ui.theme.HuntMemTheme
 import kotlin.math.roundToInt
 
@@ -36,7 +38,8 @@ fun OverlayScreen(
     dialogCallback: DialogCallback,
     onUpdateIconPosition: (IntOffset) -> Unit,
     onToggleMenu: () -> Unit,
-    onTabSelected: (Int) -> Unit
+    onTabSelected: (Int) -> Unit,
+    onSwitchMenu: (MenuType) -> Unit
 ) {
     HuntMemTheme(darkTheme = true) {
 
@@ -48,12 +51,14 @@ fun OverlayScreen(
 
         if (uiState.isMenuVisible) {
             MenuContent(
+                activeMenu = uiState.activeMenu,
                 selectedTab = uiState.selectedTab,
                 onTabSelected = onTabSelected,
                 viewModel = viewModel,
                 context = context,
                 dialogCallback = dialogCallback,
-                onClose = onToggleMenu
+                onClose = onToggleMenu,
+                onSwitchMenu = onSwitchMenu
             )
         } else {
             Box(
@@ -93,19 +98,19 @@ fun OverlayScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MenuContent(
+    activeMenu: MenuType,
     selectedTab: Int,
     onTabSelected: (Int) -> Unit,
     viewModel: ProcessViewModel,
     context: Context,
     dialogCallback: DialogCallback,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onSwitchMenu: (MenuType) -> Unit
 ) {
-    val tabs = listOf(
-        "Processes",
-        "Memory",
-        "Editor",
-        "Settings"
-    )
+    val tabs = when (activeMenu) {
+        MenuType.HUNTING -> listOf("Processes", "Memory", "Editor", "Settings")
+        MenuType.SCRIPTS -> listOf("Manager", "Settings")
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -121,7 +126,7 @@ fun MenuContent(
                                 Tab(
                                     selected = selectedTab == index,
                                     onClick = { onTabSelected(index) },
-                                    text = { Text(title) },
+                                    text = { Text(title, fontSize = 12.sp) },
                                     selectedContentColor = MaterialTheme.colorScheme.primary,
                                     unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -133,7 +138,7 @@ fun MenuContent(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close Menu",
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                     },
@@ -146,18 +151,57 @@ fun MenuContent(
         ) { innerPadding ->
             Box(modifier = Modifier
                 .padding(innerPadding)
-                .padding(16.dp)) {
-                when (selectedTab) {
-                    0 -> ProcessScreen(viewModel = viewModel)
-                    1 -> InitialMemoryMenu(context, dialogCallback = dialogCallback)
-                    2 -> AddressTableMenu(context, dialogCallback = dialogCallback)
-                    3 -> SettingsMenu()
+                .padding(8.dp)) {
+
+                when (activeMenu) {
+                    MenuType.HUNTING -> {
+                        when (selectedTab) {
+                            0 -> ProcessScreen(viewModel = viewModel)
+                            1 -> InitialMemoryMenu(context, dialogCallback = dialogCallback)
+                            2 -> AddressTableMenu(context, dialogCallback = dialogCallback)
+                            3 -> HuntSettings(activeMenu = activeMenu, onSwitchMenu = onSwitchMenu)
+                        }
+                    }
+                    MenuType.SCRIPTS -> {
+                        when (selectedTab) {
+                            0 -> ScriptMenu(context, dialogCallback)
+                            1 -> SettingsMenu(activeMenu = activeMenu, onSwitchMenu = onSwitchMenu)
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+@Composable
+fun SettingsMenu(
+    activeMenu: MenuType,
+    onSwitchMenu: (MenuType) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Settings", style = MaterialTheme.typography.headlineSmall)
+        Text("Current Menu: ${activeMenu.title}", style = MaterialTheme.typography.titleMedium)
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text("Switch to another menu:", style = MaterialTheme.typography.titleSmall)
+
+        MenuType.entries.forEach { menuType ->
+            if (menuType != activeMenu) {
+                Button(
+                    onClick = { onSwitchMenu(menuType) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Switch to ${menuType.title}")
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun DialogManager(dialogState: DialogState) {

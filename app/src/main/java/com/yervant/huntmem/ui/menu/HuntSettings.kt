@@ -10,8 +10,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -36,6 +34,7 @@ import com.yervant.huntmem.backend.AttachedProcessRepository
 import com.yervant.huntmem.backend.MemoryScanner
 import com.yervant.huntmem.backend.MemoryScanner.MemoryRegion
 import com.yervant.huntmem.backend.Process
+import com.yervant.huntmem.ui.MenuType
 
 private var regionsSelected: List<MemoryRegion> = listOf()
 private var customRegionFilter: String? = null
@@ -63,7 +62,10 @@ fun formatSize(sizeInBytes: Long): String {
 }
 
 @Composable
-fun SettingsMenu() {
+fun HuntSettings(
+    activeMenu: MenuType,
+    onSwitchMenu: (MenuType) -> Unit
+) {
     val allRegions = remember {
         listOf(
             MemoryRegion.ALLOC, MemoryRegion.BSS, MemoryRegion.DATA, MemoryRegion.HEAP,
@@ -73,104 +75,102 @@ fun SettingsMenu() {
     }
     val selectedRegions = remember { mutableStateListOf<MemoryRegion>() }
     val customRegion = remember { mutableStateOf("") }
-
     val expandedRegion = remember { mutableStateOf<MemoryRegion?>(null) }
-
     val memoryDetailsMap = remember { mutableStateMapOf<MemoryRegion, List<MemoryMapEntry>>() }
-
     val pid = AttachedProcessRepository.getAttachedPid()
 
     LaunchedEffect(key1 = pid) {
         if (pid != null && Process().processIsRunning(pid.toString())) {
             val allMemoryMaps = MemoryScanner(pid).readMemoryMaps()
-
             val details = mutableMapOf<MemoryRegion, List<MemoryMapEntry>>()
             allRegions.forEach { region ->
                 details[region] = allMemoryMaps.filter { entry -> region.matches(entry, null) }
             }
-
             memoryDetailsMap.clear()
             memoryDetailsMap.putAll(details)
         }
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxSize()
+        Text(
+            text = "Memory Regions",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Card(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(bottom = 16.dp)
+            items(allRegions) { region ->
+                RegionItem(
+                    region = region,
+                    isSelected = selectedRegions.contains(region),
+                    isExpanded = expandedRegion.value == region,
+                    details = memoryDetailsMap[region] ?: emptyList(),
+                    onToggleSelection = {
+                        if (selectedRegions.contains(region)) {
+                            selectedRegions.remove(region)
+                        } else {
+                            selectedRegions.add(region)
+                        }
+                    },
+                    onClick = {
+                        expandedRegion.value = if (expandedRegion.value == region) null else region
+                    }
+                )
+            }
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = customRegion.value,
+                onValueChange = { customRegion.value = it },
+                label = { Text("Custom Filter") },
+                placeholder = { Text("libgame.so") },
+                modifier = Modifier.weight(1f),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+
+            Button(
+                onClick = {
+                    if (customRegion.value.isNotBlank()) {
+                        setRegions(listOf(MemoryRegion.CUSTOM), customRegion.value)
+                    } else {
+                        setRegions(selectedRegions.toList())
+                    }
+                },
+                modifier = Modifier.height(56.dp),
+                shape = RoundedCornerShape(8.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp).fillMaxSize()
-                ) {
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(allRegions) { region ->
-                            RegionItem(
-                                region = region,
-                                isSelected = selectedRegions.contains(region),
-                                isExpanded = expandedRegion.value == region,
-                                details = memoryDetailsMap[region] ?: emptyList(),
-                                onToggleSelection = {
-                                    if (selectedRegions.contains(region)) {
-                                        selectedRegions.remove(region)
-                                    } else {
-                                        selectedRegions.add(region)
-                                    }
-                                },
-                                onClick = {
-                                    expandedRegion.value = if (expandedRegion.value == region) null else region
-                                }
-                            )
-                        }
-                    }
+                Text("Save")
+            }
+        }
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MenuType.entries.forEach { menuType ->
+                if (menuType != activeMenu) {
+                    Button(
+                        onClick = { onSwitchMenu(menuType) },
+                        modifier = Modifier.weight(1f)
                     ) {
-                        OutlinedTextField(
-                            value = customRegion.value,
-                            onValueChange = { customRegion.value = it },
-                            label = { Text("Custom Region Filter") },
-                            placeholder = { Text("Example: libgame.so") },
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 56.dp),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                            )
-                        )
-
-                        Button(
-                            onClick = {
-                                if (customRegion.value.isNotBlank()) {
-                                    setRegions(listOf(MemoryRegion.CUSTOM), customRegion.value)
-                                } else {
-                                    setRegions(selectedRegions.toList())
-                                }
-                            },
-                            modifier = Modifier.height(56.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Text("Save")
-                        }
+                        Text("Switch to ${menuType.title}")
                     }
-                    Spacer(modifier = Modifier.height(40.dp))
                 }
             }
         }
