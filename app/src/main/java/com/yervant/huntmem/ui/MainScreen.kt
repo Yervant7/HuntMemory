@@ -9,10 +9,36 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
-import androidx.compose.foundation.layout.*
+import androidx.activity.compose.LocalActivity
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,6 +94,8 @@ fun MainScreen(openBootPicker: () -> Unit, openFilePicker: () -> Unit) {
 private fun HomeTab(ctx: Context, openFilePicker: () -> Unit) {
     var textInput by remember { mutableStateOf("") }
     var showLanguageMenu by remember { mutableStateOf(false) }
+
+    val activity = LocalActivity.current
 
     Column(
         modifier = Modifier
@@ -147,6 +175,7 @@ private fun HomeTab(ctx: Context, openFilePicker: () -> Unit) {
                     onClick = {
                         LocaleManager.setLocale(ctx, "")
                         showLanguageMenu = false
+                        activity?.recreate()
                     }
                 )
 
@@ -156,6 +185,7 @@ private fun HomeTab(ctx: Context, openFilePicker: () -> Unit) {
                         onClick = {
                             LocaleManager.setLocale(ctx, language.code)
                             showLanguageMenu = false
+                            activity?.recreate()
                         }
                     )
                 }
@@ -307,8 +337,8 @@ private suspend fun patchBootImage(
 
             executeShell("cd ${dir.absolutePath} && ${dir.absolutePath}/magiskboot unpack ${dir.absolutePath}/boot.img", logs)
 
-            val checkResult = executeShell("${dir.absolutePath}/kptools -c -i ${dir.absolutePath}/kernel", logs, allowNonZeroExit = true)
-            val kpimgver = if (checkResult.contains("is PATCHED.")) {
+            val checkResult = executeShell("${dir.absolutePath}/kptools -l -i ${dir.absolutePath}/kernel", logs, allowNonZeroExit = true)
+            val kpimgver = if (checkResult.contains("patched=true")) {
                 logs.add("ℹ️ Kernel already patched. Using kpimg-with-kp.")
                 "kpimg-with-kp"
             } else {
@@ -436,7 +466,7 @@ fun copyFileToDownloads(context: Context, fileName: String) {
 
 fun saveSharedKey(context: Context, key: String, value: String) {
     val sharedPreferences = context.getSharedPreferences(
-        "hg_prefs",
+        "h_prefs",
         Context.MODE_PRIVATE
     )
     with(sharedPreferences.edit()) {
@@ -447,7 +477,7 @@ fun saveSharedKey(context: Context, key: String, value: String) {
 
 fun getSharedKey(context: Context, key: String): String? {
     val sharedPreferences = context.getSharedPreferences(
-        "hg_prefs",
+        "h_prefs",
         Context.MODE_PRIVATE
     )
     return sharedPreferences.getString(key, null)

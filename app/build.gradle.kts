@@ -14,8 +14,8 @@ android {
         applicationId = "com.yervant.huntmem"
         minSdk = 28
         targetSdk = 35
-        versionCode = 121
-        versionName = "1.2.1"
+        versionCode = 123
+        versionName = "1.2.3"
 
         ndk {
             abiFilters.add("arm64-v8a")
@@ -27,7 +27,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -55,6 +56,7 @@ android {
 
 dependencies {
 
+    implementation(libs.androidx.annotation)
     implementation(libs.luaj.jse)
     implementation(libs.coil.compose)
     implementation(libs.libsu)

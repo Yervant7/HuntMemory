@@ -1,6 +1,7 @@
 [versions]
 activityCompose = "1.10.1"
 agp = "8.10.1"
+annotation = "1.9.1"
 coilCompose = "2.7.0"
 kotlin = "2.0.21"
 coreKtx = "1.16.0"
@@ -23,6 +24,7 @@ lifecycleViewmodelComposeAndroid = "2.9.1"
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
 androidx-activity-ktx = { module = "androidx.activity:activity-ktx", version.ref = "activityCompose" }
+androidx-annotation = { module = "androidx.annotation:annotation", version.ref = "annotation" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycleService" }
 androidx-lifecycle-service = { module = "androidx.lifecycle:lifecycle-service", version.ref = "lifecycleService" }

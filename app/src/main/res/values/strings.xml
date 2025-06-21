@@ -33,6 +33,7 @@
     <string name="overlay_ui_editor_tab">Editor</string>
     <string name="overlay_ui_settings_tab_and_title">Settings</string>
     <string name="overlay_ui_manager_tab">Manager</string>
+    <string name="overlay_ui_script_menu_tab">Menu</string>
     <string name="overlay_ui_close_menu_icon_description">Close Menu</string>
     <string name="overlay_ui_current_menu_label">Current Menu: %1$s</string>
     <string name="overlay_ui_switch_to_another_menu_label">Switch to another menu:</string>
@@ -126,6 +127,7 @@
     <string name="script_menu_script_deletion_dialog_title">Script Deletion</string>
     <string name="script_menu_script_deleted_message">Script \'%1$s\' was deleted.</string>
     <string name="script_menu_failed_to_delete_script_message">Failed to delete script.</string>
+    <string name="script_menu_stop_script_execution_icon_description">Stop script execution</string>
     <string name="script_menu_execute_script_icon_description">Execute Script</string>
     <string name="script_menu_delete_script_icon_description">Delete Script</string>
 

@@ -10,7 +10,6 @@ import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
@@ -19,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.activity.compose.setContent
+import androidx.appcompat.app.AppCompatActivity
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -27,7 +27,7 @@ import com.yervant.huntmem.R
 import com.yervant.huntmem.ui.theme.HuntMemTheme
 
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     private val getContentBoot = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { handleBootImport(it) }
@@ -40,9 +40,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var overlayPermissionLauncher: ActivityResultLauncher<Intent>
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
         LocaleManager.initialize(this)
+
+        super.onCreate(savedInstanceState)
 
         overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (Settings.canDrawOverlays(this)) {

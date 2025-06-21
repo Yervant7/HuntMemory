@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.yervant.huntmem.R
 import com.yervant.huntmem.backend.LuaAPI
+import com.yervant.huntmem.backend.ScriptExecutionState
 import com.yervant.huntmem.ui.DialogCallback
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -66,7 +68,7 @@ object ScriptManager {
         try {
             Result.success(file.readText(Charsets.UTF_8))
         } catch (e: IOException) {
-            Log.e(TAG, "Falha ao ler o conteúdo do script: ${file.name}", e)
+            Log.e(TAG, "Failed to read script content: ${file.name}", e)
             Result.failure(e)
         }
     }
@@ -77,8 +79,8 @@ object ScriptManager {
                 return@withContext file.delete()
             }
             false
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Falha de segurança ao deletar o script: ${file.name}", e)
+        } catch (e: IOException) {
+            Log.e(TAG, "Failed to delete script: ${file.name}", e)
             false
         }
     }
@@ -91,6 +93,8 @@ fun ScriptMenu(
 ) {
     val coroutineScope = rememberCoroutineScope()
     var scripts by remember { mutableStateOf<List<File>>(emptyList()) }
+
+    val runningScript by ScriptExecutionState.runningScript
 
     fun refreshScripts() {
         coroutineScope.launch {
@@ -116,7 +120,8 @@ fun ScriptMenu(
                 Text(
                     stringResource(R.string.script_menu_no_scripts_found_message),
                     style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         } else {
@@ -126,9 +131,15 @@ fun ScriptMenu(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(items = scripts, key = { it.absolutePath }) { script ->
+                    val isCurrentlyRunning = runningScript?.absolutePath == script.absolutePath
+                    val isExecutionDisabled = runningScript != null && !isCurrentlyRunning
                     ScriptItem(
                         script = script,
+                        isRunning = isCurrentlyRunning,
+                        isExecutionDisabled = isExecutionDisabled,
                         onExecute = {
+                            ScriptExecutionState.updateRunningScript(script)
+
                             coroutineScope.launch {
                                 val contentResult = ScriptManager.getScriptContent(script)
                                 contentResult.onSuccess { content ->
@@ -141,16 +152,18 @@ fun ScriptMenu(
                                         onDismiss = {}
                                     )
                                 }.onFailure { exception ->
+                                    ScriptExecutionState.updateRunningScript(null)
                                     val err = context.getString(R.string.script_menu_error_dialog_title)
                                     val msg = context.getString(R.string.script_menu_error_reading_script_message, exception.message)
-                                    dialogCallback.showInfoDialog(
-                                        title = err,
-                                        message = msg,
-                                        onConfirm = {},
-                                        onDismiss = {}
-                                    )
+                                    dialogCallback.showInfoDialog(title = err, message = msg, onConfirm = {}, onDismiss = {})
                                 }
                             }
+                        },
+                        onStop = {
+                            coroutineScope.launch {
+                                LuaAPI.cleanup()
+                            }
+                            ScriptExecutionState.updateRunningScript(null)
                         },
                         onDelete = {
                             val title = context.getString(R.string.script_menu_confirm_deletion_dialog_title)
@@ -160,6 +173,10 @@ fun ScriptMenu(
                                 message = msg,
                                 onConfirm = {
                                     coroutineScope.launch {
+                                        if (runningScript?.absolutePath == script.absolutePath) {
+                                            LuaAPI.cleanup()
+                                            ScriptExecutionState.updateRunningScript(null)
+                                        }
                                         val deleted = ScriptManager.deleteScript(script)
                                         if (deleted) {
                                             refreshScripts()
@@ -196,7 +213,10 @@ fun ScriptMenu(
 @Composable
 private fun ScriptItem(
     script: File,
+    isRunning: Boolean,
+    isExecutionDisabled: Boolean,
     onExecute: () -> Unit,
+    onStop: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
@@ -215,13 +235,27 @@ private fun ScriptItem(
                 modifier = Modifier.weight(1f)
             )
             Row {
-                IconButton(onClick = onExecute) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = stringResource(R.string.script_menu_execute_script_icon_description),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                if (isRunning) {
+                    IconButton(onClick = onStop) {
+                        Icon(
+                            imageVector = Icons.Default.Stop,
+                            contentDescription = stringResource(R.string.script_menu_stop_script_execution_icon_description),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                } else {
+                    IconButton(
+                        onClick = onExecute,
+                        enabled = !isExecutionDisabled
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = stringResource(R.string.script_menu_execute_script_icon_description),
+                            tint = if (isExecutionDisabled) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) else MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
+
                 IconButton(onClick = onDelete) {
                     Icon(
                         imageVector = Icons.Default.Delete,

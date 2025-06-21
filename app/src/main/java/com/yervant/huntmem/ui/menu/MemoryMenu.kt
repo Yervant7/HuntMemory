@@ -2,6 +2,7 @@ package com.yervant.huntmem.ui.menu
 
 import android.content.Context
 import android.content.res.Configuration
+import androidx.annotation.Keep
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -92,6 +93,7 @@ private var matchesStatusText: MutableState<String> = mutableStateOf("0 matches"
 private val operatorOptions = listOf("=", "!=", ">", "<", ">=", "<=")
 private val operatorSelectedOptionIdx = mutableIntStateOf(0)
 
+@Keep
 data class MatchInfo(
     val id: String,
     val pid: Int,
@@ -115,7 +117,10 @@ fun getCurrentScanOption(): ScanOptions {
 }
 
 @Composable
-fun InitialMemoryMenu(context: Context?, dialogCallback: DialogCallback) {
+fun InitialMemoryMenu(
+    context: Context?,
+    dialogCallback: DialogCallback
+) {
 
     LaunchedEffect(currentMatchesList.value.isNotEmpty()) {
         while (isActive) {
@@ -211,7 +216,7 @@ fun MemoryMenu(
     snackbarHostState: SnackbarHostState,
     coroutineScope: CoroutineScope,
     context: Context,
-    dialogCallback: DialogCallback,
+    dialogCallback: DialogCallback
 ) {
 
     if (!defaultValueInitialized) {
@@ -264,7 +269,7 @@ fun MemoryMenu(
                             actionLabel = ok
                         )
                     }
-                },
+                }
             )
             MatchesSetting(
                 modifier = matchesSettingModifier,
@@ -403,7 +408,11 @@ private fun MatchesTable(
                     items = matches,
                     key = { match -> match.id }
                 ) { match ->
-                    MatchItem(match, context, onMatchClicked)
+                    MatchItem(
+                        match,
+                        context,
+                        onMatchClicked
+                    )
                 }
             }
         }

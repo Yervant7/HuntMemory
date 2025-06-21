@@ -2,6 +2,7 @@ package com.yervant.huntmem.backend
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.Keep
 import com.topjohnwu.superuser.Shell
 import com.yervant.huntmem.ui.menu.MatchInfo
 import kotlinx.coroutines.async
@@ -48,6 +49,7 @@ class MemoryScanner(private val pid: Int) {
         }
     }
 
+    @Keep
     data class MemoryRegions(
         val start: Long,
         val end: Long,

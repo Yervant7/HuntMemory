@@ -29,10 +29,8 @@ object LocaleManager {
 
     fun initialize(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val languageTag = prefs.getString(KEY_LANGUAGE_TAG, null)
-        if (languageTag != null) {
-            applyLocale(languageTag)
-        }
+        val languageTag = prefs.getString(KEY_LANGUAGE_TAG, "") ?: ""
+        applyLocale(languageTag)
     }
 
     private fun applyLocale(languageTag: String) {

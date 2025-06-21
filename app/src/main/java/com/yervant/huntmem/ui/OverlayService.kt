@@ -5,7 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.graphics.Point
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -21,7 +24,6 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.SavedStateRegistry
@@ -32,8 +34,11 @@ import com.yervant.huntmem.R
 import com.yervant.huntmem.ui.menu.ProcessViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 data class OverlayUiState(
     val isMenuVisible: Boolean = false,
@@ -53,6 +58,12 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
     private lateinit var windowManager: WindowManager
     private lateinit var composeView: ComposeView
 
+    private var lastIconX: Int = 0
+    private var lastIconY: Int = 100
+    private var screenWidth: Int = 0
+    private var screenHeight: Int = 0
+    private var iconSize: Int = 0
+
     private val viewModels = mutableMapOf<MenuType, ProcessViewModel>()
 
     private fun getViewModelForMenu(menuType: MenuType): ProcessViewModel {
@@ -65,23 +76,21 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
     private lateinit var savedStateRegistryController: SavedStateRegistryController
     override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
 
-    private val _uiState = MutableStateFlow(OverlayUiState())
-    private val uiState = _uiState.asStateFlow()
+    private val _uiState = MutableStateFlow(OverlayUiState(isMenuVisible = false))
+    val uiState = _uiState.asStateFlow()
 
-    private val windowManagerParams = WindowManager.LayoutParams().apply {
-        type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-
-        width = WindowManager.LayoutParams.WRAP_CONTENT
-        height = WindowManager.LayoutParams.WRAP_CONTENT
-        format = PixelFormat.TRANSLUCENT
-        gravity = Gravity.TOP or Gravity.START
-
-        flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+    private val windowManagerParams = WindowManager.LayoutParams(
+        WindowManager.LayoutParams.WRAP_CONTENT,
+        WindowManager.LayoutParams.WRAP_CONTENT,
+        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-
-        x = uiState.value.iconPosition.x
-        y = uiState.value.iconPosition.y
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+        PixelFormat.TRANSLUCENT
+    ).apply {
+        gravity = Gravity.TOP or Gravity.START
+        x = lastIconX
+        y = lastIconY
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -114,6 +123,8 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
+        updateScreenDimensions()
+
         composeView = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@OverlayService)
             setViewTreeViewModelStoreOwner(this@OverlayService)
@@ -129,11 +140,11 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
                     viewModel = currentViewModel,
                     context = context,
                     dialogCallback = this@OverlayService,
-                    onUpdateIconPosition = { newPosition ->
-                        _uiState.update { it.copy(iconPosition = newPosition) }
+                    onUpdateIconPosition = { dragAmount ->
+                        moveIcon(dragAmount)
                     },
                     onToggleMenu = {
-                        _uiState.update { it.copy(isMenuVisible = !it.isMenuVisible) }
+                        toggleMenu()
                     },
                     onTabSelected = { tabIndex ->
                         _uiState.update { it.copy(selectedTab = tabIndex) }
@@ -165,42 +176,133 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
         }
     }
 
+    private fun moveIcon(dragAmount: IntOffset) {
+        val newX = windowManagerParams.x + dragAmount.x
+        val newY = windowManagerParams.y + dragAmount.y
+
+        windowManagerParams.x = newX.coerceIn(0, screenWidth - iconSize)
+        windowManagerParams.y = newY.coerceIn(0, screenHeight - iconSize)
+
+        lastIconX = windowManagerParams.x
+        lastIconY = windowManagerParams.y
+
+        if (composeView.isAttachedToWindow) {
+            windowManager.updateViewLayout(composeView, windowManagerParams)
+        }
+    }
+
+    private fun toggleMenu() {
+        val isCurrentlyVisible = uiState.value.isMenuVisible
+        _uiState.update { it.copy(isMenuVisible = !isCurrentlyVisible) }
+    }
+
+    private fun updateScreenDimensions() {
+        iconSize = (64 * resources.displayMetrics.density).roundToInt()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val windowMetrics = windowManager.currentWindowMetrics
+            val bounds = windowMetrics.bounds
+            screenWidth = bounds.width()
+            screenHeight = bounds.height()
+        } else {
+            @Suppress("DEPRECATION")
+            val display = windowManager.defaultDisplay
+            val size = Point()
+            @Suppress("DEPRECATION")
+            display.getRealSize(size)
+            screenWidth = size.x
+            screenHeight = size.y
+        }
+    }
+
     private fun observeUiStateForWindowChanges() {
         lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                uiState.collect { state ->
-                    updateWindowParameters(state.isMenuVisible, state.iconPosition)
+            uiState.map { it.isMenuVisible }.distinctUntilChanged().collect { isVisible ->
+                if (isVisible) {
+                    updateWindowToMenuState()
+                } else {
+                    updateWindowToIconState()
                 }
             }
         }
     }
 
-    private fun updateWindowParameters(isMenuVisible: Boolean, iconPosition: IntOffset) {
+    private fun updateWindowToMenuState() {
+        lastIconX = windowManagerParams.x
+        lastIconY = windowManagerParams.y
 
-        val params = windowManagerParams
-        if (isMenuVisible) {
+        windowManagerParams.apply {
+            x = 0
+            y = 0
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            height = WindowManager.LayoutParams.MATCH_PARENT
 
-            params.x = 0
-            params.y = 0
-            params.width = WindowManager.LayoutParams.MATCH_PARENT
-            params.height = WindowManager.LayoutParams.MATCH_PARENT
+            flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
 
-            params.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-        } else {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        if (composeView.isAttachedToWindow) {
+            windowManager.updateViewLayout(composeView, windowManagerParams)
+        }
+    }
 
-            params.x = iconPosition.x
-            params.y = iconPosition.y
-            params.width = WindowManager.LayoutParams.WRAP_CONTENT
-            params.height = WindowManager.LayoutParams.WRAP_CONTENT
+    private fun updateWindowToIconState() {
+        windowManagerParams.apply {
+            width = WindowManager.LayoutParams.WRAP_CONTENT
+            height = WindowManager.LayoutParams.WRAP_CONTENT
 
-            params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            x = lastIconX
+            y = lastIconY
+
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
         }
+        if (composeView.isAttachedToWindow) {
+            windowManager.updateViewLayout(composeView, windowManagerParams)
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+
+        val wasMenuVisible = uiState.value.isMenuVisible
 
         if (composeView.isAttachedToWindow) {
-            windowManager.updateViewLayout(composeView, params)
+            windowManager.removeView(composeView)
         }
+        updateScreenDimensions()
+
+        val clampedX = lastIconX.coerceIn(0, screenWidth - iconSize)
+        val clampedY = lastIconY.coerceIn(0, screenHeight - iconSize)
+        lastIconX = clampedX
+        lastIconY = clampedY
+
+        if (wasMenuVisible) {
+            windowManagerParams.apply {
+                x = 0
+                y = 0
+                width = WindowManager.LayoutParams.MATCH_PARENT
+                height = WindowManager.LayoutParams.MATCH_PARENT
+                flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        } else {
+            windowManagerParams.apply {
+                x = lastIconX
+                y = lastIconY
+                width = WindowManager.LayoutParams.WRAP_CONTENT
+                height = WindowManager.LayoutParams.WRAP_CONTENT
+                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+            }
+        }
+        windowManager.addView(composeView, windowManagerParams)
     }
 
     private fun setupNotification() {

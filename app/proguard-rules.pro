@@ -19,3 +19,10 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+-dontwarn javax.script.**
+
+-dontwarn org.luaj.vm2.luajc.**
+
+-keep class !org.luaj.vm2.luajc.**,org.luaj.** { *; }
+-keep interface !org.luaj.vm2.luajc.**,org.luaj.** { *; }

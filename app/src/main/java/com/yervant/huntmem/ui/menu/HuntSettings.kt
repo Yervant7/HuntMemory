@@ -111,7 +111,8 @@ fun HuntSettings(
         Text(
             text = stringResource(R.string.hunt_settings_memory_regions_title),
             style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(bottom = 4.dp)
+            modifier = Modifier.padding(bottom = 4.dp),
+            color = MaterialTheme.colorScheme.onSurface
         )
 
         LazyColumn(

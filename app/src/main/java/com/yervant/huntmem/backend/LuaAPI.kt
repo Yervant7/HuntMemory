@@ -2,11 +2,18 @@ package com.yervant.huntmem.backend
 
 import android.content.Context
 import android.util.Log
+import com.yervant.huntmem.ui.menu.DynamicMenuManager
 import kotlinx.coroutines.*
-import org.luaj.vm2.*
+import org.luaj.vm2.Globals
+import org.luaj.vm2.LuaDouble
+import org.luaj.vm2.LuaInteger
+import org.luaj.vm2.LuaString
+import org.luaj.vm2.LuaTable
+import org.luaj.vm2.LuaValue
+import org.luaj.vm2.Varargs
 import org.luaj.vm2.lib.VarArgFunction
 import org.luaj.vm2.lib.jse.JsePlatform
-import java.util.*
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -171,6 +178,8 @@ object LuaAPI {
             registerUtilityFunctions(globals)
             registerDataFunctions(globals)
             registerFreezeFunctions(globals)
+
+            DynamicMenuManager.exportToLua(globals)
 
             val chunk = globals.load(luaCode)
             val result = chunk.call()
@@ -407,6 +416,7 @@ object LuaAPI {
 
     fun cleanup() {
         FreezeService.stopService()
+        DynamicMenuManager.clearMenu()
         scriptData.clear()
         isInitialized.set(false)
         applicationContext = null
