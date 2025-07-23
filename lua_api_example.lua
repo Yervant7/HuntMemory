@@ -1,219 +1,314 @@
--- This script demonstrates the various API functions available for creating dynamic menus,
--- drawing on the screen, and interacting with memory.
+--[[
+HMemory Lua API Example Script
 
--- Log a message to the device's logcat for debugging.
-log("HMemory Lua API example script started.")
+This script provides a comprehensive demonstration of the Lua API available in HMemory.
+It covers the following modules:
+1.  Utility Functions: General-purpose functions like logging, toasts, and getting device info.
+2.  Dynamic Menu API: Functions to create and manage a dynamic, interactive UI menu.
+3.  Canvas API: Functions for drawing shapes and text on the screen overlay.
+4.  Memory API: Functions for searching, reading, and writing to a target process's memory.
+5.  Freeze API: Functions to "freeze" a memory value, repeatedly writing it at a set interval.
+6.  HTTP & Data API: Functions for making HTTP requests and storing temporary data.
 
--- Show a toast message on the screen.
-showToast("Welcome to the Lua API Example!")
+Each section is clearly marked and contains explanations for each function.
+--]]
 
 -- =================================================================================
--- Utility Functions
+-- 1. UTILITY FUNCTIONS
+-- These are general-purpose helper functions.
 -- =================================================================================
+log("HuntMemory Lua API example script started.")
+showToast("Welcome to the HuntMemory Lua API!")
 
--- Get the screen dimensions.
+-- sleep(milliseconds)
+-- Pauses the script execution for a specified duration.
+log("Pausing for 2 seconds...")
+sleep(2000)
+log("Resumed execution.")
+
+-- getScreenSize() -> {width, height}
+-- Returns a table containing the screen width and height in pixels.
 local screenSize = getScreenSize()
 local screenWidth = screenSize.width
 local screenHeight = screenSize.height
 log("Screen size: " .. screenWidth .. "x" .. screenHeight)
+showToast("Screen: " .. screenWidth .. "x" .. screenHeight)
 
--- =_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=
--- Dynamic Menu API (`DynamicMenuManager`)
---
--- Create interactive UI elements like buttons, switches, and sliders.
--- =_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=_=
 
--- Clear any existing menu items to start fresh.
+-- =================================================================================
+-- 2. DYNAMIC MENU API (`DynamicMenuManager`)
+-- Create and manage an interactive floating menu.
+-- All `add_*` functions return an ID that can be used to modify the component later.
+-- =================================================================================
+log("--- 2. Dynamic Menu API ---")
+
+-- clear_menu()
+-- Removes all components from the dynamic menu.
 clear_menu()
 log("Menu cleared.")
 
--- Add a descriptive label to the menu.
-add_label("--- Canvas Controls ---")
+-- add_label(text) -> id
+-- Adds a non-interactive text label to the menu.
+local titleLabelId = add_label("HuntMemory Lua API Demo")
+log("Added title label with ID: " .. titleLabelId)
 
--- Variable to hold the ID of a drawing we want to control.
-local circleId = nil
-
--- Function to be called when the switch is toggled.
-local function onToggleCircle(isChecked)
-    if isChecked then
-        showToast("Circle is now visible.")
-        log("Drawing circle.")
-        -- Define the paint properties for the circle.
-        local paint = {
-            color = "#FF5733", -- Orange color
-            strokeWidth = 5,
-            style = "STROKE" -- Can be "STROKE" or "FILL"
-        }
-        -- Draw the circle at the center of the screen and store its ID.
-        circleId = canvas.drawCircle(screenWidth / 2, screenHeight / 2, 100, paint)
-    else
-        showToast("Circle is now hidden.")
-        log("Removing circle.")
-        -- If the circle has been drawn (ID exists), remove it.
-        if circleId then
-            canvas.remove(circleId)
-            circleId = nil -- Reset the ID
-        end
-    end
-end
-
--- Add a switch to control the visibility of a circle.
--- add_switch(label, initialValue, onToggleCallback)
-local switchId = add_switch("Show Circle", false, onToggleCircle)
-log("Added switch with ID: " .. switchId)
-
-
--- Add a slider to control the text size of a label.
-add_label("--- Other Controls ---")
-local labelId = add_label("This is a dynamic label")
-
-local function onSliderChange(newValue)
-    -- The paint object for text requires 'textSize'.
-    local paint = {
-        color = "#FFFFFF",
-        textSize = newValue
-    }
-    -- We can't directly update a label's text size, but we can demonstrate
-    -- the slider's value by updating a text drawing on the canvas.
-    -- First, remove the old text to avoid clutter.
-    if textId then canvas.remove(textId) end
-    -- Draw new text with the updated size.
-    textId = canvas.drawText("Size: " .. string.format("%.0f", newValue), 100, screenHeight - 100, paint)
-end
-
--- add_slider(label, initialValue, minValue, maxValue, steps, onValueChangeCallback)
-local sliderId = add_slider("Text Size", 32, 16, 128, 0, onSliderChange)
-log("Added slider with ID: " .. sliderId)
-
-
--- Add a button that shows a toast when clicked.
+-- add_button(label, onClickCallback) -> id
+-- Adds a button that executes a Lua function when clicked.
 local function onButtonClick()
-    showToast("Button clicked!")
-    -- We can also interact with other menu items, e.g., update the label's text.
-    update_text(labelId, "Button was clicked at: " .. os.date())
+    log("Button was clicked!")
+    showToast("You clicked the button!")
+    -- update_text(id, newText)
+    -- Updates the text of a component (Label, Button, Switch).
+    update_text(titleLabelId, "Button clicked at: " .. os.date())
 end
-
--- add_button(label, onClickCallback)
 local buttonId = add_button("Click Me", onButtonClick)
 log("Added button with ID: " .. buttonId)
 
+-- add_switch(label, initialValue, onToggleCallback) -> id
+-- Adds a toggle switch. The callback function receives the new state (true/false).
+local isFeatureEnabled = false
+local function onFeatureToggle(isChecked)
+    isFeatureEnabled = isChecked
+    if isFeatureEnabled then
+        showToast("Feature Enabled")
+        log("Feature switch is now ON")
+    else
+        showToast("Feature Disabled")
+        log("Feature switch is now OFF")
+    end
+end
+local switchId = add_switch("Enable Feature", isFeatureEnabled, onFeatureToggle)
+log("Added switch with ID: " .. switchId)
+
+-- add_slider(label, initialValue, min, max, steps, onValueChangeCallback) -> id
+-- Adds a slider. The callback receives the new float value.
+-- `steps` is optional (0 for continuous).
+local sliderLabelId = add_label("Slider Value: 50.0")
+local function onSliderChange(newValue)
+    log("Slider value changed to: " .. newValue)
+    -- Example of updating a label with the slider's value.
+    update_text(sliderLabelId, string.format("Slider Value: %.1f", newValue))
+    -- update_value(id, newValue)
+    -- Programmatically sets a slider's value. This is just for demonstration.
+    -- update_value(sliderId, newValue)
+end
+local sliderId = add_slider("Control Value", 50.0, 0.0, 100.0, 0, onSliderChange)
+log("Added slider with ID: " .. sliderId)
+
+-- remove_item(id)
+-- Removes a specific component from the menu using its ID.
+local removableLabelId = add_label("This label will be removed")
+sleep(3000) -- Wait 3 seconds
+remove_item(removableLabelId)
+log("Removed the temporary label.")
+
 
 -- =================================================================================
--- Canvas API (`CanvasManager`)
---
--- Draw shapes and text directly on the screen overlay.
--- Each drawing function returns an ID that can be used to remove the drawing later.
+-- 3. CANVAS API (`CanvasManager`)
+-- Draw shapes and text on the screen overlay.
+-- All `draw*` functions return an ID for later removal.
+-- A `paint` table is used for styling: { color="#AARRGGBB", strokeWidth=float, textSize=float, style="STROKE"|"FILL" }
 -- =================================================================================
+log("--- 3. Canvas API ---")
 
--- Clear the canvas to ensure no old drawings are present.
+-- canvas.clear()
+-- Removes all drawings from the canvas.
 canvas.clear()
 log("Canvas cleared.")
 
--- Define a reusable 'paint' object for styling drawings.
-local paintRed = { color = "#FF0000", strokeWidth = 3 }
-local paintGreen = { color = "#00FF00", strokeWidth = 2, style = "FILL" }
-local paintWhiteText = { color = "#FFFFFF", textSize = 40 }
+-- Define some paint styles to reuse.
+local paintRedStroke = { color = "#FFFF0000", strokeWidth = 3, style = "STROKE" }
+local paintGreenFill = { color = "#FF00FF00", strokeWidth = 2, style = "FILL" }
+local paintWhiteText = { color = "#FFFFFFFF", textSize = 40 }
 
--- Draw a line from top-left to bottom-right.
-canvas.drawLine(0, 0, screenWidth, screenHeight, paintRed)
-log("Drew a diagonal line.")
+-- canvas.drawLine(x1, y1, x2, y2, paint) -> id
+local lineId = canvas.drawLine(0, 0, screenWidth, screenHeight, paintRedStroke)
+log("Drew a diagonal line with ID: " .. lineId)
 
--- Draw a filled rectangle.
-canvas.drawRect(100, 100, 400, 300, paintGreen)
-log("Drew a filled rectangle.")
+-- canvas.drawRect(left, top, right, bottom, paint) -> id
+local rectId = canvas.drawRect(100, 100, 400, 300, paintGreenFill)
+log("Drew a filled rectangle with ID: " .. rectId)
 
--- Draw some text.
-canvas.drawText("HMemory Lua API", 100, 400, paintWhiteText)
-log("Drew text.")
+-- canvas.drawText(text, x, y, paint) -> id
+local textId = canvas.drawText("HuntMemory Lua API", 100, 400, paintWhiteText)
+log("Drew text with ID: " .. textId)
 
--- This textId is used by the slider callback to update the text size.
-textId = canvas.drawText("Size: 32", 100, screenHeight - 100, { color = "#FFFFFF", textSize = 32 })
+-- canvas.drawCircle(cx, cy, radius, paint) -> id
+local circlePaint = { color = "#FF00BFFF", strokeWidth = 5, style = "STROKE" }
+local circleId = canvas.drawCircle(screenWidth / 2, screenHeight / 2, 150, circlePaint)
+log("Drew a circle with ID: " .. circleId)
+
+-- canvas.remove(id)
+-- Removes a specific drawing from the canvas.
+sleep(4000) -- Wait 4 seconds
+canvas.remove(lineId)
+log("Removed the diagonal line.")
+canvas.remove(rectId)
+log("Removed the rectangle.")
 
 
 -- =================================================================================
--- Memory & Process API (`LuaAPI`)
---
--- Functions for game hacking: searching, reading, and writing memory.
--- NOTE: These functions require a game process to be attached first.
+-- 4. MEMORY API
+-- Functions for game hacking. Require a process to be attached.
 -- =================================================================================
+log("--- 4. Memory API ---")
 
-log("--- Memory Functions ---")
+-- getAttachedPid() -> number | nil
+-- Returns the Process ID (PID) of the attached application, or nil if none.
 local pid = getAttachedPid()
 
 if pid then
     log("Attached to process with PID: " .. pid)
 
-    -- Example: Search for the integer value 100 in memory.
-    -- searchMemory(value, valueType, operator)
-    -- valueType can be: int, long, float, double, string, etc.
-    -- operator can be: =, !=, >, <, >=, <=
-    log("Searching for the value 100 as an integer...")
-    searchMemory("100", "int", "=")
-
-    -- Get the results from the last search.
-    -- getResults(limit)
-    local results = getResults(10) -- Get the first 10 results
-
-    if #results > 0 then
-        log("Found " .. #results .. " results.")
-        local firstAddress = results[1].address
-        log("First result address: 0x" .. firstAddress)
-
-        -- Read the value from the found address.
-        -- readMemory(address, valueType)
-        local value = readMemory(firstAddress, "int")
-        log("Value at 0x" .. firstAddress .. " is: " .. value)
-
-        -- Write a new value to the address.
-        -- writeMemory(address, value, valueType)
-        log("Writing 250 to 0x" .. firstAddress)
-        writeMemory(firstAddress, "250", "int")
-
-        -- Verify the new value.
-        value = readMemory(firstAddress, "int")
-        log("New value at 0x" .. firstAddress .. " is: " .. value)
-
-        -- Start freezing the value at 250.
-        -- startFreeze(address, value, valueType, interval_ms)
-        log("Freezing value at 250.")
-        local freezeId = startFreeze(firstAddress, "250", "int", 200)
-
-        -- Wait for 5 seconds.
-        sleep(5000)
-
-        -- Stop the freeze.
-        stopFreeze(freezeId)
-        log("Freeze stopped.")
-
+    -- getModuleBase(name) -> string | nil
+    -- Gets the base address of a loaded library/module in the process.
+    -- Replace "libg.so" with a library from your target game.
+    local moduleBase = getModuleBase("libg.so")
+    if moduleBase then
+        log("Found module 'libg.so' at address: 0x" .. moduleBase)
     else
-        log("Value not found in memory.")
+        log("Module 'libg.so' not found.")
     end
 
-    -- Clear results for the next search.
+    -- searchMemory(value, valueType, operator) -> table
+    -- Searches memory for a value. Also aliased as `filterResults`.
+    -- valueType: int, long, float, double, string, etc.
+    -- operator: =, !=, >, <, >=, <=
+    log("Searching for the integer value 100...")
+    searchMemory("100", "int", "=")
+
+    -- getResults(limit) -> table
+    -- Retrieves results from the last search.
+    local results = getResults(10) -- Get up to 10 results
+    log("Found " .. #results .. " results for the value 100.")
+
+    if #results > 0 then
+        local firstResult = results[1]
+        local address = firstResult.address -- Address is a string
+        log("First result address: 0x" .. address)
+
+        -- readMemory(address, valueType) -> value
+        -- Reads a value from a specific memory address.
+        local value = readMemory(address, "int")
+        log("Value at 0x" .. address .. " is: " .. value)
+
+        -- writeMemory(address, value, valueType) -> boolean
+        -- Writes a value to a specific memory address.
+        log("Writing 250 to 0x" .. address)
+        local success = writeMemory(address, "250", "int")
+        if success then
+            log("Write successful.")
+            local newValue = readMemory(address, "int")
+            log("New value at 0x" .. address .. " is: " .. newValue)
+        else
+            log("Write failed.")
+        end
+
+        -- gotoAddress(address) -> table | nil
+        -- Jumps to a memory address, useful for pointer chains.
+        -- Example: "0x12345678+0x10"
+        log("Using gotoAddress for the first result...")
+        local gotoResult = gotoAddress(address)
+        if gotoResult then
+            log("gotoAddress result: address=0x" .. gotoResult.address .. ", value=" .. gotoResult.value)
+        end
+    end
+
+    -- clearResults()
+    -- Clears the current list of search results.
     clearResults()
+    log("Memory results cleared.")
+
 else
-    log("No process attached. Skipping memory operations.")
+    log("No process attached. Skipping Memory API demonstration.")
 end
 
 
 -- =================================================================================
--- HTTP & Data API (`LuaAPI`)
+-- 5. FREEZE API (`FreezeService`)
+-- Functions to repeatedly write a value to a memory address.
 -- =================================================================================
+log("--- 5. Freeze API ---")
+if pid and #getResults(1) > 0 then
+    local addressToFreeze = getResults(1)[1].address
+    log("Using address 0x" .. addressToFreeze .. " for freeze demo.")
 
-log("--- HTTP and Data Functions ---")
+    -- startFreeze(address, value, valueType, interval_ms) -> freezeId
+    -- Starts a freeze operation. Interval is optional (default 100ms).
+    log("Freezing value at 0x" .. addressToFreeze .. " to 999 every 200ms.")
+    local freezeId = startFreeze(addressToFreeze, "999", "int", 200)
 
--- Store a simple key-value pair.
-setData("myKey", "myValue")
-local retrievedValue = getData("myKey")
-log("Retrieved data from key 'myKey': " .. retrievedValue)
+    -- getActiveFreezes() -> table
+    -- Returns a list of all active freeze operations.
+    local activeFreezes = getActiveFreezes()
+    log("Number of active freezes: " .. #activeFreezes)
+    if #activeFreezes > 0 then
+        log("Active freeze ID: " .. activeFreezes[1].id)
+    end
 
--- Perform an HTTP GET request to a public API.
+    log("Freeze will run for 5 seconds...")
+    sleep(5000)
+
+    -- stopFreeze(freezeId) -> boolean
+    -- Stops a specific freeze operation by its ID.
+    local stopped = stopFreeze(freezeId)
+    if stopped then
+        log("Freeze operation " .. freezeId .. " stopped successfully.")
+    else
+        log("Failed to stop freeze " .. freezeId)
+    end
+
+    -- You can also start multiple freezes and stop them all at once.
+    local freeze1 = startFreeze(addressToFreeze, "111", "int")
+    local freeze2 = startFreeze(addressToFreeze, "222", "int")
+    log("Started two more freezes. Will stop all in 2 seconds.")
+    sleep(2000)
+    -- stopAllFreezes()
+    stopAllFreezes()
+    log("All freeze operations have been stopped.")
+else
+    log("Skipping Freeze API demo (no process or address).")
+end
+
+
+-- =================================================================================
+-- 6. HTTP & DATA API
+-- Functions for web requests and simple key-value data storage.
+-- =================================================================================
+log("--- 6. HTTP & Data API ---")
+
+-- setData(key, value) & getData(key)
+-- Store and retrieve simple string data that persists for the script's session.
+setData("mySessionKey", "Hello from HuntMemory!")
+local retrievedValue = getData("mySessionKey")
+log("Retrieved data for 'mySessionKey': " .. retrievedValue)
+
+-- httpGet(url) -> string | nil
+-- Performs an HTTP GET request and returns the response body as a string.
 log("Performing HTTP GET request...")
-local response = httpGet("https://jsonplaceholder.typicode.com/posts/1")
-if response then
-    log("HTTP GET Response received (first 50 chars): " .. string.sub(response, 1, 50))
+local responseGet = httpGet("https://jsonplaceholder.typicode.com/posts/1")
+if responseGet then
+    log("HTTP GET Response (first 50 chars): " .. string.sub(responseGet, 1, 50))
 else
     log("HTTP GET request failed.")
 end
 
+-- httpPost(url, data, contentType) -> string | nil
+-- Performs an HTTP POST request. contentType is optional.
+log("Performing HTTP POST request...")
+local postData = '{"title": "foo", "body": "bar", "userId": 1}'
+local responsePost = httpPost("https://jsonplaceholder.typicode.com/posts", postData, "application/json; charset=utf-8")
+if responsePost then
+    log("HTTP POST Response: " .. responsePost)
+else
+    log("HTTP POST request failed.")
+end
+
+-- downloadLuaFileAndExecute(url)
+-- Downloads a Lua script from a URL and executes it immediately.
+-- Be cautious with this function and only use trusted URLs.
+-- log("Demonstration for downloadLuaFileAndExecute is commented out for safety.")
+-- downloadLuaFileAndExecute("https://example.com/myscript.lua")
+
 log("Script finished.")
+showToast("Example script has finished running.")
