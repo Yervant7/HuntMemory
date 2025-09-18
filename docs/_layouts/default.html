@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page.title }} - HMemory Documentation</title>
+    <link rel="stylesheet" href="{{ "/style.css" | relative_url }}">
+</head>
+<body>
+    <div class="container">
+        <nav>
+            <ul>
+                <li><a href="{{ "/" | relative_url }}">Home</a></li>
+                <li><a href="{{ "/lua-api" | relative_url }}">Lua API</a></li>
+                <li><a href="{{ "/ui-components" | relative_url }}">UI Components</a></li>
+                <li><a href="{{ "/examples" | relative_url }}">Examples</a></li>
+                <li><a href="{{ "/best-practices" | relative_url }}">Best Practices</a></li>
+            </ul>
+        </nav>
+        
+        <main>
+            {{ content }}
+        </main>
+    </div>
+</body>
+</html>

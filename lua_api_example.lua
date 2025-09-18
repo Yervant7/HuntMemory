@@ -8,7 +8,8 @@ It covers the following modules:
 3.  Canvas API: Functions for drawing shapes and text on the screen overlay.
 4.  Memory API: Functions for searching, reading, and writing to a target process's memory.
 5.  Freeze API: Functions to "freeze" a memory value, repeatedly writing it at a set interval.
-6.  HTTP & Data API: Functions for making HTTP requests and storing temporary data.
+6.  Thread Management API: Functions for creating and managing background threads.
+7.  HTTP & Data API: Functions for making HTTP requests and storing temporary data.
 
 Each section is clearly marked and contains explanations for each function.
 --]]
@@ -17,7 +18,7 @@ Each section is clearly marked and contains explanations for each function.
 -- 1. UTILITY FUNCTIONS
 -- These are general-purpose helper functions.
 -- =================================================================================
-log("HuntMemory Lua API example script started.")
+log("info", "HuntMemory Lua API example script started.")
 showToast("Welcome to the HuntMemory Lua API!")
 
 -- sleep(milliseconds)
@@ -138,6 +139,26 @@ local circlePaint = { color = "#FF00BFFF", strokeWidth = 5, style = "STROKE" }
 local circleId = canvas.drawCircle(screenWidth / 2, screenHeight / 2, 150, circlePaint)
 log("Drew a circle with ID: " .. circleId)
 
+-- canvas.updatePosition(id, x, y) -> success
+-- Updates the position of a drawing element.
+local positionUpdated = canvas.updatePosition(textId, 100, 500)
+log("Text position updated: " .. tostring(positionUpdated))
+
+-- canvas.updateColor(id, color) -> success
+-- Updates the color of a drawing element.
+local colorUpdated = canvas.updateColor(rectId, "#FFFF00FF") -- Purple
+log("Rectangle color updated: " .. tostring(colorUpdated))
+
+-- canvas.hasDrawing(id) -> boolean
+-- Checks if a drawing with the given ID exists.
+local hasLine = canvas.hasDrawing(lineId)
+log("Line exists: " .. tostring(hasLine))
+
+-- canvas.getDrawingsCount() -> number
+-- Gets the total number of drawings on the canvas.
+local drawingCount = canvas.getDrawingsCount()
+log("Number of drawings: " .. drawingCount)
+
 -- canvas.remove(id)
 -- Removes a specific drawing from the canvas.
 sleep(4000) -- Wait 4 seconds
@@ -145,6 +166,21 @@ canvas.remove(lineId)
 log("Removed the diagonal line.")
 canvas.remove(rectId)
 log("Removed the rectangle.")
+
+-- getCanvasStats() -> table
+-- Gets performance statistics for the canvas.
+local canvasStats = getCanvasStats()
+log("Canvas stats retrieved")
+
+-- clearCanvasStats() -> string
+-- Clears canvas performance statistics.
+local clearStatsResult = clearCanvasStats()
+log(clearStatsResult)
+
+-- cleanupCanvas() -> string
+-- Cleans up all canvas resources.
+local cleanupResult = cleanupCanvas()
+log(cleanupResult)
 
 
 -- =================================================================================
@@ -212,6 +248,15 @@ if pid then
         if gotoResult then
             log("gotoAddress result: address=0x" .. gotoResult.address .. ", value=" .. gotoResult.value)
         end
+
+        -- dereferencePointer(address) -> table | nil
+        -- Reads a pointer value from memory and returns the address it points to.
+        -- Useful for following pointer chains in games.
+        log("Dereferencing pointer at address: 0x" .. address)
+        local derefResult = dereferencePointer(address)
+        if derefResult then
+            log("Pointer 0x" .. derefResult.pointer .. " points to address: 0x" .. derefResult.value)
+        end
     end
 
     -- clearResults()
@@ -272,10 +317,79 @@ end
 
 
 -- =================================================================================
--- 6. HTTP & DATA API
+-- 6. THREAD MANAGEMENT API
+-- Functions for creating and managing background threads.
+-- =================================================================================
+log("--- 6. Thread Management API ---")
+
+-- createThread(name, function, interval, isRepeating, delay) -> threadId
+-- Creates a new thread that executes the given Lua function.
+local function myThreadFunction()
+    log("Thread function executed at: " .. os.date())
+end
+
+local threadId = createThread("MyThread", "myThreadFunction()", 2000, true, 1000)
+log("Created thread with ID: " .. threadId)
+
+-- getActiveThreads() -> table
+-- Gets information about all active threads.
+local activeThreads = getActiveThreads()
+log("Number of active threads: " .. #activeThreads)
+
+-- getThreadExecutionCount(threadId) -> number
+-- Gets the number of times a thread has been executed.
+sleep(3000) -- Wait for thread to execute
+local executionCount = getThreadExecutionCount(threadId)
+log("Thread execution count: " .. executionCount)
+
+-- pauseThread(threadId) -> boolean
+-- Pauses a thread.
+local paused = pauseThread(threadId)
+log("Thread paused: " .. tostring(paused))
+
+-- resumeThread(threadId) -> boolean
+-- Resumes a paused thread.
+sleep(2000)
+local resumed = resumeThread(threadId)
+log("Thread resumed: " .. tostring(resumed))
+
+-- isThreadPaused(threadId) -> boolean
+-- Checks if a thread is currently paused.
+local isPaused = isThreadPaused(threadId)
+log("Thread is paused: " .. tostring(isPaused))
+
+-- getThreadStats() -> table
+-- Gets detailed statistics about thread management.
+local threadStats = getThreadStats()
+log("Thread stats retrieved")
+
+-- forceGarbageCollection() -> string
+-- Forces garbage collection to free up memory.
+local gcResult = forceGarbageCollection()
+log(gcResult)
+
+-- cleanupInactiveThreads() -> string
+-- Cleans up inactive threads.
+local cleanupResult = cleanupInactiveThreads()
+log(cleanupResult)
+
+-- stopThread(threadId) -> boolean
+-- Stops a specific thread.
+sleep(3000)
+local stopped = stopThread(threadId)
+log("Thread stopped: " .. tostring(stopped))
+
+-- stopAllThreads()
+-- Stops all threads.
+stopAllThreads()
+log("All threads stopped")
+
+
+-- =================================================================================
+-- 7. HTTP & DATA API
 -- Functions for web requests and simple key-value data storage.
 -- =================================================================================
-log("--- 6. HTTP & Data API ---")
+log("--- 7. HTTP & Data API ---")
 
 -- setData(key, value) & getData(key)
 -- Store and retrieve simple string data that persists for the script's session.
@@ -310,5 +424,11 @@ end
 -- log("Demonstration for downloadLuaFileAndExecute is commented out for safety.")
 -- downloadLuaFileAndExecute("https://example.com/myscript.lua")
 
+-- clearData() -> string
+-- Clears all stored data.
+local clearDataResult = clearData()
+log(clearDataResult)
+
 log("Script finished.")
 showToast("Example script has finished running.")
+--- End of content ---
