@@ -12,10 +12,10 @@ Welcome to the HuntMemory documentation. HuntMemory is a powerful Android applic
 1. [Introduction](#introduction)
 2. [Getting Started](#getting-started)
 3. [User Interface Overview](#user-interface-overview)
-4. [Lua API Reference](lua-api.md)
-5. [UI Components](ui-components.md)
-6. [Usage Examples](examples.md)
-7. [Best Practices](best-practices.md)
+4. [Lua API Reference](/HuntMemory/lua-api)
+5. [UI Components](/HuntMemory/ui-components)
+6. [Usage Examples](/HuntMemory/examples)
+7. [Best Practices](/HuntMemory/best-practices)
 
 ## Introduction
 

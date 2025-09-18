@@ -1,3 +1,4 @@
 theme: jekyll-theme-minimal
 title: HuntMemory Documentation
-description: Documentation for the HMemory Android app for memory analysis and manipulation
+description: Documentation for the HuntMemory Android app for memory analysis and manipulation
+baseurl: "/HuntMemory"

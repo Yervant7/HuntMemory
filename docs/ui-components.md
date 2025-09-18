@@ -113,4 +113,4 @@ The Dynamic Menu is a floating UI that can be created and managed through Lua sc
 - **Sliders**: Adjust numeric values within a range
 
 ### Usage
-Dynamic menus are created and managed entirely through the Lua API. See the [Lua API Reference](lua-api.md) for details on creating and managing menu components.
+Dynamic menus are created and managed entirely through the Lua API. See the [Lua API Reference](/HuntMemory/lua-api) for details on creating and managing menu components.
