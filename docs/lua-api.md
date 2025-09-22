@@ -21,6 +21,7 @@ The Lua API in HuntMemory provides a powerful scripting interface for automating
 
 ### `log(level, message)`
 Logs a message to the application's log output.
+- `filename` : String - filename for log saved in /data/local/tmp/huntmem
 - `level`: String - Log level ("debug", "info", "warn", "error")
 - `message`: String - Message to log
 

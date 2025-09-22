@@ -19,6 +19,7 @@ Each section is clearly marked and contains explanations for each function.
 -- These are general-purpose helper functions.
 -- =================================================================================
 log("info", "HuntMemory Lua API example script started.")
+log("filename.txt", "info", "This is a log message written in an file.")) -- Log to a file on /data/local/tmp/huntmem
 showToast("Welcome to the HuntMemory Lua API!")
 
 -- sleep(milliseconds)
