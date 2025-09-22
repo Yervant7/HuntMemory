@@ -3,19 +3,24 @@ layout: default
 title: Home
 ---
 
-# HMemory Documentation
+# HuntMemory Documentation
 
 Welcome to the HuntMemory documentation. HuntMemory is a powerful Android application for memory analysis and manipulation, primarily used for debugging purposes.
+
+## [Download Page](https://github.com/Yervant7/HuntMemory)
+
+## HuntMemory is not undetectable by default, if you need it, ask in the [group](https://t.me/huntMemory7).
 
 ## Table of Contents
 
 1. [Introduction](#introduction)
 2. [Getting Started](#getting-started)
 3. [User Interface Overview](#user-interface-overview)
-4. [Lua API Reference](/HuntMemory/lua-api)
-5. [UI Components](/HuntMemory/ui-components)
-6. [Usage Examples](/HuntMemory/examples)
-7. [Best Practices](/HuntMemory/best-practices)
+4. [Learning Purpose](#learning-purpose)
+5. [Lua API Reference](/HuntMemory/lua-api)
+6. [UI Components](/HuntMemory/ui-components)
+7. [Usage Examples](/HuntMemory/examples)
+8. [Best Practices](/HuntMemory/best-practices)
 
 ## Introduction
 
@@ -50,3 +55,7 @@ HuntMemory features a tab-based interface with the following main components:
 - **Settings**: Configure memory scanning regions and preferences
 
 Each component is designed to work together seamlessly to provide a complete memory analysis environment.
+
+## Learning purpose
+
+ESP Script [example](https://github.com/Yervant7/HuntMemory/blob/closed/ESP_EXAMPLE.lua)
