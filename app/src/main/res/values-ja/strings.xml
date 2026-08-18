@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Hunt Memory</string>
+    <string name="ok">OK</string>
+
+    <!-- MainActivity -->
+    <string name="main_activity_permission_overlay_denied">オーバーレイ表示の権限が拒否されました。</string>
+    <string name="main_activity_error_root_access_missing">エラー: ルート権限がありません。</string>
+
+    <!-- Main Screen -->
+    <string name="main_screen_tab_main">メイン</string>
+    <string name="main_screen_overview_title">システムエンジンの概要</string>
+    <string name="main_screen_status_root_access">Rootアクセス</string>
+    <string name="main_screen_status_root_granted">許可済み (su)</string>
+    <string name="main_screen_status_root_missing">未検出 / 拒否</string>
+    <string name="main_screen_status_root_checking">確認中…</string>
+    <string name="main_screen_status_kernelpatch">HM-KPM</string>
+    <string name="main_screen_hmkpm_available">HMKPM 準備完了</string>
+    <string name="main_screen_hmkpm_not_available">未検出</string>
+    <string name="main_screen_hmkpm_checking">確認中…</string>
+    <string name="main_screen_hmkpm_refresh_button">HMKPMステータスを更新</string>
+    <string name="main_screen_status_overlay_engine">オーバーレイエンジン</string>
+    <string name="main_screen_status_overlay_active">実行中 (アクティブ)</string>
+    <string name="main_screen_status_overlay_inactive">非アクティブ</string>
+    <string name="main_screen_status_overlay_permission_granted">権限許可済み</string>
+    <string name="main_screen_status_overlay_permission_missing">権限なし</string>
+    <string name="main_screen_status_target_process">ターゲットプロセス</string>
+    <string name="main_screen_status_target_none">アタッチなし</string>
+    <string name="main_screen_status_target_pid">PID: %1$d</string>
+    <string name="main_screen_start_hunting_button">ハント開始</string>
+    <string name="main_screen_stop_hunting_button">ハント停止</string>
+    <string name="main_screen_official_channel">公式チャンネル</string>
+    <string name="main_screen_website">ウェブサイト</string>
+    <string name="main_screen_source_code">ソースコード</string>
+    <string name="main_screen_change_language_button">言語を変更</string>
+    <string name="main_screen_system_default_dropdown">システムデフォルト</string>
+    <string name="main_screen_refresh_cd">更新</string>
+
+    <!-- Overlay Service & UI -->
+    <string name="overlay_service_notification_channel_name">オーバーレイサービス</string>
+    <string name="overlay_service_notification_text">オーバーレイを実行中です。</string>
+    <string name="overlay_ui_open_menu_icon_description">メニューを開く</string>
+    <string name="overlay_ui_close_menu_icon_description">メニューを閉じる</string>
+    <string name="overlay_ui_select_target">ターゲット選択</string>
+    <string name="overlay_ui_target_pid">PID: %1$d</string>
+    <string name="overlay_ui_processes_tab">プロセス</string>
+    <string name="overlay_ui_memory_tab">メモリ</string>
+    <string name="overlay_ui_editor_tab">エディタ</string>
+    <string name="overlay_ui_settings_tab_and_title">設定</string>
+    <string name="overlay_ui_dialog_ok_button">OK</string>
+    <string name="overlay_ui_dialog_cancel_button">キャンセル</string>
+    <string name="overlay_ui_dialog_confirm_button">確認</string>
+
+    <!-- Address Table -->
+    <string name="address_table_empty_placeholder">保存されたアドレスはまだありません。\nメモリタブの結果をタップしてここに追加してください。</string>
+    <string name="address_table_delete_address_dialog_title">アドレスを削除</string>
+    <string name="address_table_delete_address_dialog_message">このアドレスをリストから削除しますか？</string>
+    <string name="address_table_edit_value_dialog_title">値を編集</string>
+    <string name="address_table_delete_all_button">すべて削除</string>
+    <string name="address_table_delete_all_addresses_dialog_title">すべてのアドレスを削除</string>
+    <string name="address_table_delete_all_warning_message">保存されたすべてのアドレスを削除してもよろしいですか？</string>
+    <string name="address_table_edit_all_button">すべて編集</string>
+    <string name="address_table_edit_all_values_dialog_title">すべての値を編集</string>
+    <string name="address_table_freeze_all_button">すべて固定</string>
+    <string name="address_table_freeze_all_values_dialog_title">すべての値を固定</string>
+    <string name="address_table_unfreeze_all_button">固定解除</string>
+    <string name="address_table_header_address">アドレス</string>
+    <string name="address_table_header_type">タイプ</string>
+    <string name="address_table_header_value">値</string>
+    <string name="address_table_header_freeze">固定</string>
+    <string name="address_table_error_dialog_title">エラー</string>
+    <string name="address_table_no_process_attached_error">アタッチされたプロセスがありません。</string>
+    <string name="address_table_process_not_running_error">選択したプロセスは実行されていません。</string>
+    <string name="address_table_info_dialog_title">情報</string>
+    <string name="address_table_process_changed_info">プロセスが変更されました。アドレスリストをクリアしています…</string>
+
+    <!-- Hunt Settings -->
+    <string name="hunt_settings_memory_regions_title">メモリ領域</string>
+    <string name="hunt_settings_show_advanced_options">詳細オプションを表示</string>
+    <string name="hunt_settings_hide_advanced_options">詳細オプションを非表示</string>
+    <string name="hunt_settings_req_read">読み取り必須</string>
+    <string name="hunt_settings_req_write">書き込み必須</string>
+    <string name="hunt_settings_inc_swapped">Swappedを含める</string>
+    <string name="hunt_settings_min_size_label">最小サイズ (バイト)</string>
+    <string name="hunt_settings_custom_filter_label">カスタムフィルタ</string>
+    <string name="hunt_settings_save_button">保存</string>
+    <string name="hunt_settings_region_details_name_header">名前</string>
+    <string name="hunt_settings_region_details_perm_header">権限</string>
+    <string name="hunt_settings_region_details_start_header">開始</string>
+    <string name="hunt_settings_region_details_end_header">終了</string>
+    <string name="hunt_settings_no_memory_entries_found">この領域のメモリエントリが見つかりませんでした。</string>
+    <plurals name="hunt_settings_and_more_entries_label">
+        <item quantity="other">… 他 %d 件のエントリ</item>
+    </plurals>
+
+    <!-- Memory Menu -->
+    <string name="memory_menu_default_tab_title">検索 %1$d</string>
+    <string name="memory_menu_close_tab_cd">タブを閉じる</string>
+    <string name="memory_menu_add_tab_cd">タブを追加</string>
+    <string name="memory_menu_no_tabs_message">検索を追加して開始してください</string>
+    <string name="memory_menu_no_matches_placeholder">一致する結果がありません。\n検索値を入力して検索をタップしてください。</string>
+    <string name="memory_menu_status_no_matches">0 件の一致</string>
+    <string name="memory_menu_error_dialog_title">エラー</string>
+    <string name="memory_menu_no_process_attached_error">アタッチされたプロセスがありません。</string>
+    <string name="memory_menu_process_not_exist_error">選択したプロセスはもう存在しません。</string>
+    <string name="memory_menu_info_dialog_title">情報</string>
+    <string name="memory_menu_process_changed_info">プロセスが変更されました。検索結果をクリアしています…</string>
+    <string name="memory_menu_added_to_address_table_snackbar">%1$s をアドレステーブルに追加しました</string>
+    <string name="memory_menu_added_all_to_address_table_snackbar">すべての一致をアドレステーブルに追加しました。</string>
+    <string name="memory_menu_copy_all_button">すべてコピー</string>
+    <string name="memory_menu_match_item_value_label">値: %1$s</string>
+    <string name="memory_menu_scan_settings_title">検索設定</string>
+    <string name="memory_menu_scan_value_label">検索値</string>
+    <string name="memory_menu_scan_value_placeholder">ターゲット値を入力…</string>
+    <string name="memory_menu_goto_button">移動</string>
+    <string name="memory_menu_operator_dropdown_label">演算子</string>
+    <string name="memory_menu_value_type_dropdown_label">値の型</string>
+    <string name="memory_menu_type_label_prefix">タイプ: %1$s</string>
+    <string name="memory_menu_types_selected_count">%1$d / %2$d 選択済み</string>
+    <string name="memory_menu_value_types_all">すべて</string>
+    <string name="memory_menu_value_types_none">選択なし</string>
+    <string name="memory_menu_select_types_cd">データ型を選択</string>
+    <string name="memory_menu_select_types_dialog_title">データ型を選択</string>
+    <string name="memory_menu_type_all_uppercase">すべて (ALL)</string>
+    <string name="memory_menu_type_byte">Byte (1 バイト / 8-bit)</string>
+    <string name="memory_menu_type_short">Short (2 バイト / 16-bit)</string>
+    <string name="memory_menu_type_float16">Float16 (2 バイト / 半精度)</string>
+    <string name="memory_menu_type_int">Int (4 バイト / 32-bit)</string>
+    <string name="memory_menu_type_long">Long (8 バイト / 64-bit)</string>
+    <string name="memory_menu_type_float">Float (4 バイト / 単精度)</string>
+    <string name="memory_menu_type_double">Double (8 バイト / 倍精度)</string>
+    <string name="memory_menu_type_bigdouble">BigDouble (仮数 / 指数)</string>
+    <string name="memory_menu_type_obscured_int">Obscured Int (ACTk XOR-32)</string>
+    <string name="memory_menu_type_obscured_float">Obscured Float (ACTk XOR-Float)</string>
+    <string name="memory_menu_syntax_help_title">検索テクニック &amp; 構文ヘルプ</string>
+    <string name="memory_menu_syntax_help_button_cd">検索構文ヘルプ</string>
+    <string name="memory_menu_syntax_help_text"><b>1. 仮数 / 指数 (科学 / BigDouble):</b>\n• <i>1.5e6</i> または <i>1.5,6</i> または <i>1.5:6</i>\n• 型: BigDoubleを選択または <i>bigdouble:1.5,6</i> を入力\n\n<b>2. 暗号化値 (アンチチート XOR):</b>\n• Obscured Int または Obscured Float を選択\n• またはプレフィックス: <i>xor:1000</i> または <i>obscured:1000</i>\n\n<b>3. 浮動小数点許容値 / イプシロン:</b>\n• 絶対マージン: <i>100.0 +- 0.5</i>\n• 割合マージン: <i>100 +- 2%</i>\n\n<b>4. スケーリングされた固定小数点:</b>\n• 乗数式: <i>10.5 * 1000</i> (10500 を検索)\n• またはプレフィックス: <i>scaled:10.5:1000</i>\n\n<b>5. 異種構造体グループ:</b>\n• 混合型: <i>f64:1.5; i64:6 : 16</i>\n• または: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_new_scan_button">新規スキャン</string>
+    <string name="memory_menu_new_search_button_initial">新規検索</string>
+    <string name="memory_menu_refine_button">絞り込み</string>
+    <plurals name="memory_menu_status_full">
+        <item quantity="other">%d 件の一致</item>
+    </plurals>
+    <plurals name="memory_menu_status_full_with_showing">
+        <item quantity="other">%d 件の一致 (%d 件表示)</item>
+    </plurals>
+
+    <!-- Process Menu -->
+    <string name="process_menu_attached_process_none">なし</string>
+    <string name="process_menu_attached_process_label">アタッチされたプロセス</string>
+    <string name="process_menu_search_processes_label">プロセスを検索</string>
+    <string name="process_menu_search_icon_description">検索</string>
+    <string name="process_menu_refresh_icon_description">更新</string>
+    <string name="process_menu_item_attached_icon_description">アタッチ済み</string>
+    <string name="process_menu_detach_cd">デタッチ</string>
+    <string name="process_menu_no_processes_found_message">プロセスが見つかりません</string>
+
+    <!-- Virtual Keyboard -->
+    <string name="keyboard_hide_cd">キーボードを非表示</string>
+    <string name="keyboard_space">スペース</string>
+
+    <!-- Disclaimer Screen -->
+    <string name="disclaimer_title">免責事項</string>
+    <string name="disclaimer_text">HuntMemory へようこそ。\n\nこれは、独自のアプリケーションおよびプロセスにおける開発、デバッグ、学習を目的としたメモリ読み取りおよび編集ツールです。\n\nオンライン ゲームでの不正行為、他のアプリケーションの不正変更、第三者の利用規約または現行法に違反するその他の行為など、違法な活動にこのアプリケーションを使用することは固く禁じられています。\n\n続行することにより、お客様はご自身の行動に対して全責任を負うことを認め、同意したものとみなされます。このアプリケーションの開発者は、このツールの使用に起因するいかなる誤用、損害、または悪影響についても責任を負いません。</string>
+    <string name="disclaimer_accept_button">同意して続行</string>
+    <string name="disclaimer_scroll_down_hint">下にスクロールして続きを読む</string>
+
+    <!-- Credits & Open Source Licenses -->
+    <string name="credits_title">クレジット &amp; オープンソース</string>
+    <string name="credits_subtitle">サードパーティライブラリ、クレート &amp; ネイティブアーキテクチャ</string>
+    <string name="credits_back_button_cd">戻る</string>
+    <string name="credits_search_placeholder">依存関係、クレート、ライセンスを検索…</string>
+    <string name="credits_clear_search_cd">検索をクリア</string>
+    <string name="credits_category_all">すべて</string>
+    <string name="credits_category_kotlin_android">Android &amp; Kotlin</string>
+    <string name="credits_category_rust_core">Rust コア</string>
+    <string name="credits_category_kernel_system">カーネル &amp; システム</string>
+    <string name="credits_empty_search">一致する依存関係は見つかりませんでした。</string>
+    <string name="credits_view_source_button">ソース</string>
+    <string name="credits_copy_url_cd">リンクをコピー</string>
+    <string name="credits_url_copied">クリップボードにリンクをコピーしました</string>
+    <string name="credits_open_url_failed">Web ブラウザを開けませんでした。</string>
+    <string name="credits_footer_disclaimer">HuntMemory は GNU General Public License v3.0 (GPL-3.0-or-later) に基づいて配布されるオープンソースソフトウェアです。すべてのサードパーティコンポーネントはそれぞれのオープンソースライセンスの下で使用されています。</string>
+    <string name="main_screen_credits_button_cd">クレジット &amp; オープンソース</string>
+    <string name="main_screen_credits_link">クレジット &amp; ライセンス</string>
+</resources>

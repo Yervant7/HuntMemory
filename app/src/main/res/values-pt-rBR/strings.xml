@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Hunt Memory</string>
+    <string name="ok">OK</string>
+
+    <!-- MainActivity -->
+    <string name="main_activity_permission_overlay_denied">Permissão para exibir sobreposição foi negada.</string>
+    <string name="main_activity_error_root_access_missing">Erro: Acesso root ausente.</string>
+
+    <!-- Main Screen -->
+    <string name="main_screen_tab_main">Principal</string>
+    <string name="main_screen_overview_title">VISÃO GERAL DO MOTOR</string>
+    <string name="main_screen_status_root_access">Acesso Root</string>
+    <string name="main_screen_status_root_granted">Concedido (su)</string>
+    <string name="main_screen_status_root_missing">Ausente / Negado</string>
+    <string name="main_screen_status_root_checking">Verificando…</string>
+    <string name="main_screen_status_kernelpatch">HM-KPM</string>
+    <string name="main_screen_hmkpm_available">HMKPM Pronto</string>
+    <string name="main_screen_hmkpm_not_available">Não Detectado</string>
+    <string name="main_screen_hmkpm_checking">Verificando…</string>
+    <string name="main_screen_hmkpm_refresh_button">Atualizar status do HMKPM</string>
+    <string name="main_screen_status_overlay_engine">Motor de Sobreposição</string>
+    <string name="main_screen_status_overlay_active">Executando (Ativo)</string>
+    <string name="main_screen_status_overlay_inactive">Inativo</string>
+    <string name="main_screen_status_overlay_permission_granted">Permissão Concedida</string>
+    <string name="main_screen_status_overlay_permission_missing">Sem Permissão</string>
+    <string name="main_screen_status_target_process">Processo Alvo</string>
+    <string name="main_screen_status_target_none">Nenhum Anexado</string>
+    <string name="main_screen_status_target_pid">PID: %1$d</string>
+    <string name="main_screen_start_hunting_button">Iniciar Caçada</string>
+    <string name="main_screen_stop_hunting_button">Parar Caçada</string>
+    <string name="main_screen_official_channel">Canal Oficial</string>
+    <string name="main_screen_website">Website</string>
+    <string name="main_screen_source_code">Código Fonte</string>
+    <string name="main_screen_change_language_button">Mudar Idioma</string>
+    <string name="main_screen_system_default_dropdown">Padrão do Sistema</string>
+    <string name="main_screen_refresh_cd">Atualizar</string>
+
+    <!-- Overlay Service & UI -->
+    <string name="overlay_service_notification_channel_name">Serviço de Sobreposição</string>
+    <string name="overlay_service_notification_text">A sobreposição está em execução.</string>
+    <string name="overlay_ui_open_menu_icon_description">Abrir Menu</string>
+    <string name="overlay_ui_close_menu_icon_description">Fechar Menu</string>
+    <string name="overlay_ui_select_target">Selecionar Alvo</string>
+    <string name="overlay_ui_target_pid">PID: %1$d</string>
+    <string name="overlay_ui_processes_tab">Processos</string>
+    <string name="overlay_ui_memory_tab">Memória</string>
+    <string name="overlay_ui_editor_tab">Editor</string>
+    <string name="overlay_ui_settings_tab_and_title">Configurações</string>
+    <string name="overlay_ui_dialog_ok_button">OK</string>
+    <string name="overlay_ui_dialog_cancel_button">Cancelar</string>
+    <string name="overlay_ui_dialog_confirm_button">Confirmar</string>
+
+    <!-- Address Table -->
+    <string name="address_table_empty_placeholder">Nenhum endereço salvo ainda.\nToque nos resultados na aba Memória para adicioná-los aqui.</string>
+    <string name="address_table_delete_address_dialog_title">Excluir Endereço</string>
+    <string name="address_table_delete_address_dialog_message">Excluir este endereço da lista?</string>
+    <string name="address_table_edit_value_dialog_title">Editar Valor</string>
+    <string name="address_table_delete_all_button">Excluir Tudo</string>
+    <string name="address_table_delete_all_addresses_dialog_title">Excluir Todos os Endereços</string>
+    <string name="address_table_delete_all_warning_message">Tem certeza de que deseja excluir todos os endereços salvos?</string>
+    <string name="address_table_edit_all_button">Editar Tudo</string>
+    <string name="address_table_edit_all_values_dialog_title">Editar Todos os Valores</string>
+    <string name="address_table_freeze_all_button">Congelar Tudo</string>
+    <string name="address_table_freeze_all_values_dialog_title">Congelar Todos os Valores</string>
+    <string name="address_table_unfreeze_all_button">Descongelar</string>
+    <string name="address_table_header_address">Endereço</string>
+    <string name="address_table_header_type">Tipo</string>
+    <string name="address_table_header_value">Valor</string>
+    <string name="address_table_header_freeze">Congelar</string>
+    <string name="address_table_error_dialog_title">Erro</string>
+    <string name="address_table_no_process_attached_error">Nenhum processo anexado.</string>
+    <string name="address_table_process_not_running_error">O processo selecionado não está mais em execução.</string>
+    <string name="address_table_info_dialog_title">Informação</string>
+    <string name="address_table_process_changed_info">O processo mudou. Limpando a lista de endereços…</string>
+
+    <!-- Hunt Settings -->
+    <string name="hunt_settings_memory_regions_title">Regiões de Memória</string>
+    <string name="hunt_settings_show_advanced_options">Mostrar Opções Avançadas</string>
+    <string name="hunt_settings_hide_advanced_options">Ocultar Opções Avançadas</string>
+    <string name="hunt_settings_req_read">Exigir Leitura</string>
+    <string name="hunt_settings_req_write">Exigir Escrita</string>
+    <string name="hunt_settings_inc_swapped">Incluir Swapped</string>
+    <string name="hunt_settings_min_size_label">Tamanho Mínimo (bytes)</string>
+    <string name="hunt_settings_custom_filter_label">Filtro Personalizado</string>
+    <string name="hunt_settings_save_button">Salvar</string>
+    <string name="hunt_settings_region_details_name_header">Nome</string>
+    <string name="hunt_settings_region_details_perm_header">Permissão</string>
+    <string name="hunt_settings_region_details_start_header">Início</string>
+    <string name="hunt_settings_region_details_end_header">Fim</string>
+    <string name="hunt_settings_no_memory_entries_found">Nenhuma entrada de memória encontrada para esta região.</string>
+    <plurals name="hunt_settings_and_more_entries_label">
+        <item quantity="one">… e mais %d entrada</item>
+        <item quantity="many">… e mais %d entradas</item>
+        <item quantity="other">… e mais %d entradas</item>
+    </plurals>
+
+    <!-- Memory Menu -->
+    <string name="memory_menu_default_tab_title">Busca %1$d</string>
+    <string name="memory_menu_close_tab_cd">Fechar Aba</string>
+    <string name="memory_menu_add_tab_cd">Adicionar Aba</string>
+    <string name="memory_menu_no_tabs_message">Adicione uma busca para começar</string>
+    <string name="memory_menu_no_matches_placeholder">Nenhum resultado encontrado.\nInsira o valor alvo e toque em Buscar.</string>
+    <string name="memory_menu_status_no_matches">0 resultados</string>
+    <string name="memory_menu_error_dialog_title">Erro</string>
+    <string name="memory_menu_no_process_attached_error">Nenhum processo anexado.</string>
+    <string name="memory_menu_process_not_exist_error">O processo selecionado não existe mais.</string>
+    <string name="memory_menu_info_dialog_title">Informação</string>
+    <string name="memory_menu_process_changed_info">O processo mudou. Limpando os resultados da busca…</string>
+    <string name="memory_menu_added_to_address_table_snackbar">%1$s adicionado à Tabela de Endereços</string>
+    <string name="memory_menu_added_all_to_address_table_snackbar">Todos os resultados foram adicionados à Tabela de Endereços.</string>
+    <string name="memory_menu_copy_all_button">Copiar Tudo</string>
+    <string name="memory_menu_match_item_value_label">Valor: %1$s</string>
+    <string name="memory_menu_scan_settings_title">Configurações de Busca</string>
+    <string name="memory_menu_scan_value_label">Valor da Busca</string>
+    <string name="memory_menu_scan_value_placeholder">Insira o valor alvo…</string>
+    <string name="memory_menu_goto_button">Ir</string>
+    <string name="memory_menu_operator_dropdown_label">Operador</string>
+    <string name="memory_menu_value_type_dropdown_label">Tipo de Valor</string>
+    <string name="memory_menu_type_label_prefix">Tipo: %1$s</string>
+    <string name="memory_menu_types_selected_count">%1$d / %2$d selecionados</string>
+    <string name="memory_menu_value_types_all">TODOS</string>
+    <string name="memory_menu_value_types_none">Nenhum selecionado</string>
+    <string name="memory_menu_select_types_cd">Selecionar tipos de dados</string>
+    <string name="memory_menu_select_types_dialog_title">Selecionar Tipos de Dados</string>
+    <string name="memory_menu_type_all_uppercase">TODOS (ALL)</string>
+    <string name="memory_menu_type_byte">Byte (1 Byte / 8-bit)</string>
+    <string name="memory_menu_type_short">Short (2 Bytes / 16-bit)</string>
+    <string name="memory_menu_type_float16">Float16 (2 Bytes / Half-Float)</string>
+    <string name="memory_menu_type_int">Int (4 Bytes / 32-bit)</string>
+    <string name="memory_menu_type_long">Long (8 Bytes / 64-bit)</string>
+    <string name="memory_menu_type_float">Float (4 Bytes / Single)</string>
+    <string name="memory_menu_type_double">Double (8 Bytes / Double)</string>
+    <string name="memory_menu_type_bigdouble">BigDouble (Mantissa / Expoente)</string>
+    <string name="memory_menu_type_obscured_int">Obscured Int (ACTk XOR-32)</string>
+    <string name="memory_menu_type_obscured_float">Obscured Float (ACTk XOR-Float)</string>
+    <string name="memory_menu_syntax_help_title">Técnicas de Busca &amp; Sintaxe</string>
+    <string name="memory_menu_syntax_help_button_cd">Ajuda de sintaxe de busca</string>
+    <string name="memory_menu_syntax_help_text"><b>1. Mantissa / Expoente (Notação Científica / BigDouble):</b>\n• <i>1.5e6</i> ou <i>1.5,6</i> ou <i>1.5:6</i>\n• Tipo: Selecione BigDouble ou use <i>bigdouble:1.5,6</i>\n\n<b>2. Valores Ofuscados (Anti-Cheat XOR):</b>\n• Selecione Obscured Int ou Obscured Float\n• Ou use o prefixo: <i>xor:1000</i> ou <i>obscured:1000</i>\n\n<b>3. Tolerância de Float / Epsilon:</b>\n• Margem absoluta: <i>100.0 +- 0.5</i>\n• Margem percentual: <i>100 +- 2%</i>\n\n<b>4. Ponto Fixo Escalonado:</b>\n• Fórmula com multiplicador: <i>10.5 * 1000</i> (busca 10500)\n• Ou prefixo: <i>scaled:10.5:1000</i>\n\n<b>5. Grupo Heterogêneo de Estruturas:</b>\n• Tipos mistos: <i>f64:1.5; i64:6 : 16</i>\n• Ou: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_new_scan_button">Nova Busca</string>
+    <string name="memory_menu_new_search_button_initial">Nova Busca</string>
+    <string name="memory_menu_refine_button">Refinar</string>
+    <plurals name="memory_menu_status_full">
+        <item quantity="one">%d resultado</item>
+        <item quantity="many">%d resultados</item>
+        <item quantity="other">%d resultados</item>
+    </plurals>
+    <plurals name="memory_menu_status_full_with_showing">
+        <item quantity="one">%d resultado (exibindo %d)</item>
+        <item quantity="many">%d resultados (exibindo %d)</item>
+        <item quantity="other">%d resultados (exibindo %d)</item>
+    </plurals>
+
+    <!-- Process Menu -->
+    <string name="process_menu_attached_process_none">Nenhum</string>
+    <string name="process_menu_attached_process_label">Processo Anexado</string>
+    <string name="process_menu_search_processes_label">Buscar processos</string>
+    <string name="process_menu_search_icon_description">Buscar</string>
+    <string name="process_menu_refresh_icon_description">Atualizar</string>
+    <string name="process_menu_item_attached_icon_description">Anexado</string>
+    <string name="process_menu_detach_cd">Desanexar</string>
+    <string name="process_menu_no_processes_found_message">Nenhum processo encontrado</string>
+
+    <!-- Virtual Keyboard -->
+    <string name="keyboard_hide_cd">Ocultar Teclado</string>
+    <string name="keyboard_space">ESPAÇO</string>
+
+    <!-- Disclaimer Screen -->
+    <string name="disclaimer_title">Aviso de Isenção de Responsabilidade</string>
+    <string name="disclaimer_text">Bem-vindo ao HuntMemory.\n\nEsta é uma ferramenta de leitura e edição de memória destinada a fins de desenvolvimento, depuração e aprendizado em seus próprios aplicativos e processos.\n\nÉ estritamente proibido o uso deste aplicativo para atividades ilegais, como trapaças em jogos online, modificação não autorizada de outros aplicativos ou qualquer outra ação que viole os termos de serviço de terceiros ou a legislação vigente.\n\nAo continuar, você reconhece e concorda que é o único responsável por suas ações. Os desenvolvedores deste aplicativo não se responsabilizam por qualquer uso indevido, dano ou consequência negativa resultante da utilização desta ferramenta.</string>
+    <string name="disclaimer_accept_button">Aceitar e Continuar</string>
+    <string name="disclaimer_scroll_down_hint">Role para baixo para ver mais</string>
+
+    <!-- Credits & Open Source Licenses -->
+    <string name="credits_title">Créditos &amp; Código Aberto</string>
+    <string name="credits_subtitle">Bibliotecas, crates &amp; arquitetura nativa</string>
+    <string name="credits_back_button_cd">Voltar</string>
+    <string name="credits_search_placeholder">Buscar dependências, crates, licenças…</string>
+    <string name="credits_clear_search_cd">Limpar busca</string>
+    <string name="credits_category_all">Todas</string>
+    <string name="credits_category_kotlin_android">Android &amp; Kotlin</string>
+    <string name="credits_category_rust_core">Rust Core</string>
+    <string name="credits_category_kernel_system">Kernel &amp; Sistema</string>
+    <string name="credits_empty_search">Nenhuma dependência encontrada para a busca.</string>
+    <string name="credits_view_source_button">Fonte</string>
+    <string name="credits_copy_url_cd">Copiar link</string>
+    <string name="credits_url_copied">Link copiado para a área de transferência</string>
+    <string name="credits_open_url_failed">Não foi possível abrir o navegador web.</string>
+    <string name="credits_footer_disclaimer">HuntMemory é um software de código aberto distribuído sob a Licença Pública Geral GNU v3.0 (GPL-3.0-or-later). Todas as bibliotecas, crates e componentes de sistema de terceiros são utilizados sob suas respectivas licenças de código aberto.</string>
+    <string name="main_screen_credits_button_cd">Créditos &amp; Código Aberto</string>
+    <string name="main_screen_credits_link">Créditos &amp; Licenças</string>
+</resources>

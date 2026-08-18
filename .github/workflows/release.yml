@@ -1,0 +1,97 @@
+name: Release - Build & Publish APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag Name (e.g. v3.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build & Publish Release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java 21 LTS
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK & NDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: >-
+            platforms;android-37
+            build-tools;37.0.0
+            ndk;29.0.14206865
+
+      - name: Set Android NDK Environment Variable
+        run: |
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/29.0.14206865" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/29.0.14206865" >> $GITHUB_ENV
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@cargo-ndk
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Assemble Release APK
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Prepare Release Artifacts & Checksums
+        id: prepare_artifacts
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [ -z "$TAG" ] || [ "$TAG" = "main" ] || [ "$TAG" = "master" ]; then
+            TAG="${{ inputs.tag_name }}"
+          fi
+          if [ -z "$TAG" ]; then
+            TAG="v3.0.0"
+          fi
+          
+          mkdir -p release_dist
+          OUTPUT_APK="release_dist/HuntMemory-${TAG}-arm64-v8a.apk"
+          cp app/build/outputs/apk/release/*.apk "$OUTPUT_APK"
+          
+          cd release_dist
+          sha256sum "HuntMemory-${TAG}-arm64-v8a.apk" > "HuntMemory-${TAG}-arm64-v8a.apk.sha256"
+          echo "Generated SHA256 checksum:"
+          cat "HuntMemory-${TAG}-arm64-v8a.apk.sha256"
+          cd ..
+          
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: HuntMemory ${{ steps.prepare_artifacts.outputs.tag }}
+          tag_name: ${{ steps.prepare_artifacts.outputs.tag }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(steps.prepare_artifacts.outputs.tag, '-alpha') || contains(steps.prepare_artifacts.outputs.tag, '-beta') || contains(steps.prepare_artifacts.outputs.tag, '-rc') }}
+          files: |
+            release_dist/HuntMemory-*.apk
+            release_dist/HuntMemory-*.apk.sha256

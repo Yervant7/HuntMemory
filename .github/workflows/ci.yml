@@ -1,0 +1,120 @@
+name: CI - Build & Test
+
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+  pull_request:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  rust-check:
+    name: Rust Core (Tests & Lints)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android
+          components: rustfmt, clippy
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src/main/hmem -> app/src/main/hmem/target
+
+      - name: Check code formatting
+        run: cargo fmt --manifest-path app/src/main/hmem/Cargo.toml --all -- --check
+
+      - name: Run host unit tests
+        run: cargo test --manifest-path app/src/main/hmem/Cargo.toml --all-targets
+
+      - name: Run Clippy linter
+        run: cargo clippy --manifest-path app/src/main/hmem/Cargo.toml --all-targets -- -D warnings
+
+  android-build:
+    name: Android Build (arm64-v8a)
+    runs-on: ubuntu-latest
+    needs: [rust-check]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Java 21 LTS
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK & NDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: >-
+            platforms;android-37
+            build-tools;37.0.0
+            ndk;29.0.14206865
+
+      - name: Set Android NDK Environment Variable
+        run: |
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/29.0.14206865" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/29.0.14206865" >> $GITHUB_ENV
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@cargo-ndk
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src/main/hmem -> app/src/main/hmem/target
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Compile Kotlin & Assemble APKs
+        run: ./gradlew assembleDebug assembleRelease --stacktrace
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: HuntMemory-debug
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 14
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: HuntMemory-release
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 14

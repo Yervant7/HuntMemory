@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Hunt Memory</string>
+    <string name="ok">ОК</string>
+
+    <!-- MainActivity -->
+    <string name="main_activity_permission_overlay_denied">Разрешение на отображение поверх других приложений было отклонено.</string>
+    <string name="main_activity_error_root_access_missing">Ошибка: Отсутствует root-доступ.</string>
+
+    <!-- Main Screen -->
+    <string name="main_screen_tab_main">Главная</string>
+    <string name="main_screen_overview_title">ОБЗОР СИСТЕМНОГО ДВИЖКА</string>
+    <string name="main_screen_status_root_access">Root-доступ</string>
+    <string name="main_screen_status_root_granted">Предоставлен (su)</string>
+    <string name="main_screen_status_root_missing">Отсутствует / Отклонен</string>
+    <string name="main_screen_status_root_checking">Проверка…</string>
+    <string name="main_screen_status_kernelpatch">HM-KPM</string>
+    <string name="main_screen_hmkpm_available">HMKPM Готов</string>
+    <string name="main_screen_hmkpm_not_available">Не обнаружен</string>
+    <string name="main_screen_hmkpm_checking">Проверка…</string>
+    <string name="main_screen_hmkpm_refresh_button">Обновить статус HMKPM</string>
+    <string name="main_screen_status_overlay_engine">Движок оверлея</string>
+    <string name="main_screen_status_overlay_active">Работает (Активен)</string>
+    <string name="main_screen_status_overlay_inactive">Неактивен</string>
+    <string name="main_screen_status_overlay_permission_granted">Разрешение предоставлено</string>
+    <string name="main_screen_status_overlay_permission_missing">Нет разрешения</string>
+    <string name="main_screen_status_target_process">Целевой процесс</string>
+    <string name="main_screen_status_target_none">Не прикреплен</string>
+    <string name="main_screen_status_target_pid">PID: %1$d</string>
+    <string name="main_screen_start_hunting_button">Начать Охоту</string>
+    <string name="main_screen_stop_hunting_button">Остановить Охоту</string>
+    <string name="main_screen_official_channel">Официальный Канал</string>
+    <string name="main_screen_website">Веб-сайт</string>
+    <string name="main_screen_source_code">Исходный код</string>
+    <string name="main_screen_change_language_button">Сменить Язык</string>
+    <string name="main_screen_system_default_dropdown">По умолчанию в системе</string>
+    <string name="main_screen_refresh_cd">Обновить</string>
+
+    <!-- Overlay Service & UI -->
+    <string name="overlay_service_notification_channel_name">Служба оверлея</string>
+    <string name="overlay_service_notification_text">Оверлей выполняется.</string>
+    <string name="overlay_ui_open_menu_icon_description">Открыть меню</string>
+    <string name="overlay_ui_close_menu_icon_description">Закрыть меню</string>
+    <string name="overlay_ui_select_target">Выбрать цель</string>
+    <string name="overlay_ui_target_pid">PID: %1$d</string>
+    <string name="overlay_ui_processes_tab">Процессы</string>
+    <string name="overlay_ui_memory_tab">Память</string>
+    <string name="overlay_ui_editor_tab">Редактор</string>
+    <string name="overlay_ui_settings_tab_and_title">Настройки</string>
+    <string name="overlay_ui_dialog_ok_button">ОК</string>
+    <string name="overlay_ui_dialog_cancel_button">Отмена</string>
+    <string name="overlay_ui_dialog_confirm_button">Подтвердить</string>
+
+    <!-- Address Table -->
+    <string name="address_table_empty_placeholder">Сохраненных адресов пока нет.\nНажмите на результаты на вкладке «Память», чтобы добавить их сюда.</string>
+    <string name="address_table_delete_address_dialog_title">Удалить адрес</string>
+    <string name="address_table_delete_address_dialog_message">Удалить этот адрес из списка?</string>
+    <string name="address_table_edit_value_dialog_title">Изменить значение</string>
+    <string name="address_table_delete_all_button">Удалить все</string>
+    <string name="address_table_delete_all_addresses_dialog_title">Удалить все адреса</string>
+    <string name="address_table_delete_all_warning_message">Вы уверены, что хотите удалить все сохраненные адреса?</string>
+    <string name="address_table_edit_all_button">Изменить все</string>
+    <string name="address_table_edit_all_values_dialog_title">Изменить все значения</string>
+    <string name="address_table_freeze_all_button">Заморозить все</string>
+    <string name="address_table_freeze_all_values_dialog_title">Заморозить все значения</string>
+    <string name="address_table_unfreeze_all_button">Разморозить</string>
+    <string name="address_table_header_address">Адрес</string>
+    <string name="address_table_header_type">Тип</string>
+    <string name="address_table_header_value">Значение</string>
+    <string name="address_table_header_freeze">Заморозка</string>
+    <string name="address_table_error_dialog_title">Ошибка</string>
+    <string name="address_table_no_process_attached_error">Процесс не прикреплен.</string>
+    <string name="address_table_process_not_running_error">Выбранный процесс больше не запущен.</string>
+    <string name="address_table_info_dialog_title">Информация</string>
+    <string name="address_table_process_changed_info">Процесс изменился. Очистка списка адресов…</string>
+
+    <!-- Hunt Settings -->
+    <string name="hunt_settings_memory_regions_title">Регионы памяти</string>
+    <string name="hunt_settings_show_advanced_options">Показать дополнительные параметры</string>
+    <string name="hunt_settings_hide_advanced_options">Скрыть дополнительные параметры</string>
+    <string name="hunt_settings_req_read">Тр. чтение</string>
+    <string name="hunt_settings_req_write">Тр. запись</string>
+    <string name="hunt_settings_inc_swapped">Вкл. Swapped</string>
+    <string name="hunt_settings_min_size_label">Мин. размер (байты)</string>
+    <string name="hunt_settings_custom_filter_label">Пользовательский фильтр</string>
+    <string name="hunt_settings_save_button">Сохранить</string>
+    <string name="hunt_settings_region_details_name_header">Имя</string>
+    <string name="hunt_settings_region_details_perm_header">Права</string>
+    <string name="hunt_settings_region_details_start_header">Начало</string>
+    <string name="hunt_settings_region_details_end_header">Конец</string>
+    <string name="hunt_settings_no_memory_entries_found">Записи памяти для этого региона не найдены.</string>
+    <plurals name="hunt_settings_and_more_entries_label">
+        <item quantity="one">… и еще %d запись</item>
+        <item quantity="few">… и еще %d записи</item>
+        <item quantity="many">… и еще %d записей</item>
+        <item quantity="other">… и еще %d записей</item>
+    </plurals>
+
+    <!-- Memory Menu -->
+    <string name="memory_menu_default_tab_title">Поиск %1$d</string>
+    <string name="memory_menu_close_tab_cd">Закрыть вкладку</string>
+    <string name="memory_menu_add_tab_cd">Добавить вкладку</string>
+    <string name="memory_menu_no_tabs_message">Добавьте поиск, чтобы начать</string>
+    <string name="memory_menu_no_matches_placeholder">Совпадений не найдено.\nВведите искомое значение и нажмите «Поиск».</string>
+    <string name="memory_menu_status_no_matches">0 совпадений</string>
+    <string name="memory_menu_error_dialog_title">Ошибка</string>
+    <string name="memory_menu_no_process_attached_error">Процесс не прикреплен.</string>
+    <string name="memory_menu_process_not_exist_error">Выбранный процесс больше не существует.</string>
+    <string name="memory_menu_info_dialog_title">Информация</string>
+    <string name="memory_menu_process_changed_info">Процесс изменился. Очистка результатов поиска…</string>
+    <string name="memory_menu_added_to_address_table_snackbar">%1$s добавлен в Таблицу Адресов</string>
+    <string name="memory_menu_added_all_to_address_table_snackbar">Все совпадения добавлены в Таблицу Адресов.</string>
+    <string name="memory_menu_copy_all_button">Копировать все</string>
+    <string name="memory_menu_match_item_value_label">Значение: %1$s</string>
+    <string name="memory_menu_scan_settings_title">Параметры поиска</string>
+    <string name="memory_menu_scan_value_label">Искомое значение</string>
+    <string name="memory_menu_scan_value_placeholder">Введите целевое значение…</string>
+    <string name="memory_menu_goto_button">Перейти</string>
+    <string name="memory_menu_operator_dropdown_label">Оператор</string>
+    <string name="memory_menu_value_type_dropdown_label">Тип значения</string>
+    <string name="memory_menu_type_label_prefix">Тип: %1$s</string>
+    <string name="memory_menu_types_selected_count">Выбрано: %1$d / %2$d</string>
+    <string name="memory_menu_value_types_all">ВСЕ</string>
+    <string name="memory_menu_value_types_none">Не выбрано</string>
+    <string name="memory_menu_select_types_cd">Выбрать типы данных</string>
+    <string name="memory_menu_select_types_dialog_title">Выбор типов данных</string>
+    <string name="memory_menu_type_all_uppercase">ВСЕ (ALL)</string>
+    <string name="memory_menu_type_byte">Byte (1 байт / 8 бит)</string>
+    <string name="memory_menu_type_short">Short (2 байта / 16 бит)</string>
+    <string name="memory_menu_type_float16">Float16 (2 байта / половинная)</string>
+    <string name="memory_menu_type_int">Int (4 байта / 32 бита)</string>
+    <string name="memory_menu_type_long">Long (8 байт / 64 бита)</string>
+    <string name="memory_menu_type_float">Float (4 байта / одинарная)</string>
+    <string name="memory_menu_type_double">Double (8 байт / двойная)</string>
+    <string name="memory_menu_type_bigdouble">BigDouble (мантисса / порядок)</string>
+    <string name="memory_menu_type_obscured_int">Obscured Int (ACTk XOR-32)</string>
+    <string name="memory_menu_type_obscured_float">Obscured Float (ACTk XOR-Float)</string>
+    <string name="memory_menu_syntax_help_title">Методы поиска и справка по синтаксису</string>
+    <string name="memory_menu_syntax_help_button_cd">Справка по синтаксису поиска</string>
+    <string name="memory_menu_syntax_help_text"><b>1. Мантисса / Порядок (Экспоненциальная / BigDouble):</b>\n• <i>1.5e6</i> или <i>1.5,6</i> или <i>1.5:6</i>\n• Тип: выберите BigDouble или укажите <i>bigdouble:1.5,6</i>\n\n<b>2. Зашифрованные значения (Anti-Cheat XOR):</b>\n• Выберите Obscured Int или Obscured Float\n• Или используйте префикс: <i>xor:1000</i> или <i>obscured:1000</i>\n\n<b>3. Погрешность Float / Epsilon:</b>\n• Абсолютная погрешность: <i>100.0 +- 0.5</i>\n• Процентная погрешность: <i>100 +- 2%</i>\n\n<b>4. Масштабированная фиксированная точка:</b>\n• Формула с множителем: <i>10.5 * 1000</i> (ищет 10500)\n• Или префикс: <i>scaled:10.5:1000</i>\n\n<b>5. Группа гетерогенных структур:</b>\n• Смешанные типы: <i>f64:1.5; i64:6 : 16</i>\n• Или: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_new_scan_button">Новый поиск</string>
+    <string name="memory_menu_new_search_button_initial">Новый поиск</string>
+    <string name="memory_menu_refine_button">Отсеять</string>
+    <plurals name="memory_menu_status_full">
+        <item quantity="one">%d совпадение</item>
+        <item quantity="few">%d совпадения</item>
+        <item quantity="many">%d совпадений</item>
+        <item quantity="other">%d совпадений</item>
+    </plurals>
+    <plurals name="memory_menu_status_full_with_showing">
+        <item quantity="one">%d совпадение (показано %d)</item>
+        <item quantity="few">%d совпадения (показано %d)</item>
+        <item quantity="many">%d совпадений (показано %d)</item>
+        <item quantity="other">%d совпадений (показано %d)</item>
+    </plurals>
+
+    <!-- Process Menu -->
+    <string name="process_menu_attached_process_none">Нет</string>
+    <string name="process_menu_attached_process_label">Прикрепленный процесс</string>
+    <string name="process_menu_search_processes_label">Поиск процессов</string>
+    <string name="process_menu_search_icon_description">Поиск</string>
+    <string name="process_menu_refresh_icon_description">Обновить</string>
+    <string name="process_menu_item_attached_icon_description">Прикреплен</string>
+    <string name="process_menu_detach_cd">Открепить</string>
+    <string name="process_menu_no_processes_found_message">Процессы не найдены</string>
+
+    <!-- Virtual Keyboard -->
+    <string name="keyboard_hide_cd">Скрыть клавиатуру</string>
+    <string name="keyboard_space">ПРОБЕЛ</string>
+
+    <!-- Disclaimer Screen -->
+    <string name="disclaimer_title">Отказ от ответственности</string>
+    <string name="disclaimer_text">Добро пожаловать в HuntMemory.\n\nЭто инструмент для чтения и редактирования памяти, предназначенный для разработки, отладки и обучения в ваших собственных приложениях и процессах.\n\nКатегорически запрещено использовать это приложение для незаконных действий, таких как читерство в онлайн-играх, несанкционированная модификация других приложений или любые другие действия, нарушающие условия обслуживания третьих лиц или действующее законодательство.\n\nПродолжая, вы признаете и соглашаетесь с тем, что несете единоличную ответственность за свои действия. Разработчики этого приложения не несут ответственности за неправомерное использование, ущерб или негативные последствия, возникшие в результате использования этого инструмента.</string>
+    <string name="disclaimer_accept_button">Принять и продолжить</string>
+    <string name="disclaimer_scroll_down_hint">Прокрутите вниз, чтобы прочитать больше</string>
+
+    <!-- Credits & Open Source Licenses -->
+    <string name="credits_title">Благодарности и Open Source</string>
+    <string name="credits_subtitle">Сторонние библиотеки, крейты и нативная архитектура</string>
+    <string name="credits_back_button_cd">Назад</string>
+    <string name="credits_search_placeholder">Поиск зависимостей, крейтов, лицензий…</string>
+    <string name="credits_clear_search_cd">Очистить поиск</string>
+    <string name="credits_category_all">Все</string>
+    <string name="credits_category_kotlin_android">Android и Kotlin</string>
+    <string name="credits_category_rust_core">Ядро Rust</string>
+    <string name="credits_category_kernel_system">Ядро и система</string>
+    <string name="credits_empty_search">Ничего не найдено.</string>
+    <string name="credits_view_source_button">Исходный код</string>
+    <string name="credits_copy_url_cd">Скопировать ссылку</string>
+    <string name="credits_url_copied">Ссылка скопирована в буфер обмена</string>
+    <string name="credits_open_url_failed">Не удалось открыть веб-браузер.</string>
+    <string name="credits_footer_disclaimer">HuntMemory — это программное обеспечение с открытым исходным кодом, распространяемое по лицензии GNU General Public License v3.0 (GPL-3.0-or-later). Все сторонние библиотеки используются под их соответствующими лицензиями.</string>
+    <string name="main_screen_credits_button_cd">Благодарности и Open Source</string>
+    <string name="main_screen_credits_link">Благодарности и лицензии</string>
+</resources>

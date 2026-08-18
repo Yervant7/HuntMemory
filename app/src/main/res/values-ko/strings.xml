@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Hunt Memory</string>
+    <string name="ok">확인</string>
+
+    <!-- MainActivity -->
+    <string name="main_activity_permission_overlay_denied">오버레이 표시 권한이 거부되었습니다.</string>
+    <string name="main_activity_error_root_access_missing">오류: 루트 권한이 없습니다.</string>
+
+    <!-- Main Screen -->
+    <string name="main_screen_tab_main">메인</string>
+    <string name="main_screen_overview_title">시스템 엔진 개요</string>
+    <string name="main_screen_status_root_access">루트 권한</string>
+    <string name="main_screen_status_root_granted">허용됨 (su)</string>
+    <string name="main_screen_status_root_missing">없음 / 거부됨</string>
+    <string name="main_screen_status_root_checking">확인 중…</string>
+    <string name="main_screen_status_kernelpatch">HM-KPM</string>
+    <string name="main_screen_hmkpm_available">HMKPM 준비 완료</string>
+    <string name="main_screen_hmkpm_not_available">감지되지 않음</string>
+    <string name="main_screen_hmkpm_checking">확인 중…</string>
+    <string name="main_screen_hmkpm_refresh_button">HMKPM 상태 새로고침</string>
+    <string name="main_screen_status_overlay_engine">오버레이 엔진</string>
+    <string name="main_screen_status_overlay_active">실행 중 (활성)</string>
+    <string name="main_screen_status_overlay_inactive">비활성</string>
+    <string name="main_screen_status_overlay_permission_granted">권한 허용됨</string>
+    <string name="main_screen_status_overlay_permission_missing">권한 없음</string>
+    <string name="main_screen_status_target_process">대상 프로세스</string>
+    <string name="main_screen_status_target_none">연결 없음</string>
+    <string name="main_screen_status_target_pid">PID: %1$d</string>
+    <string name="main_screen_start_hunting_button">헌팅 시작</string>
+    <string name="main_screen_stop_hunting_button">헌팅 중지</string>
+    <string name="main_screen_official_channel">공식 채널</string>
+    <string name="main_screen_website">웹사이트</string>
+    <string name="main_screen_source_code">소스 코드</string>
+    <string name="main_screen_change_language_button">언어 변경</string>
+    <string name="main_screen_system_default_dropdown">시스템 기본값</string>
+    <string name="main_screen_refresh_cd">새로고침</string>
+
+    <!-- Overlay Service & UI -->
+    <string name="overlay_service_notification_channel_name">오버레이 서비스</string>
+    <string name="overlay_service_notification_text">오버레이가 실행 중입니다.</string>
+    <string name="overlay_ui_open_menu_icon_description">메뉴 열기</string>
+    <string name="overlay_ui_close_menu_icon_description">메뉴 닫기</string>
+    <string name="overlay_ui_select_target">대상 선택</string>
+    <string name="overlay_ui_target_pid">PID: %1$d</string>
+    <string name="overlay_ui_processes_tab">프로세스</string>
+    <string name="overlay_ui_memory_tab">메모리</string>
+    <string name="overlay_ui_editor_tab">편집기</string>
+    <string name="overlay_ui_settings_tab_and_title">설정</string>
+    <string name="overlay_ui_dialog_ok_button">확인</string>
+    <string name="overlay_ui_dialog_cancel_button">취소</string>
+    <string name="overlay_ui_dialog_confirm_button">확인</string>
+
+    <!-- Address Table -->
+    <string name="address_table_empty_placeholder">저장된 주소가 아직 없습니다.\n메모리 탭에서 결과를 탭하여 여기에 추가하세요.</string>
+    <string name="address_table_delete_address_dialog_title">주소 삭제</string>
+    <string name="address_table_delete_address_dialog_message">목록에서 이 주소를 삭제하시겠습니까?</string>
+    <string name="address_table_edit_value_dialog_title">값 편집</string>
+    <string name="address_table_delete_all_button">모두 삭제</string>
+    <string name="address_table_delete_all_addresses_dialog_title">모든 주소 삭제</string>
+    <string name="address_table_delete_all_warning_message">저장된 모든 주소를 삭제하시겠습니까?</string>
+    <string name="address_table_edit_all_button">모두 편집</string>
+    <string name="address_table_edit_all_values_dialog_title">모든 값 편집</string>
+    <string name="address_table_freeze_all_button">모두 고정</string>
+    <string name="address_table_freeze_all_values_dialog_title">모든 값 고정</string>
+    <string name="address_table_unfreeze_all_button">고정 해제</string>
+    <string name="address_table_header_address">주소</string>
+    <string name="address_table_header_type">유형</string>
+    <string name="address_table_header_value">값</string>
+    <string name="address_table_header_freeze">고정</string>
+    <string name="address_table_error_dialog_title">오류</string>
+    <string name="address_table_no_process_attached_error">연결된 프로세스가 없습니다.</string>
+    <string name="address_table_process_not_running_error">선택한 프로세스가 더 이상 실행되지 않습니다.</string>
+    <string name="address_table_info_dialog_title">정보</string>
+    <string name="address_table_process_changed_info">프로세스가 변경되었습니다. 주소 목록을 지우는 중…</string>
+
+    <!-- Hunt Settings -->
+    <string name="hunt_settings_memory_regions_title">메모리 영역</string>
+    <string name="hunt_settings_show_advanced_options">고급 옵션 표시</string>
+    <string name="hunt_settings_hide_advanced_options">고급 옵션 숨기기</string>
+    <string name="hunt_settings_req_read">읽기 필요</string>
+    <string name="hunt_settings_req_write">쓰기 필요</string>
+    <string name="hunt_settings_inc_swapped">Swapped 포함</string>
+    <string name="hunt_settings_min_size_label">최소 크기 (바이트)</string>
+    <string name="hunt_settings_custom_filter_label">사용자 정의 필터</string>
+    <string name="hunt_settings_save_button">저장</string>
+    <string name="hunt_settings_region_details_name_header">이름</string>
+    <string name="hunt_settings_region_details_perm_header">권한</string>
+    <string name="hunt_settings_region_details_start_header">시작</string>
+    <string name="hunt_settings_region_details_end_header">끝</string>
+    <string name="hunt_settings_no_memory_entries_found">이 영역에 대한 메모리 항목을 찾을 수 없습니다.</string>
+    <plurals name="hunt_settings_and_more_entries_label">
+        <item quantity="other">… 외 %d개 항목</item>
+    </plurals>
+
+    <!-- Memory Menu -->
+    <string name="memory_menu_default_tab_title">검색 %1$d</string>
+    <string name="memory_menu_close_tab_cd">탭 닫기</string>
+    <string name="memory_menu_add_tab_cd">탭 추가</string>
+    <string name="memory_menu_no_tabs_message">검색을 추가하여 시작하세요</string>
+    <string name="memory_menu_no_matches_placeholder">일치하는 결과가 없습니다.\n검색 값을 입력하고 검색을 누르세요.</string>
+    <string name="memory_menu_status_no_matches">0개 일치</string>
+    <string name="memory_menu_error_dialog_title">오류</string>
+    <string name="memory_menu_no_process_attached_error">연결된 프로세스가 없습니다.</string>
+    <string name="memory_menu_process_not_exist_error">선택한 프로세스가 더 이상 존재하지 않습니다.</string>
+    <string name="memory_menu_info_dialog_title">정보</string>
+    <string name="memory_menu_process_changed_info">프로세스가 변경되었습니다. 검색 결과를 지우는 중…</string>
+    <string name="memory_menu_added_to_address_table_snackbar">%1$s이(가) 주소 테이블에 추가되었습니다</string>
+    <string name="memory_menu_added_all_to_address_table_snackbar">모든 일치 항목이 주소 테이블에 추가되었습니다.</string>
+    <string name="memory_menu_copy_all_button">모두 복사</string>
+    <string name="memory_menu_match_item_value_label">값: %1$s</string>
+    <string name="memory_menu_scan_settings_title">검색 설정</string>
+    <string name="memory_menu_scan_value_label">검색 값</string>
+    <string name="memory_menu_scan_value_placeholder">대상 값을 입력하세요…</string>
+    <string name="memory_menu_goto_button">이동</string>
+    <string name="memory_menu_operator_dropdown_label">연산자</string>
+    <string name="memory_menu_value_type_dropdown_label">값 유형</string>
+    <string name="memory_menu_type_label_prefix">유형: %1$s</string>
+    <string name="memory_menu_types_selected_count">%1$d / %2$d개 선택됨</string>
+    <string name="memory_menu_value_types_all">전체</string>
+    <string name="memory_menu_value_types_none">선택 안 됨</string>
+    <string name="memory_menu_select_types_cd">데이터 유형 선택</string>
+    <string name="memory_menu_select_types_dialog_title">데이터 유형 선택</string>
+    <string name="memory_menu_type_all_uppercase">전체 (ALL)</string>
+    <string name="memory_menu_type_byte">Byte (1 바이트 / 8비트)</string>
+    <string name="memory_menu_type_short">Short (2 바이트 / 16비트)</string>
+    <string name="memory_menu_type_float16">Float16 (2 바이트 / 반정밀도)</string>
+    <string name="memory_menu_type_int">Int (4 바이트 / 32비트)</string>
+    <string name="memory_menu_type_long">Long (8 바이트 / 64비트)</string>
+    <string name="memory_menu_type_float">Float (4 바이트 / 단정밀도)</string>
+    <string name="memory_menu_type_double">Double (8 바이트 / 배정밀도)</string>
+    <string name="memory_menu_type_bigdouble">BigDouble (가수 / 지수)</string>
+    <string name="memory_menu_type_obscured_int">Obscured Int (ACTk XOR-32)</string>
+    <string name="memory_menu_type_obscured_float">Obscured Float (ACTk XOR-Float)</string>
+    <string name="memory_menu_syntax_help_title">검색 기법 &amp; 구문 도움말</string>
+    <string name="memory_menu_syntax_help_button_cd">검색 구문 도움말</string>
+    <string name="memory_menu_syntax_help_text"><b>1. 가수 / 지수 (과학적 / BigDouble):</b>\n• <i>1.5e6</i> 또는 <i>1.5,6</i> 또는 <i>1.5:6</i>\n• 유형: BigDouble을 선택하거나 <i>bigdouble:1.5,6</i> 입력\n\n<b>2. 난독화된 값 (안티치트 XOR):</b>\n• Obscured Int 또는 Obscured Float 선택\n• 또는 접두사 사용: <i>xor:1000</i> 또는 <i>obscured:1000</i>\n\n<b>3. 부동소수점 오차 허용 / 엡실론:</b>\n• 절대 오차: <i>100.0 +- 0.5</i>\n• 백분율 오차: <i>100 +- 2%</i>\n\n<b>4. 스케일링된 고정 소수점:</b>\n• 곱셈 공식: <i>10.5 * 1000</i> (10500 검색)\n• 또는 접두사: <i>scaled:10.5:1000</i>\n\n<b>5. 이기종 구조 그룹:</b>\n• 혼합 유형: <i>f64:1.5; i64:6 : 16</i>\n• 또는: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_new_scan_button">새 스캔</string>
+    <string name="memory_menu_new_search_button_initial">새 검색</string>
+    <string name="memory_menu_refine_button">필터링</string>
+    <plurals name="memory_menu_status_full">
+        <item quantity="other">%d개 일치</item>
+    </plurals>
+    <plurals name="memory_menu_status_full_with_showing">
+        <item quantity="other">%d개 일치 (%d개 표시 중)</item>
+    </plurals>
+
+    <!-- Process Menu -->
+    <string name="process_menu_attached_process_none">없음</string>
+    <string name="process_menu_attached_process_label">연결된 프로세스</string>
+    <string name="process_menu_search_processes_label">프로세스 검색</string>
+    <string name="process_menu_search_icon_description">검색</string>
+    <string name="process_menu_refresh_icon_description">새로고침</string>
+    <string name="process_menu_item_attached_icon_description">연결됨</string>
+    <string name="process_menu_detach_cd">분리</string>
+    <string name="process_menu_no_processes_found_message">프로세스를 찾을 수 없습니다</string>
+
+    <!-- Virtual Keyboard -->
+    <string name="keyboard_hide_cd">키보드 숨기기</string>
+    <string name="keyboard_space">스페이스</string>
+
+    <!-- Disclaimer Screen -->
+    <string name="disclaimer_title">면책 조항</string>
+    <string name="disclaimer_text">HuntMemory에 오신 것을 환영합니다.\n\n이 도구는 자체 애플리케이션 및 프로세스에서의 개발, 디버깅 및 학습 목적을 위한 메모리 읽기 및 편집 도구입니다.\n\n온라인 게임에서의 치팅, 다른 애플리케이션의 무단 수정 또는 제3자의 서비스 약관이나 현행 법률을 위반하는 기타 행위와 같은 불법적인 활동에 이 애플리케이션을 사용하는 것은 엄격히 금지됩니다.\n\n계속 진행함으로써 귀하는 자신의 행동에 전적인 책임이 있음을 인정하고 이에 동의합니다. 이 도구의 사용으로 인해 발생하는 모든 오용, 손상 또는 부정적인 결과에 대해 본 애플리케이션 개발자는 책임을 지지 않습니다.</string>
+    <string name="disclaimer_accept_button">동의하고 계속하기</string>
+    <string name="disclaimer_scroll_down_hint">더 읽으려면 아래로 스크롤하세요</string>
+
+    <!-- Credits & Open Source Licenses -->
+    <string name="credits_title">크레딧 및 오픈 소스</string>
+    <string name="credits_subtitle">서드파티 라이브러리, 크레이트 및 네이티브 아키텍처</string>
+    <string name="credits_back_button_cd">뒤로</string>
+    <string name="credits_search_placeholder">종속성, 크레이트, 라이선스 검색…</string>
+    <string name="credits_clear_search_cd">검색 지우기</string>
+    <string name="credits_category_all">전체</string>
+    <string name="credits_category_kotlin_android">Android 및 Kotlin</string>
+    <string name="credits_category_rust_core">Rust 코어</string>
+    <string name="credits_category_kernel_system">커널 및 시스템</string>
+    <string name="credits_empty_search">검색 조건과 일치하는 항목이 없습니다.</string>
+    <string name="credits_view_source_button">소스</string>
+    <string name="credits_copy_url_cd">링크 복사</string>
+    <string name="credits_url_copied">링크가 클립보드에 복사되었습니다</string>
+    <string name="credits_open_url_failed">웹 브라우저를 열 수 없습니다.</string>
+    <string name="credits_footer_disclaimer">HuntMemory는 GNU General Public License v3.0 (GPL-3.0-or-later)에 따라 배포되는 오픈 소스 소프트웨어입니다. 모든 서드파티 구성 요소는 해당 오픈 소스 라이선스에 따라 사용됩니다.</string>
+    <string name="main_screen_credits_button_cd">크레딧 및 오픈 소스</string>
+    <string name="main_screen_credits_link">크레딧 및 라이선스</string>
+</resources>

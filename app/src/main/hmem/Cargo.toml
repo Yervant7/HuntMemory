@@ -1,0 +1,3 @@
+[workspace]
+members = ["hmem_jni"]
+resolver = "2"

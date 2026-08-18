@@ -1,0 +1,85 @@
+site_name: HuntMemory
+site_description: High-performance process memory editor and scanner for ARM64 Android (API 30+) with Rust SIMD and HMKPM
+site_author: Yervant7
+site_url: https://yervant7.github.io/HuntMemory/
+repo_name: Yervant7/HuntMemory
+repo_url: https://github.com/Yervant7/HuntMemory
+edit_uri: edit/main/docs/
+copyright: "Copyright &copy; 2026 HuntMemory Contributors &mdash; Licensed under GPL-3.0"
+
+theme:
+  name: material
+  language: en
+  palette:
+    # Palette toggle for light mode
+    - scheme: default
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Roboto
+    code: JetBrains Mono
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Overview: index.md
+  - System Architecture: architecture.md
+  - Memory Scanning Engine: memory-scanning.md
+  - HMKPM Kernel Protocol: kernel-protocol.md
+  - Building & Setup: building.md
+  - License: license.md
