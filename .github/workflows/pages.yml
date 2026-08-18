@@ -30,15 +30,16 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: 'pip'
+          cache-dependency-path: 'docs/requirements.txt'
 
       - name: Install documentation dependencies
         run: |
-          pip install --upgrade pip
-          pip install mkdocs-material
+          python -m pip install --upgrade pip
+          pip install -r docs/requirements.txt
 
       - name: Build MkDocs Site
         run: |
