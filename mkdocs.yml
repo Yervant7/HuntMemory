@@ -1,5 +1,5 @@
 site_name: HuntMemory
-site_description: High-performance process memory editor and scanner for ARM64 Android (API 30+) with Rust SIMD and HMKPM
+site_description: High-performance process memory editor and scanner for ARM64 Android (API 29+) with Rust SIMD and HMKPM
 site_author: Yervant7
 site_url: https://yervant7.github.io/HuntMemory/
 repo_name: Yervant7/HuntMemory

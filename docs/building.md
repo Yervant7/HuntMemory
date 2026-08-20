@@ -9,7 +9,7 @@ This guide details the requirements, toolchain configuration, and compilation pr
 Ensure your development environment meets the following specifications:
 
 ### Android Toolchain
-- **Android SDK**: `compileSdk = 37`, `minSdk = 30` (Android 11+), `targetSdk = 37`
+- **Android SDK**: `compileSdk = 37`, `minSdk = 29` (Android 10+), `targetSdk = 37`
 - **Android NDK**: Version `29.0.14206865`
 - **Java Development Kit**: JDK 21 LTS (Oracle OpenJDK or Eclipse Temurin)
 - **Gradle**: 9.x (managed via `./gradlew`)
@@ -95,7 +95,7 @@ To copy the binary into the Android project's `jniLibs` directory:
 To run HuntMemory on your device:
 
 1. **Architecture**: Physical 64-bit ARM device (`arm64-v8a` / `aarch64`).
-2. **Android Version**: Android 11.0+ (API level 30 or higher).
+2. **Android Version**: Android 10.0+ (API level 29 or higher).
 3. **Kernel Version**: Kernel Linux (4.14+).
 4. **Root Environment**:
    - Magisk 26+, KernelSU, or APatch with root granted.

@@ -3,13 +3,13 @@
 [![Documentation](https://img.shields.io/badge/Docs-GitHub%20Pages-526cfe.svg?logo=materialformkdocs&logoColor=white)](https://yervant7.github.io/HuntMemory/)
 [![CI Build](https://github.com/Yervant7/HuntMemory/actions/workflows/ci.yml/badge.svg)](https://github.com/Yervant7/HuntMemory/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Android%2011%2B%20(API%2030%2B)-green.svg)](https://developer.android.com)
+[![Platform](https://img.shields.io/badge/Platform-Android%2010%2B%20(API%2029%2B)-green.svg)](https://developer.android.com)
 [![Architecture](https://img.shields.io/badge/Architecture-ARM64%20Only-orange.svg)](https://developer.arm.com)
 [![Rust](https://img.shields.io/badge/Rust-Edition%202024-black.svg?logo=rust)](https://www.rust-lang.org)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.x-purple.svg?logo=kotlin)](https://kotlinlang.org)
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4.svg?logo=jetpackcompose)](https://developer.android.com/jetpack/compose)
 
-**HuntMemory (HMem)** is a high-performance process memory editor and scanner designed exclusively for **Android 11+ (API 30+)** on **ARM64 (`arm64-v8a` / `aarch64-linux-android`)**.
+**HuntMemory (HMem)** is a high-performance process memory editor and scanner designed exclusively for **Android 10+ (API 29+)** on **ARM64 (`arm64-v8a` / `aarch64-linux-android`)**.
 
 The project pairs a modern **Jetpack Compose** floating overlay UI with an ultra-fast **Rust 2024** scanning core accelerated by **ARM NEON SIMD**, interfacing directly with the Linux kernel via the **[HMKPM](https://github.com/Yervant7/HuntMemory-KPM) (KernelPatch Module)**.
 
@@ -20,7 +20,7 @@ The project pairs a modern **Jetpack Compose** floating overlay UI with an ultra
 To run HuntMemory on your device:
 
 1. **Architecture**: Physical 64-bit ARM device (`arm64-v8a` / `aarch64`).
-2. **Android Version**: Android 11.0+ (API level 30 or higher).
+2. **Android Version**: Android 10.0+ (API level 29 or higher).
 3. **Kernel Version**: Kernel Linux (4.14+).
 4. **Root Environment**:
   - Magisk 26+, KernelSU, or APatch with root granted.
@@ -170,7 +170,7 @@ HuntMemory/
 ## 🛠️ Quick Build Guide
 
 ### Prerequisites
-- **Android SDK**: `compileSdk = 37`, `minSdk = 30`, NDK `29.0.14206865`
+- **Android SDK**: `compileSdk = 37`, `minSdk = 29`, NDK `29.0.14206865`
 - **JDK**: Java 21 LTS
 - **Rust**: Rust 2024 Edition (`rustup target add aarch64-linux-android`)
 - **cargo-ndk**: `cargo install cargo-ndk`

@@ -3,7 +3,7 @@
 ## Project Overview
 
 Hobby/testing Android application: **Process Memory Editor & Scanner**.
-Target platform: Android 11+ (API 30+), exclusively **ARM64** (`arm64-v8a` / `aarch64-linux-android`).
+Target platform: Android 10+ (API 29+), exclusively **ARM64** (`arm64-v8a` / `aarch64-linux-android`).
 
 Architecture: **Kotlin + Jetpack Compose** (App UI / Overlay) → **libsu RootService** (Root IPC) → **JNI** → **Rust Core** (`hmem_jni`) → **HMKPM** (KernelPatch Module via `SYS_GETRESUID`) running in the patched kernel for virtual/physical memory operations.
 
@@ -25,7 +25,7 @@ Architecture: **Kotlin + Jetpack Compose** (App UI / Overlay) → **libsu RootSe
 
 ## Stack & Target Specifications (Non-Negotiable)
 
-- **Target SDKs**: `minSdk = 30` (Android 11), `targetSdk = 37`, `compileSdk = 37`. Any SDK API above 30 requires explicit `Build.VERSION.SDK_INT` runtime guards or compatible fallbacks.
+- **Target SDKs**: `minSdk = 29` (Android 10), `targetSdk = 37`, `compileSdk = 37`. Any SDK API above 29 requires explicit `Build.VERSION.SDK_INT` runtime guards or compatible fallbacks.
 - **Toolchain**: Gradle 9.x, Kotlin 2.x (with official Compose compiler plugin), Java 21 LTS, Rust Edition 2024 (rustc 1.90+), NDK 29+.
 - **Single ABI**: Exclusively `arm64-v8a` (`aarch64-linux-android`). Do not add `armeabi-v7a`, `x86`, or `x86_64` support unless explicitly requested for isolated emulator development builds.
 - **Pointers & Struct Layouts**: Always 64-bit. For any struct crossing the Kotlin ↔ Rust / JNI boundary, use fixed-width primitive types (`u32`, `u64`, `i64`, `f32`, `f64`) rather than `usize`/`isize`, and mark with `#[repr(C)]`. Any layout change must be updated and documented synchronously on both ends.

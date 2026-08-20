@@ -71,7 +71,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "Linux Kernel & AOSP Memory APIs",
-            version = "API 30+ (Linux 5.x/6.x)",
+            version = "API 29+ (Linux 4.14+/5.x/6.x)",
             category = DependencyCategory.KERNEL_SYSTEM,
             license = "GPL-2.0 / Apache-2.0",
             description = "Linux kernel procfs memory subsystems (/proc/pid/maps, /proc/pid/pagemap, process_vm_readv, process_vm_writev).",

@@ -19,10 +19,10 @@ android {
 
     defaultConfig {
         applicationId = "com.yervant.huntmem"
-        minSdk = 30
+        minSdk = 29
         targetSdk = 37
-        versionCode = 300
-        versionName = "3.0.0"
+        versionCode = 301
+        versionName = "3.0.1"
 
         ndk {
             abiFilters.add("arm64-v8a")

@@ -1,6 +1,6 @@
 # HuntMemory System Architecture
 
-HuntMemory (HMem) is engineered as a multi-tier, high-performance process memory editor and scanner for **Android 11+ (API 30+)** running exclusively on **ARM64 (`arm64-v8a` / `aarch64-linux-android`)**.
+HuntMemory (HMem) is engineered as a multi-tier, high-performance process memory editor and scanner for **Android 10+ (API 29+)** running exclusively on **ARM64 (`arm64-v8a` / `aarch64-linux-android`)**.
 
 ---
 
