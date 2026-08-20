@@ -124,9 +124,9 @@ impl PagemapReader {
                         break;
                     }
 
-                    let usable = read_bytes - (read_bytes % 8);
-                    for chunk in self.buf[..usable].chunks_exact(8) {
-                        let entry = u64::from_le_bytes(chunk.try_into().unwrap());
+                    let (chunks, _) = self.buf[..read_bytes].as_chunks::<8>();
+                    for &chunk in chunks {
+                        let entry = u64::from_le_bytes(chunk);
                         if entry & mask != 0 {
                             return true;
                         }
