@@ -104,13 +104,18 @@ jobs:
         run: chmod +x gradlew
 
       - name: Setup Keystore for Release Signing
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        if: env.KEYSTORE_BASE64 != ''
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "ORG_GRADLE_PROJECT_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> $GITHUB_ENV
-          echo "ORG_GRADLE_PROJECT_KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
-          echo "ORG_GRADLE_PROJECT_KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
-          echo "ORG_GRADLE_PROJECT_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+          echo "ORG_GRADLE_PROJECT_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> $GITHUB_ENV
+          echo "ORG_GRADLE_PROJECT_KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
+          echo "ORG_GRADLE_PROJECT_KEY_PASSWORD=$KEY_PASSWORD" >> $GITHUB_ENV
 
       - name: Run Unit Tests & Assemble APKs
         run: ./gradlew testDebugUnitTest assembleDebug assembleRelease --stacktrace

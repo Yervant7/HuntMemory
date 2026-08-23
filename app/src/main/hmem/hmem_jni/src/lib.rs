@@ -1561,12 +1561,10 @@ pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeRun
     let res = catch_unwind(move || -> String {
         let ui_callback: std::sync::Arc<dyn script::ScriptUiCallback> =
             match (vm_opt, global_callback) {
-                (Some(vm), Some(cb_ref)) => {
-                    std::sync::Arc::new(JniAidlUiBridge {
-                        vm,
-                        callback_ref: cb_ref,
-                    })
-                }
+                (Some(vm), Some(cb_ref)) => std::sync::Arc::new(JniAidlUiBridge {
+                    vm,
+                    callback_ref: cb_ref,
+                }),
                 _ => std::sync::Arc::new(script::NoOpUiCallback),
             };
 

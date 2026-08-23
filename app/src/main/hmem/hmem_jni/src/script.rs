@@ -407,7 +407,10 @@ pub fn parse_aob_pattern(pattern_str: &str) -> Result<Vec<(u8, u8)>, String> {
         let clean = token.trim();
         if clean == "?" || clean == "??" || clean == "*" {
             pattern.push((0x00, 0x00));
-        } else if let Some(hex) = clean.strip_prefix("0x").or_else(|| clean.strip_prefix("0X")) {
+        } else if let Some(hex) = clean
+            .strip_prefix("0x")
+            .or_else(|| clean.strip_prefix("0X"))
+        {
             let b = u8::from_str_radix(hex, 16)
                 .map_err(|e| format!("Invalid hex byte '{clean}': {e}"))?;
             pattern.push((b, 0xFF));
@@ -889,6 +892,11 @@ fn setup_environment(
     })?;
     canvas_table.set("clear", clear_fn.clone())?;
     hmem.set("canvas_clear", clear_fn)?;
+
+    // canvas.flush() / hmem.canvas_flush()
+    let flush_fn = lua.create_function(|_lua, ()| Ok(()))?;
+    canvas_table.set("flush", flush_fn.clone())?;
+    hmem.set("canvas_flush", flush_fn)?;
 
     // canvas.set_visible(bool) / canvas.show() / canvas.hide() / canvas.is_visible()
     let ui_vis = ui.clone();
@@ -2322,54 +2330,44 @@ fn setup_environment(
     // Base64 encode and decode
     hmem.set(
         "base64_encode",
-        lua.create_function(|_lua, s: String| {
-            Ok(b64_encode(s.as_bytes()))
-        })?,
+        lua.create_function(|_lua, s: String| Ok(b64_encode(s.as_bytes())))?,
     )?;
 
     hmem.set(
         "base64_decode",
-        lua.create_function(|_lua, s: String| {
-            match b64_decode(&s) {
-                Some(bytes) => Ok(String::from_utf8_lossy(&bytes).to_string()),
-                None => Err(mlua::Error::runtime("Invalid base64 string")),
-            }
+        lua.create_function(|_lua, s: String| match b64_decode(&s) {
+            Some(bytes) => Ok(String::from_utf8_lossy(&bytes).to_string()),
+            None => Err(mlua::Error::runtime("Invalid base64 string")),
         })?,
     )?;
 
     // Float / Double Bitcast
     hmem.set(
         "ftd",
-        lua.create_function(|_lua, val: f32| {
-            Ok(val.to_bits())
-        })?,
+        lua.create_function(|_lua, val: f32| Ok(val.to_bits()))?,
     )?;
 
     hmem.set(
         "etd",
-        lua.create_function(|_lua, val: f64| {
-            Ok((val.to_bits() >> 32) as u32)
-        })?,
+        lua.create_function(|_lua, val: f64| Ok((val.to_bits() >> 32) as u32))?,
     )?;
 
     // Memory Copy & Dump
     let p_cpm = target_pid.clone();
     hmem.set(
         "copy_memory",
-        lua.create_function(
-            move |_lua, (from_addr, to_addr, size): (u64, u64, usize)| {
-                let pid = *p_cpm.lock().unwrap();
-                let max_size = size.min(10 * 1024 * 1024);
-                let mut buf = vec![0u8; max_size];
-                if kpm::read_memory(pid, from_addr, &mut buf).is_err() {
-                    return Ok(false);
-                }
-                match kpm::write_memory(pid, to_addr, &buf) {
-                    Ok(()) => Ok(true),
-                    Err(_) => Ok(false),
-                }
-            },
-        )?,
+        lua.create_function(move |_lua, (from_addr, to_addr, size): (u64, u64, usize)| {
+            let pid = *p_cpm.lock().unwrap();
+            let max_size = size.min(10 * 1024 * 1024);
+            let mut buf = vec![0u8; max_size];
+            if kpm::read_memory(pid, from_addr, &mut buf).is_err() {
+                return Ok(false);
+            }
+            match kpm::write_memory(pid, to_addr, &buf) {
+                Ok(()) => Ok(true),
+                Err(_) => Ok(false),
+            }
+        })?,
     )?;
 
     let p_dmp = target_pid.clone();
@@ -2508,6 +2506,19 @@ fn setup_environment(
 
         gg.setRanges = function(ranges)
             gg._active_ranges = ranges
+        end
+
+        gg.getRanges = function()
+            return gg._active_ranges or gg.REGION_ALL
+        end
+
+        gg.bytes = function(text, encoding)
+            if type(text) ~= "string" then return {} end
+            local t = {}
+            for i = 1, #text do
+                t[i] = string.byte(text, i)
+            end
+            return t
         end
 
         -- Table Utilities
@@ -2740,7 +2751,7 @@ fn setup_environment(
                     function canvas_proxy:drawLine(x1, y1, x2, y2, p)
                         local color = p and p._color or "#FFFFFFFF"
                         local w = p and p._width or 2.0
-                        hmem.canvas.draw_line(x1, y1, x2, y2, color, w)
+                        hmem.canvas.draw_line(x1, y1, x2, y2, w, color)
                     end
                     function canvas_proxy:drawLines(pts, p)
                         if type(pts) == "table" then
@@ -2754,18 +2765,18 @@ fn setup_environment(
                         local color = p and p._color or "#FFFFFFFF"
                         local w = p and p._width or 2.0
                         local filled = p and (p._style == "填充" or p._style == "fill" or p._style == "描边并填充") or false
-                        hmem.canvas.draw_rect(x1, y1, x2 - x1, y2 - y1, color, w, filled)
+                        hmem.canvas.draw_rect(x1, y1, x2 - x1, y2 - y1, w, color, filled)
                     end
                     function canvas_proxy:drawCircle(cx, cy, r, p)
                         local color = p and p._color or "#FFFFFFFF"
                         local w = p and p._width or 2.0
                         local filled = p and (p._style == "填充" or p._style == "fill" or p._style == "描边并填充") or false
-                        hmem.canvas.draw_circle(cx, cy, r, color, w, filled)
+                        hmem.canvas.draw_circle(cx, cy, r, w, color, filled)
                     end
                     function canvas_proxy:drawText(text, x, y, p)
                         local color = p and p._color or "#FFFFFFFF"
                         local sz = p and p._textSize or 14.0
-                        hmem.canvas.draw_text(text, x, y, color, sz, "left")
+                        hmem.canvas.draw_text(text, x, y, sz, color, "left")
                     end
                     function canvas_proxy:save() end
                     function canvas_proxy:restore() end
@@ -2781,6 +2792,14 @@ fn setup_environment(
             function view:invalidate() end
             function view:removeAllView() hmem.canvas.clear() end
             return view
+        end
+
+        -- Module & Pointer Resolution Compatibility Aliases
+        gg.getModuleBase = function(mod_name, pid_opt)
+            return hmem.get_module_base(mod_name, pid_opt)
+        end
+        gg.resolvePointer = function(base_val, offsets)
+            return hmem.resolve_pointer(base_val, offsets)
         end
 
         -- Canvas Compatibility Aliases
