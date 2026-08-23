@@ -28,9 +28,11 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![allow(clippy::missing_safety_doc)]
 
-use jni::objects::{JClass, JString};
+use jni::objects::{JClass, JObject, JString};
+use jni::refs::Global;
 use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jint, jlong, jstring};
 use jni::{AttachGuard, Env, EnvUnowned};
+use jni::{jni_sig, jni_str};
 use std::panic::catch_unwind;
 
 mod editor;
@@ -39,6 +41,7 @@ mod logger;
 mod maps;
 mod pagemap;
 mod scanner;
+mod script;
 mod types;
 
 use std::collections::HashMap;
@@ -47,7 +50,16 @@ use types::*;
 
 static SESSIONS: OnceLock<Mutex<HashMap<String, ScanSession>>> = OnceLock::new();
 
-fn get_sessions() -> &'static Mutex<HashMap<String, ScanSession>> {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn JNI_OnLoad(
+    _vm: *mut jni::sys::JavaVM,
+    _reserved: *mut std::ffi::c_void,
+) -> jint {
+    logger::init();
+    jni::sys::JNI_VERSION_1_6
+}
+
+pub(crate) fn get_sessions() -> &'static Mutex<HashMap<String, ScanSession>> {
     SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -113,6 +125,84 @@ pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeIsH
 // ============================================================
 // JNI Exports (Rust Memory Scanner & Editor Engine)
 // ============================================================
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeGetModuleBase(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    module_name: JString,
+) -> jlong {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let mod_str = match get_jni_string(env, &module_name) {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+
+    let res = catch_unwind(move || match maps::get_module_base(pid as u32, &mod_str) {
+        Ok(base) => base as jlong,
+        Err(e) => {
+            logger::error("HMemJni", &format!("nativeGetModuleBase error: {e}"));
+            0
+        }
+    });
+
+    res.unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeResolvePointerChain(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    base_expr: JString,
+    offsets_json: JString,
+) -> jlong {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let base_str = match get_jni_string(env, &base_expr) {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    let offsets_str = match get_jni_string(env, &offsets_json) {
+        Ok(s) => s,
+        Err(_) => "[]".to_string(),
+    };
+
+    let res = catch_unwind(move || -> jlong {
+        let pid_u32 = pid as u32;
+        let base_trimmed = base_str.trim();
+
+        let base_addr: u64 = if let Some(hex) = base_trimmed
+            .strip_prefix("0x")
+            .or_else(|| base_trimmed.strip_prefix("0X"))
+        {
+            u64::from_str_radix(hex, 16).unwrap_or(0)
+        } else if base_trimmed.chars().all(|c| c.is_ascii_digit()) && !base_trimmed.is_empty() {
+            base_trimmed.parse::<u64>().unwrap_or(0)
+        } else {
+            maps::get_module_base(pid_u32, base_trimmed).unwrap_or(0)
+        };
+
+        if base_addr == 0 {
+            return 0;
+        }
+
+        let raw_offsets: Vec<i64> = serde_json::from_str(&offsets_str).unwrap_or_default();
+        match editor::resolve_pointer_chain(pid_u32, base_addr, &raw_offsets) {
+            Ok(resolved) => resolved as jlong,
+            Err(e) => {
+                logger::error("HMemJni", &format!("nativeResolvePointerChain error: {e}"));
+                0
+            }
+        }
+    });
+
+    res.unwrap_or(0)
+}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeGetMemoryMaps(
@@ -1184,4 +1274,321 @@ pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeIsA
     } else {
         JNI_FALSE
     }
+}
+
+struct JniAidlUiBridge {
+    vm: jni::JavaVM,
+    callback_ref: Global<JObject<'static>>,
+}
+
+impl script::ScriptUiCallback for JniAidlUiBridge {
+    fn show_alert(&self, title: &str, message: &str) {
+        let _: Result<(), jni::errors::Error> = self.vm.attach_current_thread(|env| {
+            let j_title = env.new_string(title)?;
+            let j_msg = env.new_string(message)?;
+            env.call_method(
+                self.callback_ref.as_obj(),
+                jni_str!("showAlert"),
+                jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V"),
+                &[(&j_title).into(), (&j_msg).into()],
+            )?;
+            Ok(())
+        });
+    }
+
+    fn show_toast(&self, message: &str) {
+        let _: Result<(), jni::errors::Error> = self.vm.attach_current_thread(|env| {
+            let j_msg = env.new_string(message)?;
+            env.call_method(
+                self.callback_ref.as_obj(),
+                jni_str!("showToast"),
+                jni_sig!("(Ljava/lang/String;)V"),
+                &[(&j_msg).into()],
+            )?;
+            Ok(())
+        });
+    }
+
+    fn show_prompt(&self, title: &str, default_value: &str, keyboard_type: &str) -> Option<String> {
+        let res: Result<Option<String>, jni::errors::Error> =
+            self.vm.attach_current_thread(|env| {
+                let j_title = env.new_string(title)?;
+                let j_def = env.new_string(default_value)?;
+                let j_kb = env.new_string(keyboard_type)?;
+                let res_val = env.call_method(
+                    self.callback_ref.as_obj(),
+                    jni_str!("showPrompt"),
+                    jni_sig!(
+                        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"
+                    ),
+                    &[(&j_title).into(), (&j_def).into(), (&j_kb).into()],
+                )?;
+                let j_obj = res_val.l()?;
+                if !j_obj.is_null() {
+                    // SAFETY: `j_obj` is a valid, non-null Java String reference returned by `showPrompt`.
+                    let j_str = unsafe { JString::from_raw(env, j_obj.as_raw()) };
+                    if let Ok(res) = get_jni_string(env, &j_str) {
+                        return Ok(Some(res));
+                    }
+                }
+                Ok(None)
+            });
+        res.unwrap_or(None)
+    }
+
+    fn show_choice(&self, title: &str, items: &[String]) -> Option<usize> {
+        let items_json = serde_json::to_string(items).unwrap_or_else(|_| "[]".to_string());
+        let res: Result<Option<usize>, jni::errors::Error> = self.vm.attach_current_thread(|env| {
+            let j_title = env.new_string(title)?;
+            let j_items = env.new_string(&items_json)?;
+            let res_val = env.call_method(
+                self.callback_ref.as_obj(),
+                jni_str!("showChoice"),
+                jni_sig!("(Ljava/lang/String;Ljava/lang/String;)I"),
+                &[(&j_title).into(), (&j_items).into()],
+            )?;
+            let idx = res_val.i()?;
+            if idx > 0 {
+                Ok(Some(idx as usize))
+            } else {
+                Ok(None)
+            }
+        });
+        res.unwrap_or(None)
+    }
+
+    fn show_multi_choice(
+        &self,
+        title: &str,
+        items: &[String],
+        initial: &[bool],
+    ) -> Option<Vec<bool>> {
+        let items_json = serde_json::to_string(items).unwrap_or_else(|_| "[]".to_string());
+        let initial_json = serde_json::to_string(initial).unwrap_or_else(|_| "[]".to_string());
+        let res: Result<Option<Vec<bool>>, jni::errors::Error> =
+            self.vm.attach_current_thread(|env| {
+                let j_title = env.new_string(title)?;
+                let j_items = env.new_string(&items_json)?;
+                let j_sel = env.new_string(&initial_json)?;
+                let res_val = env.call_method(
+                    self.callback_ref.as_obj(),
+                    jni_str!("showMultiChoice"),
+                    jni_sig!(
+                        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"
+                    ),
+                    &[(&j_title).into(), (&j_items).into(), (&j_sel).into()],
+                )?;
+                let j_obj = res_val.l()?;
+                if !j_obj.is_null() {
+                    // SAFETY: `j_obj` is a valid, non-null Java String reference returned by `showMultiChoice`.
+                    let j_str = unsafe { JString::from_raw(env, j_obj.as_raw()) };
+                    if let Ok(json_str) = get_jni_string(env, &j_str)
+                        && let Ok(res) = serde_json::from_str(&json_str)
+                    {
+                        return Ok(Some(res));
+                    }
+                }
+                Ok(None)
+            });
+        res.unwrap_or(None)
+    }
+
+    fn set_dynamic_menu(&self, menu_json: &str) {
+        let _: Result<(), jni::errors::Error> = self.vm.attach_current_thread(|env| {
+            let j_json = env.new_string(menu_json)?;
+            env.call_method(
+                self.callback_ref.as_obj(),
+                jni_str!("setDynamicMenu"),
+                jni_sig!("(Ljava/lang/String;)V"),
+                &[(&j_json).into()],
+            )?;
+            Ok(())
+        });
+    }
+
+    fn clear_dynamic_menu(&self) {
+        let _: Result<(), jni::errors::Error> = self.vm.attach_current_thread(|env| {
+            env.call_method(
+                self.callback_ref.as_obj(),
+                jni_str!("clearDynamicMenu"),
+                jni_sig!("()V"),
+                &[],
+            )?;
+            Ok(())
+        });
+    }
+
+    fn post_log(&self, line: &str) {
+        let _: Result<(), jni::errors::Error> = self.vm.attach_current_thread(|env| {
+            let j_line = env.new_string(line)?;
+            env.call_method(
+                self.callback_ref.as_obj(),
+                jni_str!("postLog"),
+                jni_sig!("(Ljava/lang/String;)V"),
+                &[(&j_line).into()],
+            )?;
+            Ok(())
+        });
+    }
+
+    fn canvas_draw(&self, commands_json: &str) {
+        let _: Result<(), jni::errors::Error> = self.vm.attach_current_thread(|env| {
+            let j_json = env.new_string(commands_json)?;
+            env.call_method(
+                self.callback_ref.as_obj(),
+                jni_str!("canvasDraw"),
+                jni_sig!("(Ljava/lang/String;)V"),
+                &[(&j_json).into()],
+            )?;
+            Ok(())
+        });
+    }
+
+    fn canvas_draw_binary(&self, bytes: &[u8]) {
+        let _: Result<(), jni::errors::Error> = self.vm.attach_current_thread(|env| {
+            let j_bytes = env.byte_array_from_slice(bytes)?;
+            env.call_method(
+                self.callback_ref.as_obj(),
+                jni_str!("canvasDrawBinary"),
+                jni_sig!("([B)V"),
+                &[(&j_bytes).into()],
+            )?;
+            Ok(())
+        });
+    }
+
+    fn canvas_clear(&self) {
+        let _: Result<(), jni::errors::Error> = self.vm.attach_current_thread(|env| {
+            env.call_method(
+                self.callback_ref.as_obj(),
+                jni_str!("canvasClear"),
+                jni_sig!("()V"),
+                &[],
+            )?;
+            Ok(())
+        });
+    }
+
+    fn canvas_set_visible(&self, visible: bool) {
+        let _: Result<(), jni::errors::Error> = self.vm.attach_current_thread(|env| {
+            env.call_method(
+                self.callback_ref.as_obj(),
+                jni_str!("canvasSetVisible"),
+                jni_sig!("(Z)V"),
+                &[visible.into()],
+            )?;
+            Ok(())
+        });
+    }
+
+    fn get_screen_size(&self) -> (u32, u32) {
+        let res: Result<(u32, u32), jni::errors::Error> = self.vm.attach_current_thread(|env| {
+            let res_val = env.call_method(
+                self.callback_ref.as_obj(),
+                jni_str!("getScreenDimensions"),
+                jni_sig!("()J"),
+                &[],
+            )?;
+            let packed = res_val.j()?;
+            let w = ((packed >> 32) & 0xFFFFFFFF) as u32;
+            let h = (packed & 0xFFFFFFFF) as u32;
+            if w > 0 && h > 0 {
+                Ok((w, h))
+            } else {
+                Ok((1080, 2400))
+            }
+        });
+        res.unwrap_or((1080, 2400))
+    }
+
+    fn poll_menu_event(&self) -> Option<String> {
+        let res: Result<Option<String>, jni::errors::Error> =
+            self.vm.attach_current_thread(|env| {
+                let res_val = env.call_method(
+                    self.callback_ref.as_obj(),
+                    jni_str!("pollMenuEvent"),
+                    jni_sig!("()Ljava/lang/String;"),
+                    &[],
+                )?;
+                let j_obj = res_val.l()?;
+                if !j_obj.is_null() {
+                    // SAFETY: `j_obj` is a valid, non-null Java String reference returned by `pollMenuEvent`.
+                    let j_str = unsafe { JString::from_raw(env, j_obj.as_raw()) };
+                    if let Ok(s) = get_jni_string(env, &j_str)
+                        && !s.is_empty()
+                    {
+                        return Ok(Some(s));
+                    }
+                }
+                Ok(None)
+            });
+        res.unwrap_or(None)
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeRunLuaScript(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    script_str: JString,
+    callback_obj: JObject,
+) -> jstring {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let vm_opt = env.get_java_vm().ok();
+    let global_callback = if !callback_obj.is_null() {
+        env.new_global_ref(&callback_obj).ok()
+    } else {
+        None
+    };
+
+    let code = match get_jni_string(env, &script_str) {
+        Ok(s) => s,
+        Err(e) => {
+            let err_res = script::ScriptExecutionResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to decode script string: {e}")),
+                result: None,
+            };
+            let json = serde_json::to_string(&err_res).unwrap_or_default();
+            return to_jstring(env, &json);
+        }
+    };
+
+    let res = catch_unwind(move || -> String {
+        let ui_callback: std::sync::Arc<dyn script::ScriptUiCallback> =
+            match (vm_opt, global_callback) {
+                (Some(vm), Some(cb_ref)) => {
+                    std::sync::Arc::new(JniAidlUiBridge {
+                        vm,
+                        callback_ref: cb_ref,
+                    })
+                }
+                _ => std::sync::Arc::new(script::NoOpUiCallback),
+            };
+
+        let execution = script::run_script(pid as u32, &code, ui_callback);
+        serde_json::to_string(&execution).unwrap_or_else(|e| {
+            format!("{{\"success\":false,\"output\":\"\",\"error\":\"JSON serialization error: {e}\",\"result\":null}}")
+        })
+    });
+
+    let json = res.unwrap_or_else(|_| {
+        "{\"success\":false,\"output\":\"\",\"error\":\"Panic while executing script\",\"result\":null}".to_string()
+    });
+
+    to_jstring(env, &json)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeCancelLuaScript(
+    _unowned_env: EnvUnowned,
+    _class: JClass,
+) {
+    let _ = catch_unwind(|| {
+        script::cancel_script();
+    });
 }

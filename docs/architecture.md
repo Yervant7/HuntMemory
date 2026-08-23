@@ -13,7 +13,9 @@ graph TD
     subgraph App_Domain ["Application Process (Userspace - App UID)"]
         UI["Overlay UI (Jetpack Compose)"]
         VK["Integrated Virtual Keyboard (QWERTY / NUM / HEX)"]
+        Canvas_UI["LuaCanvasOverlay (GPU / DrawScope)"]
         VM["UI ViewModels & StateFlows"]
+        Bridge["LuaUiBridge (Dynamic UI / Canvas Dispatcher)"]
         IPC_Client["HMemServiceConnection (Binder Client)"]
     end
 
@@ -23,6 +25,7 @@ graph TD
         subgraph Rust_Engine ["Rust Engine (libhmem_jni.so)"]
             SCAN["Scanner (ARM NEON SIMD)"]
             EDIT["Memory Editor & FreezeEngine"]
+            SCRIPT["Lua 5.4 Engine (mlua + gg.* API)"]
             MAPS["Maps & Pagemap Streaming Parser"]
             KPMC["HMKPM Client (mlock + Syscall Hook)"]
         end
@@ -40,6 +43,9 @@ graph TD
     IPC_Client -- "AIDL / Binder IPC" --> RS
     RS --> NB
     NB --> Rust_Engine
+    SCRIPT -. "Canvas & UI Callbacks" .-> Bridge
+    Bridge --> Canvas_UI
+    Bridge --> UI
     KPMC -- "Syscall getresuid (Magic: 0x00484D4B504D)" --> KPM
     KPM --> PGD
     PGD --> PHYS_MEM
@@ -57,6 +63,10 @@ The user-facing presentation layer runs in a standard Android app process and is
   - Implements an Android `LifecycleService` providing lifecycle support (`SavedStateRegistryOwner`, `ViewModelStoreOwner`) to Compose floating windows.
   - Attaches views to the system `WindowManager` using `WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY`.
   - Supports dynamic resizing, repositioning, and collapse into a floating bubble overlay.
+
+- **`LuaCanvasOverlay` & `LuaUiBridge`**:
+  - Hardware-accelerated transparent overlay window rendering 2D geometry, text, ESP boxes, and radar HUDs over games using Compose `DrawScope`.
+  - Dispatches interactive UI events (toasts, alerts, prompt inputs, dynamic menus) triggered by running Lua scripts.
 
 - **Integrated Virtual Keyboard (`VirtualKeyboard`)**:
   - Eliminates reliance on the system Input Method Editor (IME), preventing window re-layouts or overlay displacements over target games/applications.
@@ -96,6 +106,10 @@ The computational engine is implemented in **Rust (Edition 2024)** and compiled 
 
 - **`@FastNative` Optimization**:
   - Native functions avoid full JNI transition overhead when executing lightweight memory operations.
+
+- **Lua 5.4 Scripting Engine (`script.rs`)**:
+  - Embeds Lua 5.4 through `mlua`, exposing high-level memory automation, pointer traversal, batch edits, and GameGuardian (`gg.*`) API compatibility.
+  - Implements the `ScriptUiCallback` trait to bridge script execution with Android Compose UI components asynchronously.
 
 - **Memory Map Streaming Parser (`maps.rs` & `pagemap.rs`)**:
   - Parses `/proc/[pid]/maps` using reusable heap buffers and zero-copy string slicing.

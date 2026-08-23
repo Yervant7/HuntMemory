@@ -22,20 +22,33 @@ package com.yervant.huntmem.backend
 
 import android.content.Intent
 import android.os.IBinder
+import android.util.Log
 import com.topjohnwu.superuser.ipc.RootService
 import com.yervant.huntmem.IHMemService
 
 class HMemService : RootService() {
+    companion object {
+        private const val TAG = "HMemService"
+    }
+
     override fun onBind(intent: Intent): IBinder {
-        // Load the JNI library in the root process Context
+        val customLibDir = intent.getStringExtra("NATIVE_LIB_DIR")
+        Log.i(TAG, "onBind in root daemon. NATIVE_LIB_DIR = $customLibDir")
+
+        // Load the JNI library in the root process Context with explicit path fallback
         try {
-            System.loadLibrary("hmem_jni")
-        } catch (_: Throwable) {
-            // Ignored, fallback might be handled
+            NativeBridge.loadLibrary(this, customLibDir)
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to load native library in HMemService: ${e.message}", e)
         }
         return object : IHMemService.Stub() {
             override fun nativeIsHmkpmAvailable(): Boolean {
-                return NativeBridge.nativeIsHmkpmAvailable()
+                return try {
+                    NativeBridge.nativeIsHmkpmAvailable()
+                } catch (e: Throwable) {
+                    Log.e(TAG, "nativeIsHmkpmAvailable error in root process: ${e.message}", e)
+                    false
+                }
             }
 
             override fun nativeReadMemory(
@@ -200,6 +213,22 @@ class HMemService : RootService() {
 
             override fun nativeIsAddressFrozen(address: Long): Boolean {
                 return NativeBridge.nativeIsAddressFrozen(address)
+            }
+
+            override fun nativeRunLuaScript(pid: Int, script: String, callback: com.yervant.huntmem.ILuaUiCallback?): String {
+                return NativeBridge.nativeRunLuaScript(pid, script, callback)
+            }
+
+            override fun nativeCancelLuaScript() {
+                NativeBridge.nativeCancelLuaScript()
+            }
+
+            override fun nativeGetModuleBase(pid: Int, moduleName: String): Long {
+                return NativeBridge.nativeGetModuleBase(pid, moduleName)
+            }
+
+            override fun nativeResolvePointerChain(pid: Int, baseExpr: String, offsetsJson: String): Long {
+                return NativeBridge.nativeResolvePointerChain(pid, baseExpr, offsetsJson)
             }
         }
     }

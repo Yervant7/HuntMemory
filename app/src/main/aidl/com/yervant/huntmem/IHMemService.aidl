@@ -20,6 +20,8 @@
 
 package com.yervant.huntmem;
 
+import com.yervant.huntmem.ILuaUiCallback;
+
 /**
  * Root service for memory reading/writing via pagemap + HMKPM.
  */
@@ -67,4 +69,13 @@ interface IHMemService {
     int nativeWriteBigDouble(int pid, long address, String value);
 
     boolean nativeIsAddressFrozen(long address);
+
+    String nativeRunLuaScript(int pid, String script, ILuaUiCallback callback);
+
+    void nativeCancelLuaScript();
+
+    long nativeGetModuleBase(int pid, String moduleName);
+
+    long nativeResolvePointerChain(int pid, String baseExpr, String offsetsJson);
 }
+

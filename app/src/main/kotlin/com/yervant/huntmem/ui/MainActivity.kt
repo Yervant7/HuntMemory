@@ -46,11 +46,6 @@ import com.yervant.huntmem.R
 import com.yervant.huntmem.ui.credits.CreditsScreen
 import com.yervant.huntmem.ui.theme.HuntMemTheme
 
-private enum class Screen {
-    MAIN,
-    CREDITS
-}
-
 class MainActivity : AppCompatActivity() {
 
     private lateinit var overlayPermissionLauncher: ActivityResultLauncher<Intent>
@@ -97,18 +92,18 @@ class MainActivity : AppCompatActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    var currentScreen by remember { mutableStateOf(Screen.MAIN) }
+                    var currentRoute by remember { mutableStateOf<AppRoute>(AppRoute.Main) }
 
                     Crossfade(
-                        targetState = currentScreen,
+                        targetState = currentRoute,
                         label = "ScreenTransition"
-                    ) { screen ->
-                        when (screen) {
-                            Screen.MAIN -> MainScreen(
-                                onNavigateToCredits = { currentScreen = Screen.CREDITS }
+                    ) { route ->
+                        when (route) {
+                            AppRoute.Main -> MainScreen(
+                                onNavigateToCredits = { currentRoute = AppRoute.Credits }
                             )
-                            Screen.CREDITS -> CreditsScreen(
-                                onBack = { currentScreen = Screen.MAIN }
+                            AppRoute.Credits -> CreditsScreen(
+                                onBack = { currentRoute = AppRoute.Main }
                             )
                         }
                     }

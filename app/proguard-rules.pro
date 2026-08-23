@@ -1,28 +1,22 @@
+# HuntMemory - ProGuard & R8 Configuration
+# Optimized according to modern AGP and R8 standards
+
 -repackageclasses 'o'
 -allowaccessmodification
 -optimizations !code/simplification/arithmetic
 -keepattributes InnerClasses,EnclosingMethod,Signature,SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 
-# Keep the native methods in our backend classes
+# Native JNI entry points (Backend memory engine, maps, scanner, and script bridge)
 -keepclasseswithmembernames,includedescriptorclasses class com.yervant.huntmem.backend.** {
     native <methods>;
 }
 
--keep class java.security.** { *; }
--keep class javax.crypto.** { *; }
+# AIDL IPC Stub & Interface for libsu RootService
+-keep public class com.yervant.huntmem.IHMemService** { *; }
+-keep public interface com.yervant.huntmem.IHMemService** { *; }
 
-# Keep classes used by libsuperuser
--keep class com.topjohnwu.superuser.** { *; }
--keep interface com.topjohnwu.superuser.** { *; }
-
-# General rules for Compose
--keepclassmembers class * {
-    @androidx.compose.runtime.Composable <methods>;
-}
--keepclassmembers class * {
-    @androidx.compose.runtime.Composable <fields>;
-}
--keepclassmembers class **.R$* {
-    public static <fields>;
+# Lua UI Bridge called via JNI from Rust scripting runtime
+-keep class com.yervant.huntmem.ui.overlay.tabs.LuaUiBridge {
+    public static <methods>;
 }

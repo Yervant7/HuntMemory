@@ -111,15 +111,11 @@ pub fn f16_to_f32(h: u16) -> f32 {
             // +/- 0
             f32::from_bits(sign << 31)
         } else {
-            // Subnormal f16
-            let mut f_exp = 127 - 14;
-            let mut f_frac = frac << 13;
-            while (f_frac & 0x0080_0000) == 0 {
-                f_frac <<= 1;
-                f_exp -= 1;
-            }
-            f_frac &= 0x007F_FFFF;
-            f32::from_bits((sign << 31) | ((f_exp as u32) << 23) | f_frac)
+            // Subnormal f16: branchless normalization using leading zeros (ARM64 CLZ)
+            let lz = frac.leading_zeros();
+            let f_exp = 134 - lz;
+            let f_frac = (frac << (lz - 8)) & 0x007F_FFFF;
+            f32::from_bits((sign << 31) | (f_exp << 23) | f_frac)
         }
     } else if exp == 0x1F {
         if frac == 0 {

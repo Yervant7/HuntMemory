@@ -33,7 +33,6 @@ val DarkOutlineVariant = Color(0xFF1E2834)
 
 // Primary: Electric Cyan / Tech Teal
 val PrimaryCyan = Color(0xFF00E5FF)
-val PrimaryCyanDark = Color(0xFF00B4D8)
 val PrimaryCyanContainer = Color(0xFF003844)
 val OnPrimaryCyan = Color(0xFF001F26)
 val OnPrimaryCyanContainer = Color(0xFF80F2FF)
@@ -52,11 +51,9 @@ val OnTertiaryAmberContainer = Color(0xFFFFDDB3)
 
 // Semantic Accents
 val SuccessEmerald = Color(0xFF10B981)
-val SuccessEmeraldContainer = Color(0xFF064E3B)
 val ErrorRose = Color(0xFFF43F5E)
 val ErrorRoseContainer = Color(0xFF4C0519)
 val FrozenIceCyan = Color(0xFF00F0FF)
-val MemoryAddressGreen = Color(0xFF34D399)
 
 // Light Theme Palette
 val LightBg = Color(0xFFF0F4F8)

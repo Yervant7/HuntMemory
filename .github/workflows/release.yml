@@ -7,8 +7,23 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release Tag Name (e.g. v3.0.0)'
+        description: 'Release Tag Name (e.g. v3.1.0)'
         required: true
+        type: string
+      prerelease:
+        description: 'Mark as Pre-release'
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: 'Create as Draft Release'
+        required: false
+        default: false
+        type: boolean
+      release_title:
+        description: 'Optional Custom Release Title'
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -16,7 +31,7 @@ permissions:
 
 jobs:
   build-release:
-    name: Build & Publish Release APK
+    name: Build & Publish Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -56,11 +71,25 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src/main/hmem -> app/src/main/hmem/target
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Assemble Release APK
-        run: ./gradlew assembleRelease --stacktrace
+      - name: Setup Keystore for Release Signing
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "ORG_GRADLE_PROJECT_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> $GITHUB_ENV
+          echo "ORG_GRADLE_PROJECT_KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "ORG_GRADLE_PROJECT_KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "ORG_GRADLE_PROJECT_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+
+      - name: Assemble Release and Debug APKs
+        run: ./gradlew assembleRelease assembleDebug --stacktrace
 
       - name: Prepare Release Artifacts & Checksums
         id: prepare_artifacts
@@ -70,29 +99,74 @@ jobs:
             TAG="${{ inputs.tag_name }}"
           fi
           if [ -z "$TAG" ]; then
-            TAG="v3.0.0"
+            TAG="v3.1.0"
           fi
-          
+
           mkdir -p release_dist
-          OUTPUT_APK="release_dist/HuntMemory-${TAG}-arm64-v8a.apk"
-          cp app/build/outputs/apk/release/*.apk "$OUTPUT_APK"
-          
+
+          RELEASE_SRC=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          DEBUG_SRC=$(ls app/build/outputs/apk/debug/*.apk | head -n 1)
+
+          RELEASE_DST="release_dist/HuntMemory-${TAG}-arm64-v8a-release.apk"
+          DEBUG_DST="release_dist/HuntMemory-${TAG}-arm64-v8a-debug.apk"
+
+          cp "$RELEASE_SRC" "$RELEASE_DST"
+          cp "$DEBUG_SRC" "$DEBUG_DST"
+
           cd release_dist
-          sha256sum "HuntMemory-${TAG}-arm64-v8a.apk" > "HuntMemory-${TAG}-arm64-v8a.apk.sha256"
-          echo "Generated SHA256 checksum:"
-          cat "HuntMemory-${TAG}-arm64-v8a.apk.sha256"
+          sha256sum "$(basename "$RELEASE_DST")" > "$(basename "$RELEASE_DST").sha256"
+          sha256sum "$(basename "$DEBUG_DST")" > "$(basename "$DEBUG_DST").sha256"
+          sha256sum *.apk > "HuntMemory-${TAG}-checksums.sha256"
+
+          RELEASE_SIZE=$(du -h "$(basename "$RELEASE_DST")" | cut -f1)
+          DEBUG_SIZE=$(du -h "$(basename "$DEBUG_DST")" | cut -f1)
+          RELEASE_SHA=$(sha256sum "$(basename "$RELEASE_DST")" | cut -d' ' -f1)
+          DEBUG_SHA=$(sha256sum "$(basename "$DEBUG_DST")" | cut -d' ' -f1)
+
           cd ..
-          
+
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "release_size=$RELEASE_SIZE" >> $GITHUB_OUTPUT
+          echo "debug_size=$DEBUG_SIZE" >> $GITHUB_OUTPUT
+          echo "release_sha=$RELEASE_SHA" >> $GITHUB_OUTPUT
+          echo "debug_sha=$DEBUG_SHA" >> $GITHUB_OUTPUT
+
+      - name: Generate Release Body Note
+        id: release_notes
+        run: |
+          TAG="${{ steps.prepare_artifacts.outputs.tag }}"
+          REL_SIZE="${{ steps.prepare_artifacts.outputs.release_size }}"
+          DBG_SIZE="${{ steps.prepare_artifacts.outputs.debug_size }}"
+          REL_SHA="${{ steps.prepare_artifacts.outputs.release_sha }}"
+          DBG_SHA="${{ steps.prepare_artifacts.outputs.debug_sha }}"
+
+          cat << 'EOF' > release_body.md
+          ### HuntMemory Distribution Artifacts
+
+          | Artifact | Variant | Architecture | Size | SHA-256 Checksum |
+          | :--- | :--- | :--- | :--- | :--- |
+          EOF
+
+          echo "| \`HuntMemory-${TAG}-arm64-v8a-release.apk\` | **Release** (Optimized, R8) | \`arm64-v8a\` | \`${REL_SIZE}\` | \`${REL_SHA}\` |" >> release_body.md
+          echo "| \`HuntMemory-${TAG}-arm64-v8a-debug.apk\` | **Debug** (Unstripped, Dev) | \`arm64-v8a\` | \`${DBG_SIZE}\` | \`${DBG_SHA}\` |" >> release_body.md
+
+          cat << 'EOF' >> release_body.md
+
+          ### Target & Requirements
+          - **Architecture**: Exclusively \`arm64-v8a\` (\`aarch64-linux-android\`)
+          - **Minimum OS**: Android 10+ (API 29+)
+          - **Root Engine**: libsu RootService + HMKPM (KernelPatch Module via \`SYS_GETRESUID\`)
+          EOF
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          name: HuntMemory ${{ steps.prepare_artifacts.outputs.tag }}
+          name: ${{ inputs.release_title != '' && inputs.release_title || format('HuntMemory {0}', steps.prepare_artifacts.outputs.tag) }}
           tag_name: ${{ steps.prepare_artifacts.outputs.tag }}
+          body_path: release_body.md
           generate_release_notes: true
-          draft: false
-          prerelease: ${{ contains(steps.prepare_artifacts.outputs.tag, '-alpha') || contains(steps.prepare_artifacts.outputs.tag, '-beta') || contains(steps.prepare_artifacts.outputs.tag, '-rc') }}
+          draft: ${{ inputs.draft || false }}
+          prerelease: ${{ inputs.prerelease || contains(steps.prepare_artifacts.outputs.tag, '-alpha') || contains(steps.prepare_artifacts.outputs.tag, '-beta') || contains(steps.prepare_artifacts.outputs.tag, '-rc') }}
           files: |
             release_dist/HuntMemory-*.apk
-            release_dist/HuntMemory-*.apk.sha256
+            release_dist/HuntMemory-*.sha256

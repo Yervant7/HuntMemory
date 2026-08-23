@@ -53,21 +53,18 @@ impl Default for MapsOptions {
 pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, String> {
     let maps_path = format!("/proc/{pid}/maps");
     let file = File::open(&maps_path).map_err(|e| format!("Cannot read {maps_path}: {e}"))?;
-    let reader = BufReader::with_capacity(64 * 1024, file);
+    let mut reader = BufReader::with_capacity(64 * 1024, file);
 
     let mut regions = Vec::with_capacity(1024);
 
     // Open pagemap once and reuse buffer and descriptor
     let mut scanner = PagemapReader::new(pid);
+    let mut line = String::with_capacity(512);
 
-    for line_result in reader.lines() {
-        let line = match line_result {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-
+    while reader.read_line(&mut line).unwrap_or(0) > 0 {
         let trimmed = line.trim();
         if trimmed.is_empty() {
+            line.clear();
             continue;
         }
 
@@ -75,32 +72,40 @@ pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, Str
         let mut tokens = trimmed.split_ascii_whitespace();
 
         let Some(addr_range) = tokens.next() else {
+            line.clear();
             continue;
         };
         let Some((start_str, end_str)) = addr_range.split_once('-') else {
+            line.clear();
             continue;
         };
 
         let Ok(start) = u64::from_str_radix(start_str, 16) else {
+            line.clear();
             continue;
         };
         let Ok(end) = u64::from_str_radix(end_str, 16) else {
+            line.clear();
             continue;
         };
 
         if end <= start {
+            line.clear();
             continue;
         }
 
         let Some(permissions) = tokens.next() else {
+            line.clear();
             continue;
         };
 
         if opts.require_read && !permissions.contains('r') {
+            line.clear();
             continue;
         }
 
         if opts.require_write && !permissions.contains('w') {
+            line.clear();
             continue;
         }
 
@@ -117,12 +122,14 @@ pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, Str
         let path = normalize_path(path_slice);
 
         if is_excluded_region(&path) {
+            line.clear();
             continue;
         }
 
         let size = end - start;
 
         if opts.min_size > 0 && size < opts.min_size {
+            line.clear();
             continue;
         }
 
@@ -138,6 +145,7 @@ pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, Str
         let should_check = pagemap_mask != 0 && !is_file_backed(&path);
 
         if should_check && !scanner.has_resident_pages(start, end, pagemap_mask) {
+            line.clear();
             continue;
         }
 
@@ -148,6 +156,8 @@ pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, Str
             offset,
             path,
         });
+
+        line.clear();
     }
 
     Ok(regions)
@@ -270,13 +280,11 @@ pub fn is_file_backed(path: &str) -> bool {
 }
 
 /// Returns the base address of a module or 0 if not found.
-#[allow(dead_code)]
 pub fn get_module_base(pid: u32, module_name: &str) -> Result<u64, String> {
     Ok(get_module_base_opt(pid, module_name)?.unwrap_or(0))
 }
 
-/// Searches for a module base address in streaming mode.
-#[allow(dead_code)]
+/// Searches for a module base address in streaming mode from `/proc/<pid>/maps`.
 pub fn get_module_base_opt(pid: u32, module_name: &str) -> Result<Option<u64>, String> {
     let module_name = module_name.trim();
     if module_name.is_empty() {
@@ -285,26 +293,30 @@ pub fn get_module_base_opt(pid: u32, module_name: &str) -> Result<Option<u64>, S
 
     let maps_path = format!("/proc/{pid}/maps");
     let file = File::open(&maps_path).map_err(|e| format!("Cannot read {maps_path}: {e}"))?;
-    let reader = BufReader::with_capacity(32 * 1024, file);
+    let mut reader = BufReader::with_capacity(32 * 1024, file);
 
     let mut fallback_base: Option<u64> = None;
+    let mut line = String::with_capacity(512);
 
-    for line_result in reader.lines() {
-        let line = match line_result {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-
+    while reader.read_line(&mut line).unwrap_or(0) > 0 {
         let trimmed = line.trim();
+        if trimmed.is_empty() {
+            line.clear();
+            continue;
+        }
+
         let mut tokens = trimmed.split_ascii_whitespace();
 
         let Some(addr_range) = tokens.next() else {
+            line.clear();
             continue;
         };
         let Some((start_str, _)) = addr_range.split_once('-') else {
+            line.clear();
             continue;
         };
         let Ok(start) = u64::from_str_radix(start_str, 16) else {
+            line.clear();
             continue;
         };
 
@@ -325,14 +337,15 @@ pub fn get_module_base_opt(pid: u32, module_name: &str) -> Result<Option<u64>, S
                 fallback_base = Some(start);
             }
         }
+        line.clear();
     }
 
     Ok(fallback_base)
 }
 
-fn path_matches_module(path: &str, module_name: &str) -> bool {
-    let module_name = module_name.trim();
-    if module_name.is_empty() {
+pub fn path_matches_module(path: &str, module_name: &str) -> bool {
+    let mod_clean = module_name.trim();
+    if mod_clean.is_empty() {
         return false;
     }
 
@@ -340,15 +353,28 @@ fn path_matches_module(path: &str, module_name: &str) -> bool {
     let p = norm.as_str();
 
     // Complete or partial path match
-    if module_name.contains('/') {
-        return p.ends_with(module_name);
+    if mod_clean.contains('/') {
+        return p.ends_with(mod_clean) || p.to_lowercase().ends_with(&mod_clean.to_lowercase());
     }
 
     // Basename comparison
     let basename = p.rsplit('/').next().unwrap_or("");
     let basename = basename.strip_prefix("memfd:").unwrap_or(basename);
 
-    basename == module_name
+    if basename.eq_ignore_ascii_case(mod_clean) {
+        return true;
+    }
+
+    // Optional match without .so suffix (e.g. "libil2cpp" matches "libil2cpp.so")
+    if !mod_clean.ends_with(".so")
+        && basename
+            .strip_suffix(".so")
+            .is_some_and(|without_ext| without_ext.eq_ignore_ascii_case(mod_clean))
+    {
+        return true;
+    }
+
+    false
 }
 
 /// Filters memory regions by known types and/or custom filters.

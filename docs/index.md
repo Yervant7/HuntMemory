@@ -33,6 +33,14 @@ The project pairs a modern **Jetpack Compose** floating overlay UI with an ultra
 
     [:octicons-arrow-right-24: Read Scanning Guide](memory-scanning.md)
 
+-   :material-code-json:{ .lg .middle } __[Lua Scripting & Canvas](lua-scripting.md)__
+
+    ---
+
+    Automate scans with Lua 5.4, use the GameGuardian compatibility layer (`gg.*`), create dynamic menus, and render hardware-accelerated Canvas ESP overlays.
+
+    [:octicons-arrow-right-24: Read Scripting Guide](lua-scripting.md)
+
 -   :material-shield-key-outline:{ .lg .middle } __[HMKPM Kernel Protocol](kernel-protocol.md)__
 
     ---
@@ -78,7 +86,8 @@ graph TD
     subgraph UI_Space ["Android App (Userspace - App Process)"]
         UI["Overlay UI (Jetpack Compose)"]
         VK["Virtual Keyboard (QWERTY / NUM / HEX)"]
-        Tabs["Tabs (Processes / Scanner / Table / Settings)"]
+        Canvas_UI["LuaCanvasOverlay (GPU / DrawScope)"]
+        Tabs["Tabs (Process / Scan / Table / Lua / Settings)"]
         Conn["HMemServiceConnection (IPC Client)"]
     end
 
@@ -88,6 +97,7 @@ graph TD
         subgraph Rust_Engine ["Rust Engine (libhmem_jni.so)"]
             SCAN["Scanner (ARM NEON SIMD)"]
             EDIT["Editor & FreezeEngine (Worker Thread)"]
+            SCRIPT["Lua 5.4 Engine (mlua + gg.* API)"]
             MAPS["Maps & Pagemap Streaming Parser"]
             KPMC["HMKPM Client (mlock + Syscall Hook)"]
         end
@@ -105,6 +115,7 @@ graph TD
     Conn -- "AIDL / Binder IPC" --> RS
     RS --> NB
     NB --> Rust_Engine
+    SCRIPT -. "Canvas & UI Callbacks" .-> Canvas_UI
     KPMC -- "Syscall getresuid (Magic 0x00484D4B504D)" --> KPM
     KPM --> PGD
     PGD --> MEM
@@ -119,6 +130,11 @@ graph TD
     - **Multi-Type & Auto Scan**: Search across multiple integer and floating-point types simultaneously.
     - **Range & Group Scanning**: Locate values within bounds or discover structured variables grouped closely in memory (`spec:distance`).
     - **Unknown & Differential Scans**: Track dynamic values with *Increased*, *Decreased*, *Changed*, *Unchanged*, and delta filters.
+
+- 📜 **Lua 5.4 Scripting & GameGuardian Compatibility**:
+    - **Native `hmem.*` & `gg.*` Support**: Direct compatibility for running existing GameGuardian scripts.
+    - **Dynamic Overlay Menus & Dialogs**: Create custom floating cheat menus, prompts, and choice selectors in Jetpack Compose directly from Lua.
+    - **On-Screen Canvas Overlay (ESP/HUD)**: Hardware-accelerated 2D lines, bounding boxes, circles, and text rendering overlaying target games.
 
 - 🔐 **Obscured & Scientific Number Support**:
     - **XOR-Keypair Decryption**: Native detection and editing for Anti-Cheat Toolkit (ACTk) obscured types (`ObscuredInt`, `ObscuredFloat`, `ObscuredDouble`, `ObscuredLong`).

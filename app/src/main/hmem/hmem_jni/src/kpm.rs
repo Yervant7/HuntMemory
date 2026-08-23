@@ -103,24 +103,38 @@ impl<const N: usize> AlignedStackBuf<N> {
     }
 }
 
+/// # Safety
+///
+/// `ptr` must point to a valid, readable/writable memory buffer of at least `len` bytes.
 #[cfg(unix)]
 #[inline]
 unsafe fn kpm_syscall(magic: u64, ptr: *mut u8, len: u64) -> i64 {
+    // SAFETY: The caller guarantees `ptr` and `len` describe a valid buffer.
     unsafe { libc::syscall(SYS_GETRESUID, magic, ptr, len) as i64 }
 }
 
+/// # Safety
+///
+/// `SYS_GETRESUID` with magic probe does not dereference invalid memory.
 #[cfg(unix)]
 #[inline]
 unsafe fn kpm_probe_syscall() -> i64 {
+    // SAFETY: Passing NULL and 0 length for the probe magic command.
     unsafe { libc::syscall(SYS_GETRESUID, HMKPM_MAGIC, 0usize, 0u64) as i64 }
 }
 
+/// # Safety
+///
+/// Fallback for non-unix targets.
 #[cfg(not(unix))]
 #[inline]
 unsafe fn kpm_syscall(_magic: u64, _ptr: *mut u8, _len: u64) -> i64 {
     -1
 }
 
+/// # Safety
+///
+/// Fallback for non-unix targets.
 #[cfg(not(unix))]
 #[inline]
 unsafe fn kpm_probe_syscall() -> i64 {
@@ -129,16 +143,17 @@ unsafe fn kpm_probe_syscall() -> i64 {
 
 /// PROBE: checks if the HMKPM module is loaded and responding to the syscall.
 pub fn probe() -> Result<(), String> {
+    // SAFETY: kpm_probe_syscall passes NULL and 0 length.
     let ret = unsafe { kpm_probe_syscall() };
 
-    if ret < 0 || (ret as u64) != HMKPM_MAGIC {
+    if ret < 0 || ((ret as u64) != HMKPM_MAGIC && ret != 0) {
         return Err(format!(
             "HMKPM not available (syscall ret={ret}, errno={})",
             std::io::Error::last_os_error()
         ));
     }
 
-    logger::debug("HMKPM", "probe ok: module responsive");
+    logger::debug("HMKPM", &format!("probe ok: module responsive (ret={ret})"));
     Ok(())
 }
 

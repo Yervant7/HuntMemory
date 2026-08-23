@@ -54,6 +54,14 @@ object MemoryEngine {
         val minSize: Long = 0L
     )
 
+    @Keep
+    data class LuaExecutionResult(
+        val success: Boolean,
+        val output: String,
+        val error: String? = null,
+        val result: String? = null
+    )
+
     var globalMapOptions = MemoryMapOptions()
 
     enum class MemoryRegionType(val code: String, val title: String) {
@@ -125,21 +133,21 @@ object MemoryEngine {
         datatype: String,
         value: String,
     ): Result<Unit> = runCatching {
-        withContext(Dispatchers.IO) {
-            val normalized = datatype.lowercase().trim()
-            val res = when {
-                normalized.startsWith("obscured") || normalized.startsWith("actk") || normalized.startsWith("xor") -> {
-                    NativeBridge.writeObscured(pid, address, value, datatype)
-                }
-                normalized == "big_double" || normalized == "bigdouble" -> {
-                    NativeBridge.writeBigDouble(pid, address, value)
-                }
-                else -> {
-                    NativeBridge.writeMemory(pid, address, value, datatype)
-                }
+        val normalized = datatype.lowercase().trim()
+        when {
+            normalized.startsWith("obscured") || normalized.startsWith("actk") || normalized.startsWith("xor") -> {
+                writeObscured(pid, address, value, datatype).getOrThrow()
             }
-            if (res != 0) {
-                throw IOException("Failed to write memory ($datatype) at 0x${address.toString(16)}")
+            normalized == "big_double" || normalized == "bigdouble" -> {
+                writeBigDouble(pid, address, value).getOrThrow()
+            }
+            else -> {
+                withContext(Dispatchers.IO) {
+                    val res = NativeBridge.writeMemory(pid, address, value, datatype)
+                    if (res != 0) {
+                        throw IOException("Failed to write memory ($datatype) at 0x${address.toString(16)}")
+                    }
+                }
             }
         }
     }
@@ -439,7 +447,137 @@ object MemoryEngine {
             else -> "UNKNOWN"
         }
     }
+
+    suspend fun resolvePointerChain(
+        pid: Int,
+        baseExpr: String,
+        offsets: List<Long>
+    ): Result<Long> = runCatching {
+        withContext(Dispatchers.IO) {
+            val offsetsJson = JSONArray(offsets).toString()
+            val addr = NativeBridge.resolvePointerChain(pid, baseExpr, offsetsJson)
+            if (addr <= 0L) {
+                throw IOException("Failed to resolve pointer chain '$baseExpr' -> $offsets")
+            }
+            addr
+        }
+    }
+
+    /**
+     * Parses complex address expressions including:
+     * - Direct Hex: "0x7b123400"
+     * - Module Offset: "libil2cpp.so+0x1234"
+     * - Pointer Dereference: "[0x7b123400]+0x20" or "[libil2cpp.so+0x1234]+0x20+0x48"
+     * - Simple addition: "0x7b123400+0x48"
+     */
+    suspend fun parseAddressExpression(pid: Int, expr: String): Long? {
+        val s = expr.trim()
+        if (s.isEmpty()) return null
+
+        return withContext(Dispatchers.IO) {
+            try {
+                // 1. Pointer Dereference syntax: [Base]+off1+off2...
+                if (s.startsWith("[") && s.contains("]")) {
+                    val closeIdx = s.indexOf(']')
+                    val baseInside = s.substring(1, closeIdx).trim()
+                    val trailing = s.substring(closeIdx + 1).trim()
+
+                    // Resolve baseInside (which could be direct hex or module+offset)
+                    val baseAddr = parseAddressExpression(pid, baseInside) ?: return@withContext null
+
+                    val offsets = mutableListOf<Long>()
+                    if (trailing.isNotEmpty()) {
+                        // Parse signed offsets based on + / -
+                        var currentIdx = 0
+                        while (currentIdx < trailing.length) {
+                            val sign = if (trailing[currentIdx] == '-') -1L else 1L
+                            val nextSignIdx = trailing.indexOfAny(charArrayOf('+', '-'), currentIdx + 1).let {
+                                if (it == -1) trailing.length else it
+                            }
+                            val offStr = trailing.substring(currentIdx + 1, nextSignIdx).trim()
+                            if (offStr.isNotEmpty()) {
+                                val offVal = if (offStr.startsWith("0x", ignoreCase = true)) {
+                                    offStr.substring(2).toLongOrNull(16) ?: 0L
+                                } else {
+                                    offStr.toLongOrNull() ?: 0L
+                                }
+                                offsets.add(sign * offVal)
+                            }
+                            currentIdx = nextSignIdx
+                        }
+                    }
+
+                    if (offsets.isEmpty()) {
+                        // Just single dereference [base]
+                        offsets.add(0L)
+                    }
+
+                    resolvePointerChain(pid, "0x${baseAddr.toString(16)}", offsets).getOrNull()
+                } else if (s.contains("+")) {
+                    // 2. Module + offset or Address + offset
+                    val parts = s.split("+")
+                    if (parts.size == 2) {
+                        val left = parts[0].trim()
+                        val right = parts[1].trim()
+
+                        val base: Long = (if (left.startsWith("0x", ignoreCase = true)) {
+                            left.substring(2).toLongOrNull(16)
+                        } else if (left.contains(".so") || left.contains(".apk") || left.contains(".art") || left.startsWith("lib", ignoreCase = true)) {
+                            NativeBridge.getModuleBase(pid, left).takeIf { it > 0 }
+                        } else {
+                            left.toLongOrNull(16)
+                        }) ?: return@withContext null
+
+                        val offset: Long = (if (right.startsWith("0x", ignoreCase = true)) {
+                            right.substring(2).toLongOrNull(16)
+                        } else {
+                            right.toLongOrNull()
+                        }) ?: return@withContext null
+
+                        base + offset
+                    } else {
+                        null
+                    }
+                } else if (s.contains(".so") || s.contains(".apk") || s.contains(".art") || s.startsWith("lib", ignoreCase = true)) {
+                    // 3. Module base alone
+                    NativeBridge.getModuleBase(pid, s).takeIf { it > 0 }
+                } else {
+                    // 4. Direct address
+                    if (s.startsWith("0x", ignoreCase = true)) {
+                        s.substring(2).toLongOrNull(16)
+                    } else {
+                        s.toLongOrNull(16)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error evaluating address expression '$expr': ${e.message}")
+                null
+            }
+        }
+    }
+
+    suspend fun runLuaScript(
+        pid: Int,
+        script: String
+    ): Result<LuaExecutionResult> = runCatching {
+        withContext(Dispatchers.IO) {
+            val callback = com.yervant.huntmem.ui.overlay.tabs.LuaUiBridge.asAidlCallback()
+            val json = NativeBridge.runLuaScript(pid, script, callback)
+            val obj = JSONObject(json)
+            val success = obj.optBoolean("success", false)
+            val output = obj.optString("output", "")
+            val error = if (!obj.isNull("error") && obj.has("error")) obj.optString("error").takeIf { it.isNotEmpty() } else null
+            val result = if (!obj.isNull("result") && obj.has("result")) obj.optString("result").takeIf { it.isNotEmpty() } else null
+            LuaExecutionResult(
+                success = success,
+                output = output,
+                error = error,
+                result = result
+            )
+        }
+    }
+
+    fun stopLuaScript() {
+        NativeBridge.cancelLuaScript()
+    }
 }
-
-
-

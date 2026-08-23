@@ -21,23 +21,36 @@
 package com.yervant.huntmem.ui
 
 import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -48,8 +61,10 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Opacity
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -63,12 +78,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,6 +96,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -94,12 +115,17 @@ import com.yervant.huntmem.ui.keyboard.VirtualKeyboard
 import com.yervant.huntmem.ui.keyboard.VirtualTextField
 import com.yervant.huntmem.ui.overlay.tabs.AddressTableTab
 import com.yervant.huntmem.ui.overlay.tabs.HuntSettings
+import com.yervant.huntmem.ui.overlay.tabs.LuaDialog
+import com.yervant.huntmem.ui.overlay.tabs.LuaScriptTab
+import com.yervant.huntmem.ui.overlay.tabs.LuaUiBridge
 import com.yervant.huntmem.ui.overlay.tabs.MemoryScanTab
 import com.yervant.huntmem.ui.overlay.tabs.ProcessScreen
 import com.yervant.huntmem.ui.overlay.tabs.ProcessViewModel
+import com.yervant.huntmem.ui.theme.ComponentStyles
 import com.yervant.huntmem.ui.theme.HuntMemTheme
 import com.yervant.huntmem.ui.theme.SuccessEmerald
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
 
 val LocalOverlayOpacity = androidx.compose.runtime.compositionLocalOf { 0.92f }
 
@@ -116,27 +142,43 @@ fun FloatingIcon(
             .size(54.dp)
             .shadow(8.dp, CircleShape)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(Color.Transparent)
             .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragEnd = { onDragEnd() },
-                    onDrag = { change, dragAmount ->
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var isDrag = false
+                    val dragChange = awaitTouchSlopOrCancellation(down.id) { change, overSlop ->
                         change.consume()
+                        isDrag = true
                         onUpdatePosition(
-                            IntOffset(dragAmount.x.roundToInt(), dragAmount.y.roundToInt())
+                            IntOffset(overSlop.x.roundToInt(), overSlop.y.roundToInt())
                         )
                     }
-                )
-            }
-            .pointerInput(Unit) {
-                detectTapGestures(onTap = { onToggleMenu() })
+
+                    if (dragChange != null && isDrag) {
+                        val successful = drag(dragChange.id) { change ->
+                            val changeOffset = change.positionChange()
+                            change.consume()
+                            onUpdatePosition(
+                                IntOffset(changeOffset.x.roundToInt(), changeOffset.y.roundToInt())
+                            )
+                        }
+                        if (successful) {
+                            onDragEnd()
+                        }
+                    } else if (!isDrag) {
+                        // User tapped/clicked the floating icon without dragging past touch slop
+                        down.consume()
+                        onToggleMenu()
+                    }
+                }
             }
     ) {
         Image(
             painter = painterResource(id = R.drawable.overlay_icon),
             contentDescription = stringResource(id = R.string.overlay_ui_open_menu_icon_description),
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            contentScale = ContentScale.Fit
         )
 
         // Status badge indicator for attached process
@@ -164,19 +206,54 @@ fun MenuOverlayContent(
     onTabSelected: (Int) -> Unit
 ) {
     val keyboardController = remember { KeyboardController() }
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val windowWidthDp = with(density) { windowInfo.containerSize.width.toDp() }
+    val isWideScreen = windowWidthDp >= 600.dp
 
     HuntMemTheme(darkTheme = true) {
         CompositionLocalProvider(LocalKeyboardController provides keyboardController) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                MenuContent(
-                    selectedTab = uiState.selectedTab,
-                    onTabSelected = onTabSelected,
-                    viewModel = viewModel,
-                    context = context,
-                    dialogCallback = dialogCallback,
-                    onClose = onToggleMenu,
-                )
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = if (isWideScreen) Alignment.Center else Alignment.TopStart
+            ) {
+                // Dimmed touch scrim on wide displays/tablets
+                if (isWideScreen) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.40f))
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null
+                            ) { onToggleMenu() }
+                    )
+                }
+
+                Box(
+                    modifier = if (isWideScreen) {
+                        Modifier
+                            .widthIn(max = 680.dp)
+                            .fillMaxHeight(0.92f)
+                            .padding(12.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                    } else {
+                        Modifier.fillMaxSize()
+                    }
+                ) {
+                    MenuContent(
+                        selectedTab = uiState.selectedTab,
+                        onTabSelected = onTabSelected,
+                        viewModel = viewModel,
+                        context = context,
+                        dialogCallback = dialogCallback,
+                        onClose = onToggleMenu,
+                    )
+                }
+
                 DialogManager(dialogState = uiState.dialogState)
+                LuaDialogManager()
+                LuaToastOverlay()
 
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -189,6 +266,7 @@ fun MenuOverlayContent(
     }
 }
 
+@Immutable
 private data class TabItemData(
     val titleRes: Int,
     val icon: ImageVector
@@ -208,11 +286,16 @@ fun MenuContent(
         TabItemData(R.string.overlay_ui_processes_tab, Icons.Default.Apps),
         TabItemData(R.string.overlay_ui_memory_tab, Icons.Default.Memory),
         TabItemData(R.string.overlay_ui_editor_tab, Icons.Default.EditNote),
+        TabItemData(R.string.overlay_ui_scripts_tab, Icons.Default.Terminal),
         TabItemData(R.string.overlay_ui_settings_tab_and_title, Icons.Default.Settings)
     )
 
     val attachedPid by AttachedProcessRepository.attachedProcessPid.collectAsState()
     var currentOpacity by remember { mutableFloatStateOf(0.92f) }
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
+    val isCompactHeight = windowHeightDp < 500.dp
 
     CompositionLocalProvider(LocalOverlayOpacity provides currentOpacity) {
         Scaffold(
@@ -228,25 +311,28 @@ fun MenuContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 8.dp, vertical = if (isCompactHeight) 2.dp else 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Process status chip
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = ComponentStyles.StatusChip.shape,
                         color = if (attachedPid != null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surfaceVariant,
-                        border = BorderStroke(0.5.dp, if (attachedPid != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant),
+                        border = BorderStroke(ComponentStyles.StatusChip.borderWidth, if (attachedPid != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier.clickable { onTabSelected(0) }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                            modifier = Modifier.padding(
+                                horizontal = ComponentStyles.StatusChip.horizontalPadding,
+                                vertical = ComponentStyles.StatusChip.verticalPadding
+                            ),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(ComponentStyles.StatusChip.spacing)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(7.dp)
+                                    .size(ComponentStyles.StatusChip.indicatorSize)
                                     .clip(CircleShape)
                                     .background(if (attachedPid != null) SuccessEmerald else MaterialTheme.colorScheme.outline)
                             )
@@ -318,7 +404,7 @@ fun MenuContent(
                     selectedTabIndex = selectedTab,
                     containerColor = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.height(38.dp)
+                    modifier = Modifier.height(if (isCompactHeight) 33.dp else 38.dp)
                 ) {
                     tabs.forEachIndexed { index, tabItem ->
                         val isSelected = selectedTab == index
@@ -365,7 +451,10 @@ fun MenuContent(
                     context = context,
                     dialogCallback = dialogCallback
                 )
-                3 -> HuntSettings(
+                3 -> LuaScriptTab(
+                    context = context
+                )
+                4 -> HuntSettings(
                     context = context
                 )
             }
@@ -399,6 +488,254 @@ fun DialogManager(dialogState: DialogState) {
 }
 
 @Composable
+fun LuaDialogManager() {
+    val activeDialog by LuaUiBridge.activeDialog.collectAsState()
+
+    when (val dialog = activeDialog) {
+        is LuaDialog.Alert -> {
+            InfoDialog(
+                title = dialog.title,
+                message = dialog.message,
+                onConfirm = { dialog.deferred.complete(Unit) },
+                onDismiss = { dialog.deferred.complete(Unit) }
+            )
+        }
+        is LuaDialog.Prompt -> {
+            InputDialog(
+                title = dialog.title,
+                defaultValue = dialog.defaultValue,
+                keyboardType = dialog.keyboardType,
+                onConfirm = { dialog.deferred.complete(it) },
+                onDismiss = { dialog.deferred.complete(null) }
+            )
+        }
+        is LuaDialog.Choice -> {
+            LuaChoiceDialog(
+                title = dialog.title,
+                items = dialog.items,
+                onSelect = { idx -> dialog.deferred.complete(idx) },
+                onDismiss = { dialog.deferred.complete(null) }
+            )
+        }
+        is LuaDialog.MultiChoice -> {
+            LuaMultiChoiceDialog(
+                title = dialog.title,
+                items = dialog.items,
+                initialSelected = dialog.initialSelected,
+                onConfirm = { selections -> dialog.deferred.complete(selections) },
+                onDismiss = { dialog.deferred.complete(null) }
+            )
+        }
+        null -> {}
+    }
+}
+
+@Composable
+fun LuaToastOverlay() {
+    val toastMessage by LuaUiBridge.toastMessage.collectAsState()
+
+    LaunchedEffect(toastMessage) {
+        if (toastMessage != null) {
+            delay(2500L.milliseconds)
+            LuaUiBridge.dismissToast()
+        }
+    }
+
+    AnimatedVisibility(
+        visible = toastMessage != null,
+        enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
+        exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 48.dp, start = 16.dp, end = 16.dp)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.95f),
+                shadowElevation = 8.dp,
+                modifier = Modifier.clickable { LuaUiBridge.dismissToast() }
+            ) {
+                Text(
+                    text = toastMessage ?: "",
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LuaChoiceDialog(
+    title: String,
+    items: List<String>,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
+    val maxListHeight = (windowHeightDp * 0.45f).coerceAtLeast(130.dp)
+
+    CustomDialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .padding(ComponentStyles.Dialog.contentPadding)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = maxListHeight),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                itemsIndexed(items) { index, itemText ->
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(index + 1) } // 1-based index for Lua
+                    ) {
+                        Text(
+                            text = itemText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp)
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(id = R.string.overlay_ui_dialog_cancel_button))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LuaMultiChoiceDialog(
+    title: String,
+    items: List<String>,
+    initialSelected: List<Boolean>,
+    onConfirm: (List<Boolean>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
+    val maxListHeight = (windowHeightDp * 0.45f).coerceAtLeast(130.dp)
+
+    val selections = remember { mutableStateListOf<Boolean>().apply { addAll(initialSelected) } }
+    while (selections.size < items.size) {
+        selections.add(false)
+    }
+
+    CustomDialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .padding(ComponentStyles.Dialog.contentPadding)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = maxListHeight),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                itemsIndexed(items) { index, itemText ->
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selections[index] = !selections[index]
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = itemText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Checkbox(
+                                checked = selections[index],
+                                onCheckedChange = { checked -> selections[index] = checked }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(id = R.string.overlay_ui_dialog_cancel_button))
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Button(
+                    onClick = { onConfirm(selections.toList()) },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text(stringResource(id = R.string.ok), fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
 fun InfoDialog(
     title: String,
     message: String,
@@ -407,7 +744,7 @@ fun InfoDialog(
 ) {
     CustomDialog(onDismissRequest = onDismiss) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(ComponentStyles.Dialog.contentPadding),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
@@ -465,7 +802,7 @@ fun InputDialog(
 
     CustomDialog(onDismissRequest = onDismiss) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(ComponentStyles.Dialog.contentPadding),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(

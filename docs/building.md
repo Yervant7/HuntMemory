@@ -90,7 +90,54 @@ To copy the binary into the Android project's `jniLibs` directory:
 
 ---
 
-## 📱 4. Target Device Requirements
+## 🔑 4. Release Signing (LSPosed apksign)
+
+HuntMemory integrates LSPosed's [`lsplugin.apksign`](https://github.com/LSPosed/LSPlugin) Gradle plugin to streamline APK signing without hardcoding sensitive keystores or credentials into build scripts.
+
+If signing credentials are not configured, `lsplugin.apksign` automatically falls back to standard debug signing.
+
+### Local Signing Setup
+
+To sign release builds locally, provide the signing properties via your user-level `~/.gradle/gradle.properties` (recommended) or project `gradle.properties`:
+
+```properties
+KEYSTORE_FILE=/path/to/your/release.keystore
+KEYSTORE_PASSWORD=your_keystore_password
+KEY_ALIAS=your_key_alias
+KEY_PASSWORD=your_key_password
+```
+
+Or pass them directly via Gradle command-line parameters:
+
+```bash
+.\gradlew assembleRelease -PKEYSTORE_FILE="release.keystore" -PKEYSTORE_PASSWORD="password" -PKEY_ALIAS="alias" -PKEY_PASSWORD="password"
+```
+
+### GitHub Actions CI/CD Signing Setup
+
+In GitHub Actions CI (`ci.yml` and `release.yml`), signing is configured securely via **GitHub Repository Secrets**:
+
+1. Convert your keystore file to Base64:
+   - **Linux / macOS**:
+     ```bash
+     base64 -w 0 release.keystore > keystore_base64.txt
+     ```
+   - **Windows (PowerShell)**:
+     ```powershell
+     [Convert]::ToBase64String([IO.File]::ReadAllBytes("release.keystore")) | Out-File -Encoding ascii keystore_base64.txt
+     ```
+2. Navigate to your repository on GitHub: **Settings** > **Secrets and variables** > **Actions**.
+3. Create the following **Repository Secrets**:
+   - `KEYSTORE_BASE64`: The full content of `keystore_base64.txt`.
+   - `KEYSTORE_PASSWORD`: The keystore password.
+   - `KEY_ALIAS`: The key alias name.
+   - `KEY_PASSWORD`: The private key password.
+
+When these secrets are present, the CI and Release workflows automatically decode the keystore to `$RUNNER_TEMP/release.jks` and supply `ORG_GRADLE_PROJECT_KEYSTORE_*` environment variables to Gradle. If the secrets are omitted (e.g. in public forks or pull requests), CI cleanly falls back to debug signing.
+
+---
+
+## 📱 5. Target Device Requirements
 
 To run HuntMemory on your device:
 
@@ -108,7 +155,7 @@ To run HuntMemory on your device:
 
 ---
 
-## 🔧 5. Troubleshooting & FAQ
+## 🔧 6. Troubleshooting & FAQ
 
 ### `cargo-ndk: command not found`
 Ensure `cargo` binary directory (`~/.cargo/bin` or `%USERPROFILE%\.cargo\bin`) is included in your system `PATH`.
@@ -121,20 +168,44 @@ Run `.\gradlew copyRustLib` or `.\gradlew assembleDebug` to trigger the automate
 
 ---
 
-## 🤖 6. CI/CD & Automated Workflows
+## 📖 7. Documentation Build & Local Preview
 
-HuntMemory utilizes **GitHub Actions** for continuous integration and automated release management:
+The documentation is powered by **Material for MkDocs** and deployed automatically to GitHub Pages.
+
+### Local Setup & Live Server
+To preview documentation locally with hot-reloading:
+
+```bash
+# Install documentation dependencies
+pip install -r docs/requirements.txt
+
+# Launch local preview server (default: http://127.0.0.1:8000)
+mkdocs serve
+
+# Strict build validation (ensures no broken links or syntax errors)
+mkdocs build --strict
+```
+
+---
+
+## 🤖 8. CI/CD & Automated Workflows
+
+HuntMemory utilizes **GitHub Actions** for continuous integration, automated documentation deployment, and release management:
+
+### Documentation Deployment (`pages.yml`)
+- **Trigger**: Pushes to `main` / `master` modifying `docs/**`, `mkdocs.yml`, or the workflow itself.
+- **Workflow**: Sets up Python 3.12, installs dependencies from `docs/requirements.txt`, runs `mkdocs build --strict`, and deploys the static site artifact to **GitHub Pages** (`https://yervant7.github.io/HuntMemory/`).
 
 ### Continuous Integration (`ci.yml`)
 - **Trigger**: Every push or pull request targeting `main` / `master`.
 - **Validation Steps**:
-  1. **Rust Core**: Verifies code formatting (`cargo fmt`), runs host test suites (`cargo test`), and enforces strict compiler/linter checks (`cargo clippy -D warnings`).
-  2. **Android Build**: Configures JDK 21, Android SDK (API 37), NDK `29.0.14206865`, and `cargo-ndk`. Compiles the application and generates `arm64-v8a` Debug and Release APKs.
+   1. **Rust Core**: Verifies code formatting (`cargo fmt`), runs host test suites (`cargo test`), and enforces strict compiler/linter checks (`cargo clippy -D warnings`).
+   2. **Android Build**: Configures JDK 21, Android SDK (API 37), NDK `29.0.14206865`, and `cargo-ndk`. Compiles the application and generates `arm64-v8a` Debug and Release APKs (signed when repository keystore secrets are configured).
 - **Artifacts**: Debug and Release APKs are uploaded as workflow artifacts for immediate testing.
 
 ### Automated Releases (`release.yml`)
 - **Trigger**: Pushing a version tag matching `v*` (e.g., `git tag v3.0.0 && git push origin v3.0.0`) or manual trigger via `workflow_dispatch`.
-- **Output**: Builds the optimized Release APK, generates cryptographic SHA256 checksums (`.sha256`), and publishes a GitHub Release with downloadable binaries and release notes.
+- **Output**: Builds the optimized Release APK (signed when repository keystore secrets are configured), generates cryptographic SHA256 checksums (`.sha256`), and publishes a GitHub Release with downloadable binaries and release notes.
 
 ### Automated Dependency Management (`dependabot.yml`)
 - Weekly scheduled checks for GitHub Actions, Rust Cargo crates, and Gradle / Android dependencies.

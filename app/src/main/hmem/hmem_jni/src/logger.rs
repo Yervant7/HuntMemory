@@ -18,18 +18,25 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-//! Cross-platform logging module
+//! Cross-platform logging module with Android Logcat integration and panic diagnostic hooks.
 //!
-//! On Android, outputs to Android logcat via `__android_log_write` (linked with liblog.so);
-//! on other platforms outputs to stderr.
+//! On Android, outputs to Android Logcat via `__android_log_write` (liblog);
+//! on other platforms outputs to stderr/stdout.
 
-/// ANDROID_LOG_DEBUG = 3
+use std::sync::Once;
+
+#[allow(dead_code)]
+const ANDROID_LOG_VERBOSE: libc::c_int = 2;
 #[allow(dead_code)]
 const ANDROID_LOG_DEBUG: libc::c_int = 3;
-
-/// ANDROID_LOG_ERROR = 6
+#[allow(dead_code)]
+const ANDROID_LOG_INFO: libc::c_int = 4;
+#[allow(dead_code)]
+const ANDROID_LOG_WARN: libc::c_int = 5;
 #[allow(dead_code)]
 const ANDROID_LOG_ERROR: libc::c_int = 6;
+
+static INIT_ONCE: Once = Once::new();
 
 #[cfg(target_os = "android")]
 unsafe extern "C" {
@@ -41,38 +48,116 @@ unsafe extern "C" {
     ) -> libc::c_int;
 }
 
-/// Logs a debug message.
-pub fn debug(tag: &str, msg: &str) {
+#[inline]
+fn log_native(_prio: libc::c_int, _tag: &str, _msg: &str) {
     #[cfg(target_os = "android")]
     {
         use std::ffi::CString;
-        if let (Ok(c_tag), Ok(c_msg)) = (CString::new(tag), CString::new(msg)) {
+        if let (Ok(c_tag), Ok(c_msg)) = (CString::new(_tag), CString::new(_msg)) {
             // SAFETY: c_tag and c_msg are valid null-terminated C strings.
             unsafe {
-                __android_log_write(ANDROID_LOG_DEBUG, c_tag.as_ptr(), c_msg.as_ptr());
+                __android_log_write(_prio, c_tag.as_ptr(), c_msg.as_ptr());
             }
         }
     }
     #[cfg(not(target_os = "android"))]
     {
-        eprintln!("[DEBUG][{tag}] {msg}");
+        let level = match _prio {
+            ANDROID_LOG_VERBOSE => "VERBOSE",
+            ANDROID_LOG_DEBUG => "DEBUG",
+            ANDROID_LOG_INFO => "INFO",
+            ANDROID_LOG_WARN => "WARN",
+            _ => "ERROR",
+        };
+        eprintln!("[{level}][{_tag}] {_msg}");
     }
 }
 
-/// Logs an error message.
-pub fn error(tag: &str, msg: &str) {
-    #[cfg(target_os = "android")]
+/// Logs a verbose diagnostic trace (only active in debug builds).
+#[inline]
+#[allow(dead_code)]
+pub fn trace(tag: &str, msg: &str) {
+    #[cfg(debug_assertions)]
     {
-        use std::ffi::CString;
-        if let (Ok(c_tag), Ok(c_msg)) = (CString::new(tag), CString::new(msg)) {
-            // SAFETY: c_tag and c_msg are valid null-terminated C strings.
-            unsafe {
-                __android_log_write(ANDROID_LOG_ERROR, c_tag.as_ptr(), c_msg.as_ptr());
-            }
-        }
+        log_native(ANDROID_LOG_VERBOSE, tag, msg);
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(debug_assertions))]
     {
-        eprintln!("[ERROR][{tag}] {msg}");
+        let _ = (tag, msg);
+    }
+}
+
+/// Logs a debug message.
+#[inline]
+pub fn debug(tag: &str, msg: &str) {
+    #[cfg(debug_assertions)]
+    {
+        log_native(ANDROID_LOG_DEBUG, tag, msg);
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (tag, msg);
+    }
+}
+
+/// Logs an informational message.
+#[inline]
+#[allow(dead_code)]
+pub fn info(tag: &str, msg: &str) {
+    log_native(ANDROID_LOG_INFO, tag, msg);
+}
+
+/// Logs a warning message.
+#[inline]
+#[allow(dead_code)]
+pub fn warn(tag: &str, msg: &str) {
+    log_native(ANDROID_LOG_WARN, tag, msg);
+}
+
+/// Logs an error message.
+#[inline]
+pub fn error(tag: &str, msg: &str) {
+    log_native(ANDROID_LOG_ERROR, tag, msg);
+}
+
+/// Initializes the logging system and installs a custom panic hook to route
+/// Rust panics directly to Android Logcat before unwinding.
+pub fn init() {
+    INIT_ONCE.call_once(|| {
+        std::panic::set_hook(Box::new(|info| {
+            let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
+                *s
+            } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                s.as_str()
+            } else {
+                "Unknown panic payload"
+            };
+
+            let location = if let Some(loc) = info.location() {
+                format!("{}:{}:{}", loc.file(), loc.line(), loc.column())
+            } else {
+                "unknown location".to_string()
+            };
+
+            let err_msg = format!("RUST PANIC at {location}: {payload}");
+            error("HMemPanic", &err_msg);
+        }));
+
+        debug("HMemJni", "Logger and panic diagnostics hook initialized");
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_logging_calls() {
+        init();
+        trace("TestTag", "Trace message");
+        debug("TestTag", "Debug message");
+        info("TestTag", "Info message");
+        warn("TestTag", "Warn message");
+        error("TestTag", "Error message");
     }
 }

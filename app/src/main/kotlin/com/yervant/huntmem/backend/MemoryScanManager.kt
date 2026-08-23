@@ -52,9 +52,9 @@ class MemoryScanManager {
     }
 
     suspend fun createMatchFromOffset(address: String, dataType: String?, pid: Int): MatchInfo? {
-        val cleanedaddr = address.removePrefix("0x").removePrefix("0X").toLongOrNull(16) ?: return null
+        val resolvedAddr = MemoryEngine.parseAddressExpression(pid, address) ?: return null
         val type = (dataType ?: "int").lowercase()
-        val value: Number = readMemory(pid, cleanedaddr, type) ?: 0
+        val value: Number = readMemory(pid, resolvedAddr, type) ?: 0
 
         val size = when (type) {
             "byte" -> 1
@@ -67,40 +67,7 @@ class MemoryScanManager {
         return MatchInfo(
             id = UUID.randomUUID().toString(),
             pid = pid,
-            address = cleanedaddr,
-            prevValue = value,
-            valueType = type,
-            size = size
-        )
-    }
-
-    suspend fun createMatchFromAddressAndOffset(values: String, dataType: String?, pid: Int): MatchInfo? {
-        val offs = values.split("+")
-        if (offs.size < 2) return null
-
-        val cleanedaddr = offs[0].removePrefix("0x").removePrefix("0X").toLongOrNull(16) ?: return null
-        val cleanedoffset = if (offs[1].startsWith("0x", ignoreCase = true)) {
-            offs[1].removePrefix("0x").removePrefix("0X").toLongOrNull(16)
-        } else {
-            offs[1].toLongOrNull()
-        } ?: return null
-
-        val finalAddress = cleanedaddr + cleanedoffset
-        val type = (dataType ?: "int").lowercase()
-        val value: Number = readMemory(pid, finalAddress, type) ?: 0
-
-        val size = when (type) {
-            "byte" -> 1
-            "short", "float16" -> 2
-            "int", "float" -> 4
-            "long", "double" -> 8
-            else -> return null
-        }
-
-        return MatchInfo(
-            id = UUID.randomUUID().toString(),
-            pid = pid,
-            address = finalAddress,
+            address = resolvedAddr,
             prevValue = value,
             valueType = type,
             size = size

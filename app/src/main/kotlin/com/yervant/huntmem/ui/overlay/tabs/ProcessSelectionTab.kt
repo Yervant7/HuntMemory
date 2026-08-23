@@ -22,10 +22,11 @@ package com.yervant.huntmem.ui.overlay.tabs
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -112,13 +113,15 @@ fun ProcessScreen(
 
             // Category Filter Chips with Live Counts
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 FilterChip(
                     selected = filterType == ProcessFilterType.ALL,
                     onClick = { viewModel.onFilterTypeChanged(ProcessFilterType.ALL) },
-                    label = { Text("ALL (${counts.first})", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                    label = { Text(stringResource(R.string.process_menu_filter_all, counts.first), fontSize = 10.sp, fontWeight = FontWeight.Bold) },
                     modifier = Modifier.height(30.dp),
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -128,7 +131,7 @@ fun ProcessScreen(
                 FilterChip(
                     selected = filterType == ProcessFilterType.USER,
                     onClick = { viewModel.onFilterTypeChanged(ProcessFilterType.USER) },
-                    label = { Text("USER (${counts.second})", fontSize = 10.sp, fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.process_menu_filter_user, counts.second), fontSize = 10.sp, fontWeight = FontWeight.SemiBold) },
                     modifier = Modifier.height(30.dp),
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -138,7 +141,7 @@ fun ProcessScreen(
                 FilterChip(
                     selected = filterType == ProcessFilterType.SYSTEM,
                     onClick = { viewModel.onFilterTypeChanged(ProcessFilterType.SYSTEM) },
-                    label = { Text("SYSTEM (${counts.third})", fontSize = 10.sp, fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.process_menu_filter_system, counts.third), fontSize = 10.sp, fontWeight = FontWeight.SemiBold) },
                     modifier = Modifier.height(30.dp),
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,

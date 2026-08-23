@@ -16,3 +16,7 @@ local.properties
 /.idea
 /site
 .cache
+**/target/
+**/jniLibs/
+*.so
+

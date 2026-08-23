@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">Hunt Memory</string>
+    <!-- Generic -->
     <string name="ok">OK</string>
 
     <!-- MainActivity -->
@@ -8,7 +8,6 @@
     <string name="main_activity_error_root_access_missing">Erro: Acesso root ausente.</string>
 
     <!-- Main Screen -->
-    <string name="main_screen_tab_main">Principal</string>
     <string name="main_screen_overview_title">VISÃO GERAL DO MOTOR</string>
     <string name="main_screen_status_root_access">Acesso Root</string>
     <string name="main_screen_status_root_granted">Concedido (su)</string>
@@ -18,10 +17,8 @@
     <string name="main_screen_hmkpm_available">HMKPM Pronto</string>
     <string name="main_screen_hmkpm_not_available">Não Detetado</string>
     <string name="main_screen_hmkpm_checking">Verificando…</string>
-    <string name="main_screen_hmkpm_refresh_button">Atualizar status do HMKPM</string>
     <string name="main_screen_status_overlay_engine">Motor de Sobreposição</string>
     <string name="main_screen_status_overlay_active">Executando (Ativo)</string>
-    <string name="main_screen_status_overlay_inactive">Inativo</string>
     <string name="main_screen_status_overlay_permission_granted">Permissão Concedida</string>
     <string name="main_screen_status_overlay_permission_missing">Sem Permissão</string>
     <string name="main_screen_status_target_process">Processo Alvo</string>
@@ -46,10 +43,9 @@
     <string name="overlay_ui_processes_tab">Processos</string>
     <string name="overlay_ui_memory_tab">Memória</string>
     <string name="overlay_ui_editor_tab">Editor</string>
+    <string name="overlay_ui_scripts_tab">Scripts</string>
     <string name="overlay_ui_settings_tab_and_title">Configurações</string>
-    <string name="overlay_ui_dialog_ok_button">OK</string>
     <string name="overlay_ui_dialog_cancel_button">Cancelar</string>
-    <string name="overlay_ui_dialog_confirm_button">Confirmar</string>
 
     <!-- Address Table -->
     <string name="address_table_empty_placeholder">Nenhum endereço guardado ainda.\nToque nos resultados no separador Memória para adicioná-los aqui.</string>
@@ -68,6 +64,7 @@
     <string name="address_table_header_type">Tipo</string>
     <string name="address_table_header_value">Valor</string>
     <string name="address_table_header_freeze">Congelar</string>
+    <string name="address_table_frozen_cd">Congelado</string>
     <string name="address_table_error_dialog_title">Erro</string>
     <string name="address_table_no_process_attached_error">Nenhum processo anexado.</string>
     <string name="address_table_process_not_running_error">O processo selecionado não está mais em execução.</string>
@@ -111,29 +108,20 @@
     <string name="memory_menu_added_all_to_address_table_snackbar">Todas as correspondências foram adicionadas à Tabela de Endereços.</string>
     <string name="memory_menu_copy_all_button">Copiar Tudo</string>
     <string name="memory_menu_match_item_value_label">Valor: %1$s</string>
-    <string name="memory_menu_scan_settings_title">Configurações de Varredura</string>
     <string name="memory_menu_scan_value_label">Valor da Varredura</string>
-    <string name="memory_menu_scan_value_placeholder">Digite o valor alvo…</string>
+    <string name="memory_menu_scan_value_placeholder">Valor / 1.5e6 / xor:100…</string>
     <string name="memory_menu_goto_button">Ir</string>
-    <string name="memory_menu_operator_dropdown_label">Operador</string>
-    <string name="memory_menu_value_type_dropdown_label">Tipo de Valor</string>
     <string name="memory_menu_type_label_prefix">Tipo: %1$s</string>
     <string name="memory_menu_types_selected_count">%1$d / %2$d selecionados</string>
     <string name="memory_menu_value_types_all">TODOS</string>
     <string name="memory_menu_value_types_none">Nenhum selecionado</string>
     <string name="memory_menu_select_types_cd">Selecionar tipos de dados</string>
     <string name="memory_menu_select_types_dialog_title">Selecionar Tipos de Dados</string>
-    <string name="memory_menu_type_all_uppercase">TODOS (ALL)</string>
-    <string name="memory_menu_type_byte">Byte (1 Byte / 8-bit)</string>
-    <string name="memory_menu_type_short">Short (2 Bytes / 16-bit)</string>
-    <string name="memory_menu_type_float16">Float16 (2 Bytes / Half-Float)</string>
-    <string name="memory_menu_type_int">Int (4 Bytes / 32-bit)</string>
-    <string name="memory_menu_type_long">Long (8 Bytes / 64-bit)</string>
-    <string name="memory_menu_type_float">Float (4 Bytes / Single)</string>
-    <string name="memory_menu_type_double">Double (8 Bytes / Double)</string>
-    <string name="memory_menu_type_bigdouble">BigDouble (Mantissa / Expoente)</string>
-    <string name="memory_menu_type_obscured_int">Obscured Int (ACTk XOR-32)</string>
-    <string name="memory_menu_type_obscured_float">Obscured Float (ACTk XOR-Float)</string>
+    <string name="memory_menu_preset_all">TODOS</string>
+    <string name="memory_menu_preset_ints">INTs</string>
+    <string name="memory_menu_preset_floats">FLOATs</string>
+    <string name="memory_menu_preset_spec">ESPEC</string>
+    <string name="memory_menu_preset_reset">REPOR</string>
     <string name="memory_menu_syntax_help_title">Técnicas de Busca &amp; Sintaxe</string>
     <string name="memory_menu_syntax_help_button_cd">Ajuda de sintaxe de busca</string>
     <string name="memory_menu_syntax_help_text"><b>1. Mantissa / Expoente (Notação Científica / BigDouble):</b>\n• <i>1.5e6</i> ou <i>1.5,6</i> ou <i>1.5:6</i>\n• Tipo: Selecione BigDouble ou use <i>bigdouble:1.5,6</i>\n\n<b>2. Valores Ofuscados (Anti-Cheat XOR):</b>\n• Selecione Obscured Int ou Obscured Float\n• Ou use o prefixo: <i>xor:1000</i> ou <i>obscured:1000</i>\n\n<b>3. Tolerância de Float / Epsilon:</b>\n• Margem absoluta: <i>100.0 +- 0.5</i>\n• Margem percentual: <i>100 +- 2%</i>\n\n<b>4. Ponto Fixo Escalonado:</b>\n• Fórmula com multiplicador: <i>10.5 * 1000</i> (busca 10500)\n• Ou prefixo: <i>scaled:10.5:1000</i>\n\n<b>5. Grupo Heterogêneo de Estruturas:</b>\n• Tipos mistos: <i>f64:1.5; i64:6 : 16</i>\n• Ou: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
@@ -152,18 +140,21 @@
     </plurals>
 
     <!-- Process Menu -->
-    <string name="process_menu_attached_process_none">Nenhum</string>
-    <string name="process_menu_attached_process_label">Processo Anexado</string>
     <string name="process_menu_search_processes_label">Buscar processos</string>
     <string name="process_menu_search_icon_description">Buscar</string>
     <string name="process_menu_refresh_icon_description">Atualizar</string>
-    <string name="process_menu_item_attached_icon_description">Anexado</string>
     <string name="process_menu_detach_cd">Desanexar</string>
     <string name="process_menu_no_processes_found_message">Nenhum processo encontrado</string>
+    <string name="process_menu_filter_all">TODOS (%1$d)</string>
+    <string name="process_menu_filter_user">UTILIZADOR (%1$d)</string>
+    <string name="process_menu_filter_system">SISTEMA (%1$d)</string>
 
     <!-- Virtual Keyboard -->
     <string name="keyboard_hide_cd">Ocultar Teclado</string>
     <string name="keyboard_space">ESPAÇO</string>
+    <string name="keyboard_move_left_cd">Mover para a Esquerda</string>
+    <string name="keyboard_move_right_cd">Mover para a Direita</string>
+    <string name="keyboard_clear_cd">Limpar</string>
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">Aviso de Isenção de Responsabilidade</string>
@@ -189,4 +180,57 @@
     <string name="credits_footer_disclaimer">HuntMemory é software de código aberto distribuído sob a Licença Pública Geral GNU v3.0 (GPL-3.0-or-later). Todas as bibliotecas, crates e componentes de sistema de terceiros são utilizados sob as suas respetivas licenças de código aberto.</string>
     <string name="main_screen_credits_button_cd">Créditos &amp; Código Aberto</string>
     <string name="main_screen_credits_link">Créditos &amp; Licenças</string>
+
+    <!-- Lua Scripts & Dynamic Menu -->
+    <string name="lua_tab_editor_subtab">Editor de Script</string>
+    <string name="lua_tab_menu_subtab">Menu Dinâmico</string>
+    <string name="lua_tab_console_subtab">Saída da Consola</string>
+    <string name="lua_run_script_button">Executar Script</string>
+    <string name="lua_stop_script_button">Parar Script</string>
+    <string name="lua_clear_console_button">Limpar Consola</string>
+    <string name="lua_script_status_idle">Pronto (Inativo)</string>
+    <string name="lua_script_status_running">A executar…</string>
+    <string name="lua_no_dynamic_menu_placeholder">Nenhum menu dinâmico ativo.\nExecute um script Lua com hmem.create_menu() para criar um menu interativo aqui.</string>
+    <string name="lua_console_empty_placeholder">A consola está vazia.\nUtilize print() ou hmem.log() nos seus scripts para emitir registos aqui.</string>
+    <string name="lua_scripts_manager_title">Scripts Lua</string>
+    <string name="lua_scripts_tab_all">Todos</string>
+    <string name="lua_scripts_tab_imported">Importados</string>
+    <string name="lua_scripts_tab_presets">Modelos</string>
+    <string name="lua_import_script_button">Importar</string>
+    <string name="lua_save_script_button">Guardar Como</string>
+    <string name="lua_new_script_button">Novo</string>
+    <string name="lua_delete_script_title">Eliminar Script</string>
+    <string name="lua_delete_script_confirm">Tem a certeza que deseja eliminar \"%1$s\"?</string>
+    <string name="lua_script_save_dialog_title">Guardar Script Lua</string>
+    <string name="lua_script_save_name_label">Nome do Script</string>
+    <string name="lua_script_save_name_placeholder">meu_script.lua</string>
+    <string name="lua_script_imported_success">Script \"%1$s\" importado com sucesso.</string>
+    <string name="lua_script_save_success">Script \"%1$s\" guardado com sucesso.</string>
+    <string name="lua_script_delete_success">Script \"%1$s\" eliminado.</string>
+    <string name="lua_script_no_imported_scripts">Nenhum script importado ainda.\nToque em \"Importar\" para carregar um ficheiro .lua ou \"Guardar Como\" para guardar o código do editor.</string>
+    <string name="lua_script_search_placeholder">Pesquisar scripts…</string>
+    <string name="lua_preset_badge">Modelo</string>
+    <string name="lua_script_custom_badge">Personalizado</string>
+    <string name="lua_script_manage_button">Gerir</string>
+    <string name="lua_editor_copy_button">Copiar</string>
+    <string name="lua_editor_paste_button">Colar</string>
+    <string name="lua_editor_clear_button">Limpar</string>
+    <string name="lua_editor_copied_toast">Script copiado para a área de transferência</string>
+    <string name="lua_editor_pasted_toast">Script colado da área de transferência</string>
+    <string name="lua_editor_cleared_toast">Script limpo</string>
+    <string name="lua_editor_lines_chars_format">%1$d linhas • %2$d carateres</string>
+    <string name="search_help_dialog_title">Técnicas de Pesquisa &amp; Sintaxe</string>
+    <string name="search_help_try_hint">Dica: Toque em qualquer exemplo para preenchê-lo diretamente na barra de pesquisa.</string>
+    <string name="search_help_cat_basic_title">Exato &amp; Tolerância Float</string>
+    <string name="search_help_cat_basic_desc">Pesquise números exatos ou valores de vírgula flutuante com margem absoluta ou percentual.</string>
+    <string name="search_help_cat_obscured_title">Ofuscado &amp; Anti-Cheat (XOR)</string>
+    <string name="search_help_cat_obscured_desc">Analisa variáveis encriptadas protegidas por motores anti-cheat (como ACTk) com chaves XOR dinâmicas.</string>
+    <string name="search_help_cat_bigdouble_title">Científico &amp; BigDouble</string>
+    <string name="search_help_cat_bigdouble_desc">Valores gigantescos guardados como mantissa e expoente (comuns em jogos incrementais/idle).</string>
+    <string name="search_help_cat_scaled_title">Ponto Fixo Escalado</string>
+    <string name="search_help_cat_scaled_desc">Decimais guardados internamente como inteiros escalados (ex: 10.5 com escala 1000 pesquisa 10500).</string>
+    <string name="search_help_cat_group_title">Estruturas &amp; Pesquisa em Grupo</string>
+    <string name="search_help_cat_group_desc">Localiza múltiplos tipos de dados diferentes situados dentro de um intervalo de memória em bytes.</string>
+    <string name="search_help_cat_goto_title">Endereço Direto &amp; Biblioteca</string>
+    <string name="search_help_cat_goto_desc">Navegue diretamente para um endereço de memória virtual ou offset de biblioteca dinâmica (.so).</string>
 </resources>

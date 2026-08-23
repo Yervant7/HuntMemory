@@ -30,13 +30,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,7 +64,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,7 +87,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration.Companion.milliseconds
 
 class AddressInfo(
     val matchInfo: MatchInfo,
@@ -112,7 +109,7 @@ fun AddressTableTab(context: Context?, dialogCallback: DialogCallback) {
         while (isActive) {
             MemoryEditor().syncFreezeState(savedAddressList)
             refreshValue(context!!, dialogCallback)
-            delay(5.seconds)
+            delay(1500L.milliseconds)
         }
     }
 
@@ -230,6 +227,8 @@ private fun SingleLineControlToolbar(
     coroutineScope: CoroutineScope,
     context: Context
 ) {
+    val hasItems = savedAddressList.isNotEmpty()
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -239,6 +238,7 @@ private fun SingleLineControlToolbar(
             text = stringResource(R.string.address_table_delete_all_button),
             containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
             contentColor = MaterialTheme.colorScheme.error,
+            enabled = hasItems,
             onClick = {
                 val daa = context.getString(R.string.address_table_delete_all_addresses_dialog_title)
                 val awsa = context.getString(R.string.address_table_delete_all_warning_message)
@@ -257,6 +257,7 @@ private fun SingleLineControlToolbar(
             text = stringResource(R.string.address_table_edit_all_button),
             containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
             contentColor = MaterialTheme.colorScheme.secondary,
+            enabled = hasItems,
             onClick = {
                 val eav = context.getString(R.string.address_table_edit_all_values_dialog_title)
                 dialogCallback.showInputDialog(
@@ -281,6 +282,7 @@ private fun SingleLineControlToolbar(
             text = stringResource(R.string.address_table_freeze_all_button),
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
             contentColor = MaterialTheme.colorScheme.primary,
+            enabled = hasItems,
             onClick = {
                 val fav = context.getString(R.string.address_table_freeze_all_values_dialog_title)
                 dialogCallback.showInputDialog(
@@ -305,6 +307,7 @@ private fun SingleLineControlToolbar(
             text = stringResource(R.string.address_table_unfreeze_all_button),
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            enabled = hasItems,
             onClick = {
                 coroutineScope.launch {
                     withContext(Dispatchers.IO) {
@@ -327,22 +330,30 @@ private fun ToolbarActionButton(
     containerColor: Color,
     contentColor: Color,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         colors = ButtonDefaults.buttonColors(
             containerColor = containerColor,
-            contentColor = contentColor
+            contentColor = contentColor,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
         ),
         modifier = modifier.height(30.dp),
         shape = RoundedCornerShape(4.dp),
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-        border = BorderStroke(0.5.dp, contentColor.copy(alpha = 0.3f))
+        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+        border = BorderStroke(
+            0.5.dp,
+            if (enabled) contentColor.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+        )
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.padding(horizontal = 2.dp)
         ) {
             Icon(
                 imageVector = icon,
@@ -351,9 +362,10 @@ private fun ToolbarActionButton(
             )
             Text(
                 text = text,
-                fontSize = 10.sp,
+                fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -469,7 +481,7 @@ private fun AddressTableRow(
                     if (isFrozen) {
                         Icon(
                             imageVector = Icons.Filled.AcUnit,
-                            contentDescription = "Frozen",
+                            contentDescription = stringResource(R.string.address_table_frozen_cd),
                             tint = FrozenIceCyan,
                             modifier = Modifier.size(10.dp)
                         )

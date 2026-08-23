@@ -76,10 +76,20 @@ extra_javascript:
   - javascripts/mathjax.js
   - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
 
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Yervant7/HuntMemory
+      name: GitHub Repository
+    - icon: fontawesome/brands/android
+      link: https://developer.android.com
+      name: Android Platform
+
 nav:
   - Overview: index.md
   - System Architecture: architecture.md
   - Memory Scanning Engine: memory-scanning.md
+  - Lua Scripting & Automation: lua-scripting.md
   - HMKPM Kernel Protocol: kernel-protocol.md
   - Building & Setup: building.md
   - License: license.md

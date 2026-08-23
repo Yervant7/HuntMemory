@@ -6,8 +6,10 @@ appcompat = "1.8.0"
 coilCompose = "2.7.0"
 composeBom = "2026.08.00"
 coreKtx = "1.19.0"
-kotlin = "2.4.0"
+kotlin = "2.4.10"
 kotlinxCoroutinesAndroid = "1.11.0"
+kotlinxSerialization = "1.11.0"
+apksign = "1.4"
 libsu = "6.0.0"
 lifecycle = "2.11.0"
 material3 = "1.4.0"
@@ -26,9 +28,12 @@ androidx-material-icons-extended = { module = "androidx.compose.material:materia
 androidx-material3 = { module = "androidx.compose.material3:material3", version.ref = "material3" }
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coilCompose" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutinesAndroid" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 libsu-core = { module = "com.github.topjohnwu.libsu:core", version.ref = "libsu" }
 libsu-service = { module = "com.github.topjohnwu.libsu:service", version.ref = "libsu" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+lsplugin-apksign = { id = "org.lsposed.lsplugin.apksign", version.ref = "apksign" }

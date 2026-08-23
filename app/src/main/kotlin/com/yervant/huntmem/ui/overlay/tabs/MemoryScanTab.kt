@@ -24,7 +24,6 @@ import android.content.Context
 import android.content.res.Configuration
 import androidx.annotation.Keep
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +37,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -66,6 +66,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -90,19 +98,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yervant.huntmem.R
 import com.yervant.huntmem.backend.AttachedProcessRepository
 import com.yervant.huntmem.backend.MemoryScanManager
+import com.yervant.huntmem.backend.NativeBridge
 import com.yervant.huntmem.backend.ShellProcessProvider
 import com.yervant.huntmem.ui.CustomDialog
 import com.yervant.huntmem.ui.DialogCallback
 import com.yervant.huntmem.ui.keyboard.KeyboardType
 import com.yervant.huntmem.ui.keyboard.VirtualTextField
+import com.yervant.huntmem.ui.theme.ComponentStyles
 import com.yervant.huntmem.ui.theme.MonospaceAddressStyle
 import com.yervant.huntmem.ui.theme.MonospaceValueStyle
 import kotlinx.coroutines.CoroutineScope
@@ -110,8 +120,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * State container for an independent memory scan tab session.
+ *
+ * @property id Unique UUID identifying this session in native core memory caches.
+ * @property title Tab display title.
+ * @property matches Thread-safe list of active memory scan matches.
+ * @property scanInputVal Reactive text input state for search expressions.
+ * @property valueTypeSelectedOptionIdx Dropdown selection index for primary value type.
+ * @property selectedTypes Selected set of memory value types.
+ * @property operatorSelectedOptionIdx Dropdown selection index for comparison operator.
+ * @property initialScanDone Whether the first scan pass has been completed for this tab.
+ * @property matchesStatusText Status label reporting count of total and visible matches.
+ * @property totalMatchesCount Total count of matches found across process memory.
+ * @property currentMatchesList Immutable snapshot of matches rendered by Compose LazyColumn.
+ */
 data class TabState(
     val id: UUID = UUID.randomUUID(),
     var title: String,
@@ -152,6 +177,21 @@ private val initialOperatorOptions = listOf("=", "!=", ">", "<", ">=", "<=", "? 
 private val refineOperatorOptions = listOf("=", "!=", ">", "<", ">=", "<=", "▲ Increased", "▼ Decreased", "~ Changed", "= Unchanged", "+ Increased by", "- Decreased by")
 private val valueTypes: List<String> = listOf("byte", "short", "float16", "int", "long", "float", "double", "bigdouble", "obscured_int", "obscured_float")
 
+/**
+ * Data structure representing an individual memory scan match.
+ *
+ * @property id Unique identifier string for Compose LazyColumn keys.
+ * @property pid Target process PID.
+ * @property address Virtual memory address.
+ * @property prevValue Last observed value formatted as string or numeric.
+ * @property valueType Value type name (e.g. "int", "float", "byte").
+ * @property size Size in bytes of the value type.
+ * @property memoryRegion Memory map path or anonymous region name.
+ * @property regionType Region code tag (e.g. "A", "CA", "JH").
+ * @property regionStart Starting address of containing virtual memory region.
+ * @property regionEnd Ending address of containing virtual memory region.
+ * @property permissions Region protection string (e.g. "rw-p", "r-xp").
+ */
 @Keep
 data class MatchInfo(
     val id: String,
@@ -167,9 +207,12 @@ data class MatchInfo(
     val permissions: String = "",
 )
 
+/**
+ * Resolves current scan parameters (input, selected types, operator) for the active tab.
+ */
 fun getCurrentScanOption(): ScanOptions {
     if (tabs.isEmpty()) return ScanOptions("", "int", "=")
-    val currentTab = tabs[selectedTabIndex.intValue]
+    val currentTab = tabs.getOrNull(selectedTabIndex.intValue) ?: return ScanOptions("", "int", "=")
     val types = currentTab.selectedTypes.value
     val typesStr = if (types.size >= valueTypes.size) {
         "all"
@@ -187,22 +230,33 @@ fun getCurrentScanOption(): ScanOptions {
     )
 }
 
+/**
+ * Main Composable tab hosting the Process Memory Scanner and Editor.
+ *
+ * Supports multi-tab memory sessions, exact/group/range/relative scans, live value updating,
+ * and seamless transfer of resolved addresses to the Saved Address Table.
+ *
+ * @param context Android application/service Context.
+ * @param dialogCallback Callback handler for interactive modal dialogs.
+ * @param modifier Optional layout modifier.
+ */
 @Composable
 fun MemoryScanTab(
-    context: Context?,
-    dialogCallback: DialogCallback
+    context: Context,
+    dialogCallback: DialogCallback,
+    modifier: Modifier = Modifier
 ) {
-    ensureInitialTab(context!!)
+    ensureInitialTab(context)
 
-    if (tabs.isNotEmpty()) {
-        val currentTab = tabs[selectedTabIndex.intValue]
-        LaunchedEffect(selectedTabIndex.intValue, currentTab.currentMatchesList.value.isNotEmpty()) {
+    val currentTab = tabs.getOrNull(selectedTabIndex.intValue)
+    if (currentTab != null) {
+        LaunchedEffect(currentTab.id, currentTab.currentMatchesList.value.isNotEmpty()) {
             while (isActive) {
                 val matchCount = synchronized(currentTab.matches) { currentTab.matches.size }
                 if (matchCount in 1..99) {
-                    refreshValues(context, dialogCallback, currentTab)
+                    refreshValues(context, dialogCallback, currentTab, userInitiated = false)
                 }
-                delay(5.seconds)
+                delay(1500L.milliseconds)
             }
         }
     }
@@ -211,6 +265,7 @@ fun MemoryScanTab(
     val coroutineScope: CoroutineScope = rememberCoroutineScope()
 
     Scaffold(
+        modifier = modifier,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Color.Transparent
     ) { padding ->
@@ -224,17 +279,34 @@ fun MemoryScanTab(
     }
 }
 
-suspend fun refreshValues(context: Context, dialogCallback: DialogCallback, tabState: TabState) {
+/**
+ * Refreshes live memory values for all active matches in the current tab session.
+ *
+ * @param context Android application/service Context.
+ * @param dialogCallback Callback handler for interactive modal dialogs.
+ * @param tabState Active tab whose match values should be refreshed.
+ * @param userInitiated Whether this refresh was triggered by explicit user action.
+ */
+suspend fun refreshValues(
+    context: Context,
+    dialogCallback: DialogCallback,
+    tabState: TabState,
+    userInitiated: Boolean = false
+) {
     val pid = AttachedProcessRepository.getAttachedPid()
 
     val err = context.getString(R.string.memory_menu_error_dialog_title)
     if (pid == null) {
-        dialogCallback.showInfoDialog(err, context.getString(R.string.memory_menu_no_process_attached_error), {}, {})
+        if (userInitiated) {
+            dialogCallback.showInfoDialog(err, context.getString(R.string.memory_menu_no_process_attached_error), {}, {})
+        }
         return
     }
 
     if (!ShellProcessProvider().isProcessRunning(pid.toString())) {
-        dialogCallback.showInfoDialog(err, context.getString(R.string.memory_menu_process_not_exist_error), {}, {})
+        if (userInitiated) {
+            dialogCallback.showInfoDialog(err, context.getString(R.string.memory_menu_process_not_exist_error), {}, {})
+        }
         resetMatches(context, tabState)
         tabState.initialScanDone.value = false
         return
@@ -277,6 +349,9 @@ suspend fun refreshValues(context: Context, dialogCallback: DialogCallback, tabS
     isRefreshOnGoing.value = false
 }
 
+/**
+ * Main UI layout containing the tab bar, results list, input controls, and action triggers.
+ */
 @Composable
 fun MemoryMenu(
     snackbarHostState: SnackbarHostState,
@@ -291,13 +366,15 @@ fun MemoryMenu(
     val showValueTypeDialog = remember { mutableStateOf(false) }
     val showSyntaxHelpDialog = remember { mutableStateOf(false) }
 
-    if (showErrorDialog.value) {
-        dialogCallback.showInfoDialog(
-            title = stringResource(R.string.memory_menu_error_dialog_title),
-            message = errorDialogMsg.value,
-            onConfirm = { showErrorDialog.value = false },
-            onDismiss = {}
-        )
+    LaunchedEffect(showErrorDialog.value) {
+        if (showErrorDialog.value) {
+            dialogCallback.showInfoDialog(
+                title = context.getString(R.string.memory_menu_error_dialog_title),
+                message = errorDialogMsg.value,
+                onConfirm = { showErrorDialog.value = false },
+                onDismiss = { showErrorDialog.value = false }
+            )
+        }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -332,7 +409,7 @@ fun MemoryMenu(
                                         onClick = {
                                             val tabToRemove = tabs[index]
                                             tabs.remove(tabToRemove)
-                                            com.yervant.huntmem.backend.NativeBridge.clearSession(tabToRemove.id.toString())
+                                            NativeBridge.clearSession(tabToRemove.id.toString())
                                             if (selectedTabIndex.intValue >= index && selectedTabIndex.intValue > 0) {
                                                 selectedTabIndex.intValue--
                                             }
@@ -374,7 +451,7 @@ fun MemoryMenu(
                 return@Column
             }
 
-            val currentTab = tabs[selectedTabIndex.intValue]
+            val currentTab = tabs.getOrNull(selectedTabIndex.intValue) ?: return@Column
 
             val content: @Composable (matchesTableModifier: Modifier, matchesSettingModifier: Modifier) -> Unit =
                 { matchesTableModifier, matchesSettingModifier ->
@@ -412,9 +489,7 @@ fun MemoryMenu(
                         nextScanClicked = {
                             coroutineScope.launch {
                                 if (!currentTab.initialScanDone.value) {
-                                    currentTab.title = if (currentTab.scanInputVal.value.isNotBlank()) {
-                                        currentTab.scanInputVal.value
-                                    } else {
+                                    currentTab.title = currentTab.scanInputVal.value.ifBlank {
                                         "? (Unknown)"
                                     }
                                 }
@@ -428,8 +503,8 @@ fun MemoryMenu(
                                     },
                                     onScanError = { e: Exception ->
                                         isScanOnGoing.value = false
-                                        showErrorDialog.value = true
                                         errorDialogMsg.value = e.stackTraceToString()
+                                        showErrorDialog.value = true
                                     },
                                     tabState = currentTab
                                 )
@@ -438,7 +513,7 @@ fun MemoryMenu(
                         newScanEnabled = isAttached && currentTab.initialScanDone.value && !isScanOnGoing.value,
                         newScanClicked = {
                             coroutineScope.launch {
-                                com.yervant.huntmem.backend.NativeBridge.clearSession(currentTab.id.toString())
+                                NativeBridge.clearSession(currentTab.id.toString())
                                 resetMatches(context, currentTab)
                                 updateMatches(context, currentTab)
                                 currentTab.initialScanDone.value = false
@@ -448,15 +523,15 @@ fun MemoryMenu(
                     )
                 }
 
-            // 70% Results Table : 30% Controls for maximum real-estate
+            // Results Table : Controls layout split
             if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT) {
                 Column(
                     verticalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     content(
-                        Modifier.weight(0.70f).padding(horizontal = 6.dp, vertical = 4.dp),
-                        Modifier.weight(0.30f).padding(horizontal = 6.dp, vertical = 4.dp),
+                        Modifier.weight(0.68f).padding(horizontal = 6.dp, vertical = 2.dp),
+                        Modifier.weight(0.32f).padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }
             } else {
@@ -465,29 +540,39 @@ fun MemoryMenu(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     content(
-                        Modifier.weight(0.60f).padding(horizontal = 6.dp, vertical = 4.dp),
-                        Modifier.weight(0.40f).fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)
+                        Modifier.weight(0.58f).padding(horizontal = 4.dp, vertical = 2.dp),
+                        Modifier.weight(0.42f).fillMaxSize().padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
             }
         }
 
         if (showValueTypeDialog.value && tabs.isNotEmpty()) {
-            val currentTab = tabs[selectedTabIndex.intValue]
-            ValueTypeSelectionDialog(
-                selectedTypes = currentTab.selectedTypes,
-                onDismiss = { showValueTypeDialog.value = false }
-            )
+            val currentTab = tabs.getOrNull(selectedTabIndex.intValue)
+            if (currentTab != null) {
+                ValueTypeSelectionDialog(
+                    selectedTypes = currentTab.selectedTypes,
+                    onDismiss = { showValueTypeDialog.value = false }
+                )
+            }
         }
 
         if (showSyntaxHelpDialog.value) {
+            val currentTab = tabs.getOrNull(selectedTabIndex.intValue)
             SearchHelpDialog(
+                onSelectExample = { example ->
+                    currentTab?.scanInputVal?.value = example
+                    showSyntaxHelpDialog.value = false
+                },
                 onDismiss = { showSyntaxHelpDialog.value = false }
             )
         }
     }
 }
 
+/**
+ * Clears recorded matches and resets total count for the specified tab.
+ */
 fun resetMatches(context: Context, tabState: TabState) {
     synchronized(tabState.matches) {
         tabState.matches.clear()
@@ -497,6 +582,9 @@ fun resetMatches(context: Context, tabState: TabState) {
     tabState.matchesStatusText.value = context.getString(R.string.memory_menu_status_no_matches)
 }
 
+/**
+ * Refreshes snapshot list and status text based on current matches.
+ */
 fun updateMatches(context: Context, tabState: TabState) {
     val matchesCount = tabState.totalMatchesCount.value
     val shownMatchesCount: Int
@@ -518,7 +606,9 @@ fun updateMatches(context: Context, tabState: TabState) {
     }
 }
 
-
+/**
+ * Scrollable card listing memory match results with address, type, and live value.
+ */
 @Composable
 private fun MatchesTable(
     modifier: Modifier = Modifier,
@@ -576,7 +666,7 @@ private fun MatchesTable(
                         text = stringResource(R.string.memory_menu_no_matches_placeholder),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        textAlign = TextAlign.Center,
                         lineHeight = 16.sp
                     )
                 }
@@ -594,6 +684,9 @@ private fun MatchesTable(
     }
 }
 
+/**
+ * Individual match card row displaying address, region tag, value, and type badge.
+ */
 @Composable
 private fun MatchItem(
     match: MatchInfo,
@@ -671,6 +764,9 @@ private fun MatchItem(
     }
 }
 
+/**
+ * Interactive control panel providing scan input text fields, operator selectors, type pickers, and scan buttons.
+ */
 @Composable
 private fun MatchesSetting(
     context: Context,
@@ -708,7 +804,7 @@ private fun MatchesSetting(
                     onValueChange = { scanInputVal.value = it },
                     keyboardType = KeyboardType.HEXADECIMAL,
                     label = { Text(stringResource(R.string.memory_menu_scan_value_label), fontSize = 10.sp) },
-                    placeholder = { Text("Value / 1.5e6 / xor:100...", fontSize = 10.sp) },
+                    placeholder = { Text(stringResource(R.string.memory_menu_scan_value_placeholder), fontSize = 10.sp) },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(6.dp)
                 )
@@ -727,40 +823,33 @@ private fun MatchesSetting(
 
                 val currentOps = if (initialScanDone) refineOperatorOptions else initialOperatorOptions
                 CustomDropdown(
-                    label = "Op",
                     options = currentOps,
                     selectedIndex = operatorSelectedOptionIdx.value.coerceIn(0, (currentOps.size - 1).coerceAtLeast(0)),
                     onOptionSelected = { operatorSelectedOptionIdx.value = it },
-                    modifier = Modifier.width(100.dp)
+                    modifier = Modifier.widthIn(min = 72.dp, max = 92.dp)
                 )
 
-                if (scanInputVal.value.startsWith("0x", ignoreCase = true)) {
+                val isGotoExpression = scanInputVal.value.startsWith("0x", ignoreCase = true) ||
+                        scanInputVal.value.startsWith("[") ||
+                        scanInputVal.value.contains(".so") ||
+                        scanInputVal.value.startsWith("lib", ignoreCase = true)
+
+                if (isGotoExpression && scanInputVal.value.isNotBlank()) {
                     Button(
                         onClick = {
-                            val currentTab = tabs[selectedTabIndex.intValue]
+                            val currentTab = tabs.getOrNull(selectedTabIndex.intValue) ?: return@Button
                             val inputValue = currentTab.scanInputVal.value
 
                             coroutineScope.launch {
                                 val pid = AttachedProcessRepository.getAttachedPid()
                                 if (pid != null) {
-                                    if (inputValue.contains("+")) {
-                                        val result = MemoryScanManager().createMatchFromAddressAndOffset(inputValue, null, pid)
-                                        if (result != null) {
-                                            synchronized(currentTab.matches) {
-                                                currentTab.matches.clear()
-                                                currentTab.matches.add(result)
-                                            }
-                                            currentTab.totalMatchesCount.value = 1
+                                    val result = MemoryScanManager().createMatchFromOffset(inputValue, null, pid)
+                                    if (result != null) {
+                                        synchronized(currentTab.matches) {
+                                            currentTab.matches.clear()
+                                            currentTab.matches.add(result)
                                         }
-                                    } else {
-                                        val result = MemoryScanManager().createMatchFromOffset(inputValue, null, pid)
-                                        if (result != null) {
-                                            synchronized(currentTab.matches) {
-                                                currentTab.matches.clear()
-                                                currentTab.matches.add(result)
-                                            }
-                                            currentTab.totalMatchesCount.value = 1
-                                        }
+                                        currentTab.totalMatchesCount.value = 1
                                     }
                                 }
 
@@ -817,9 +906,11 @@ private fun MatchesSetting(
     }
 }
 
+/**
+ * Dropdown menu for selecting comparison operators.
+ */
 @Composable
 private fun CustomDropdown(
-    label: String,
     options: List<String>,
     selectedIndex: Int,
     onOptionSelected: (Int) -> Unit,
@@ -875,6 +966,9 @@ private fun CustomDropdown(
     }
 }
 
+/**
+ * Action button styled for scan triggers with loading indicator support.
+ */
 @Composable
 private fun ScanButton(
     text: String,
@@ -918,6 +1012,9 @@ private fun ScanButton(
     }
 }
 
+/**
+ * Surface button displaying the currently active value types and triggering the selection dialog on click.
+ */
 @Composable
 private fun ValueTypeSelectorTrigger(
     selectedTypes: MutableState<Set<String>>,
@@ -995,18 +1092,78 @@ private val allTypeOptionItems = listOf(
     TypeOptionItem("obscured_float", "8 Bytes", "ACTk XOR Float"),
 )
 
+private data class SearchHelpCategory(
+    val titleRes: Int,
+    val descRes: Int,
+    val icon: ImageVector,
+    val accentColor: Color,
+    val examples: List<String>
+)
+
+/**
+ * Modern informational dialog explaining advanced search techniques, syntax rules, and interactive examples.
+ */
 @Composable
 private fun SearchHelpDialog(
+    onSelectExample: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val categories = remember {
+        listOf(
+            SearchHelpCategory(
+                titleRes = R.string.search_help_cat_basic_title,
+                descRes = R.string.search_help_cat_basic_desc,
+                icon = Icons.Default.Tune,
+                accentColor = Color(0xFF38BDF8),
+                examples = listOf("100", "100.0 +- 0.5", "500 +- 5%")
+            ),
+            SearchHelpCategory(
+                titleRes = R.string.search_help_cat_obscured_title,
+                descRes = R.string.search_help_cat_obscured_desc,
+                icon = Icons.Default.Lock,
+                accentColor = Color(0xFFA855F7),
+                examples = listOf("xor:1000", "obscured:250.0")
+            ),
+            SearchHelpCategory(
+                titleRes = R.string.search_help_cat_bigdouble_title,
+                descRes = R.string.search_help_cat_bigdouble_desc,
+                icon = Icons.Default.Calculate,
+                accentColor = Color(0xFFEC4899),
+                examples = listOf("1.5e6", "1.5,6", "bigdouble:2.5,12")
+            ),
+            SearchHelpCategory(
+                titleRes = R.string.search_help_cat_scaled_title,
+                descRes = R.string.search_help_cat_scaled_desc,
+                icon = Icons.Default.Speed,
+                accentColor = Color(0xFFF59E0B),
+                examples = listOf("10.5 * 1000", "scaled:10.5:1000")
+            ),
+            SearchHelpCategory(
+                titleRes = R.string.search_help_cat_group_title,
+                descRes = R.string.search_help_cat_group_desc,
+                icon = Icons.Default.Layers,
+                accentColor = Color(0xFF10B981),
+                examples = listOf("f64:1.5; i64:6 : 16", "f32:100.0; i32:50; byte:1 : 32")
+            ),
+            SearchHelpCategory(
+                titleRes = R.string.search_help_cat_goto_title,
+                descRes = R.string.search_help_cat_goto_desc,
+                icon = Icons.AutoMirrored.Filled.ArrowForward,
+                accentColor = Color(0xFF6366F1),
+                examples = listOf("0x7FFF12345678", "libil2cpp.so + 0x12345")
+            )
+        )
+    }
+
     CustomDialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .padding(14.dp)
+                .padding(ComponentStyles.Dialog.contentPadding)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Header Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1020,11 +1177,11 @@ private fun SearchHelpDialog(
                         imageVector = Icons.Default.Info,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = stringResource(R.string.memory_menu_syntax_help_title),
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = stringResource(R.string.search_help_dialog_title),
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -1042,23 +1199,138 @@ private fun SearchHelpDialog(
                 }
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            // Tip Banner
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lightbulb,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.search_help_try_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
 
-            Text(
-                text = stringResource(R.string.memory_menu_syntax_help_text),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 16.sp,
-                fontSize = 11.sp
-            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+            // Category Cards
+            categories.forEach { category ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        // Title + Icon Row
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = category.accentColor.copy(alpha = 0.2f),
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = category.icon,
+                                        contentDescription = null,
+                                        tint = category.accentColor,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = stringResource(category.titleRes),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = category.accentColor,
+                                fontSize = 11.5.sp
+                            )
+                        }
+
+                        // Description
+                        Text(
+                            text = stringResource(category.descRes),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 10.sp,
+                            lineHeight = 14.sp
+                        )
+
+                        // Interactive Example Chips
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            category.examples.forEach { example ->
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                                    border = BorderStroke(0.5.dp, category.accentColor.copy(alpha = 0.4f)),
+                                    modifier = Modifier.clickable { onSelectExample(example) }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = example,
+                                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 10.sp
+                                        )
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                            contentDescription = null,
+                                            tint = category.accentColor,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
             Button(
                 onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth().height(34.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(34.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary
-                )
+                ),
+                shape = RoundedCornerShape(6.dp)
             ) {
                 Text(stringResource(R.string.ok), fontWeight = FontWeight.Bold, fontSize = 11.sp)
             }
@@ -1066,6 +1338,9 @@ private fun SearchHelpDialog(
     }
 }
 
+/**
+ * Multi-type selection dialog allowing users to pick combinations of value types or quick presets.
+ */
 @Composable
 private fun ValueTypeSelectionDialog(
     selectedTypes: MutableState<Set<String>>,
@@ -1082,7 +1357,7 @@ private fun ValueTypeSelectionDialog(
     CustomDialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
-                .padding(14.dp)
+                .padding(ComponentStyles.Dialog.contentPadding)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1135,7 +1410,7 @@ private fun ValueTypeSelectionDialog(
                     onClick = {
                         tempSelected = if (isAllSelected) setOf("int") else allKeys
                     },
-                    label = { Text("ALL", fontSize = 8.sp, fontWeight = FontWeight.Bold) },
+                    label = { Text(stringResource(R.string.memory_menu_preset_all), fontSize = 8.sp, fontWeight = FontWeight.Bold) },
                     modifier = Modifier.weight(1f).height(28.dp),
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -1145,7 +1420,7 @@ private fun ValueTypeSelectionDialog(
                 FilterChip(
                     selected = tempSelected == integerKeys,
                     onClick = { tempSelected = integerKeys },
-                    label = { Text("INTs", fontSize = 8.sp, fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.memory_menu_preset_ints), fontSize = 8.sp, fontWeight = FontWeight.SemiBold) },
                     modifier = Modifier.weight(1f).height(28.dp),
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -1155,7 +1430,7 @@ private fun ValueTypeSelectionDialog(
                 FilterChip(
                     selected = tempSelected == floatKeys,
                     onClick = { tempSelected = floatKeys },
-                    label = { Text("FLOATs", fontSize = 8.sp, fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.memory_menu_preset_floats), fontSize = 8.sp, fontWeight = FontWeight.SemiBold) },
                     modifier = Modifier.weight(1f).height(28.dp),
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -1165,7 +1440,7 @@ private fun ValueTypeSelectionDialog(
                 FilterChip(
                     selected = tempSelected == specialKeys,
                     onClick = { tempSelected = specialKeys },
-                    label = { Text("SPEC", fontSize = 8.sp, fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.memory_menu_preset_spec), fontSize = 8.sp, fontWeight = FontWeight.SemiBold) },
                     modifier = Modifier.weight(1f).height(28.dp),
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -1175,7 +1450,7 @@ private fun ValueTypeSelectionDialog(
                 FilterChip(
                     selected = tempSelected == setOf("int"),
                     onClick = { tempSelected = setOf("int") },
-                    label = { Text("RESET", fontSize = 8.sp, fontWeight = FontWeight.SemiBold) },
+                    label = { Text(stringResource(R.string.memory_menu_preset_reset), fontSize = 8.sp, fontWeight = FontWeight.SemiBold) },
                     modifier = Modifier.weight(1f).height(28.dp),
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -1257,6 +1532,9 @@ private fun ValueTypeSelectionDialog(
     }
 }
 
+/**
+ * Option card with checkbox representing a single selectable memory type.
+ */
 @Composable
 private fun TypeOptionCard(
     item: TypeOptionItem,

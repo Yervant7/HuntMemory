@@ -24,7 +24,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -41,6 +40,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -80,8 +80,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -93,6 +91,7 @@ import androidx.compose.ui.unit.sp
 import com.yervant.huntmem.R
 import com.yervant.huntmem.ui.theme.SuccessEmerald
 import com.yervant.huntmem.ui.theme.TertiaryAmber
+import androidx.core.net.toUri
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -104,7 +103,7 @@ fun CreditsScreen(onBack: () -> Unit) {
     var selectedCategory by remember { mutableStateOf(DependencyCategory.ALL) }
     val listState = rememberLazyListState()
 
-    val filteredDependencies by remember {
+    val filteredDependencies by remember(searchQuery, selectedCategory) {
         derivedStateOf {
             CreditsRepository.dependencies.filter { item ->
                 val matchesCategory = selectedCategory == DependencyCategory.ALL || item.category == selectedCategory
@@ -154,11 +153,17 @@ fun CreditsScreen(onBack: () -> Unit) {
             )
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(innerPadding),
+            contentAlignment = Alignment.TopCenter
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 720.dp)
+            ) {
             // Search Input & Filter Chips Section
             Column(
                 modifier = Modifier
@@ -304,6 +309,7 @@ fun CreditsScreen(onBack: () -> Unit) {
         }
     }
 }
+}
 
 @Composable
 private fun DependencyCard(
@@ -390,8 +396,14 @@ private fun DependencyCard(
                             )
                         }
 
+                        val versionText = if (dependency.version.firstOrNull()?.isDigit() == true && !dependency.version.contains(" ")) {
+                            "v${dependency.version}"
+                        } else {
+                            dependency.version
+                        }
+
                         Text(
-                            text = "v${dependency.version}",
+                            text = versionText,
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 11.sp
@@ -531,7 +543,7 @@ private fun FooterDisclaimerCard() {
 
 private fun openUrl(context: Context, url: String) {
     try {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+        val intent = Intent(Intent.ACTION_VIEW, url.toUri()).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)

@@ -20,11 +20,6 @@
 
 package com.yervant.huntmem.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,7 +27,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -43,6 +37,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.yervant.huntmem.ui.keyboard.KeyboardType
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import com.yervant.huntmem.ui.theme.ComponentStyles
 
 interface DialogCallback {
     fun showInfoDialog(title: String, message: String, onConfirm: () -> Unit, onDismiss: () -> Unit)
@@ -57,10 +57,15 @@ fun CustomDialog(
     onDismissRequest: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val screenHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
+    val maxDialogHeight = screenHeightDp * 0.90f
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.72f))
+            .background(Color.Black.copy(alpha = ComponentStyles.Dialog.SCRIM_ALPHA))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -72,15 +77,21 @@ fun CustomDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
+                .widthIn(min = ComponentStyles.Dialog.minWidth, max = ComponentStyles.Dialog.maxWidth)
+                .heightIn(max = maxDialogHeight)
+                .padding(
+                    horizontal = ComponentStyles.Dialog.cardPaddingHorizontal,
+                    vertical = ComponentStyles.Dialog.cardPaddingVertical
+                )
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) { /* Consume clicks inside dialog card */ }
-                .clip(RoundedCornerShape(16.dp)),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                .clip(ComponentStyles.Dialog.shape),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = ComponentStyles.Dialog.SURFACE_ALPHA),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            tonalElevation = 8.dp,
-            shadowElevation = 16.dp
+            tonalElevation = ComponentStyles.Dialog.tonalElevation,
+            shadowElevation = ComponentStyles.Dialog.shadowElevation
         ) {
             content()
         }

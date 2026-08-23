@@ -159,7 +159,7 @@ suspend fun onNextScanClicked(
             val isObscured = vType.startsWith("obscured") || input.startsWith("obscured:", ignoreCase = true) || input.startsWith("xor:", ignoreCase = true)
             val isBigDouble = vType == "bigdouble" || input.startsWith("bigdouble:", ignoreCase = true) || input.startsWith("mantissa:", ignoreCase = true)
             val isRange = input.contains("..") || input.contains("~")
-            val isDirectAddress = input.startsWith("0x", ignoreCase = true) && (input.contains("+") || isNewScan)
+            val isDirectAddress = (input.startsWith("0x", ignoreCase = true) || input.startsWith("[") || input.contains(".so") || input.contains(".apk") || input.startsWith("lib", ignoreCase = true)) && (input.contains("+") || input.contains("[") || isNewScan)
             val isRelative = isRelativeOperator(op)
             val isUnknown = op.contains("unknown") || op == "?" || (isNewScan && (input == "?" || input.isBlank()))
 
@@ -177,24 +177,13 @@ suspend fun onNextScanClicked(
 
             if (isDirectAddress && !isObscured && !isBigDouble) {
                 val primaryType = vType.split(",", "|", ";").firstOrNull { it.isNotBlank() } ?: "int"
-                if (input.contains("+")) {
-                    val result = mem.createMatchFromAddressAndOffset(input, primaryType, pid)
-                    if (result != null) {
-                        synchronized(tabState.matches) {
-                            tabState.matches.clear()
-                            tabState.matches.add(result)
-                        }
-                        tabState.totalMatchesCount.value = 1
+                val result = mem.createMatchFromOffset(input, primaryType, pid)
+                if (result != null) {
+                    synchronized(tabState.matches) {
+                        tabState.matches.clear()
+                        tabState.matches.add(result)
                     }
-                } else {
-                    val result = mem.createMatchFromOffset(input, primaryType, pid)
-                    if (result != null) {
-                        synchronized(tabState.matches) {
-                            tabState.matches.clear()
-                            tabState.matches.add(result)
-                        }
-                        tabState.totalMatchesCount.value = 1
-                    }
+                    tabState.totalMatchesCount.value = 1
                 }
             } else {
                 val (count, newMatches) = mem.scanMemoryValues(

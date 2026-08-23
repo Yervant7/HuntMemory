@@ -1,34 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">Hunt Memory</string>
+    <!-- Generic -->
     <string name="ok">确定</string>
 
     <!-- MainActivity -->
-    <string name="main_activity_permission_overlay_denied">显示悬浮窗权限被拒绝。</string>
+    <string name="main_activity_permission_overlay_denied">显示悬浮窗的权限被拒绝。</string>
     <string name="main_activity_error_root_access_missing">错误：缺少 Root 权限。</string>
 
     <!-- Main Screen -->
-    <string name="main_screen_tab_main">主页</string>
     <string name="main_screen_overview_title">系统引擎总览</string>
     <string name="main_screen_status_root_access">Root 权限</string>
-    <string name="main_screen_status_root_granted">已授予 (su)</string>
-    <string name="main_screen_status_root_missing">缺失 / 已拒绝</string>
-    <string name="main_screen_status_root_checking">正在检查…</string>
+    <string name="main_screen_status_root_granted">已授权 (su)</string>
+    <string name="main_screen_status_root_missing">缺失 / 被拒绝</string>
+    <string name="main_screen_status_root_checking">检查中…</string>
     <string name="main_screen_status_kernelpatch">HM-KPM</string>
     <string name="main_screen_hmkpm_available">HMKPM 就绪</string>
     <string name="main_screen_hmkpm_not_available">未检测到</string>
-    <string name="main_screen_hmkpm_checking">正在检查…</string>
-    <string name="main_screen_hmkpm_refresh_button">刷新 HMKPM 状态</string>
+    <string name="main_screen_hmkpm_checking">检查中…</string>
     <string name="main_screen_status_overlay_engine">悬浮窗引擎</string>
     <string name="main_screen_status_overlay_active">运行中 (活跃)</string>
-    <string name="main_screen_status_overlay_inactive">未运行</string>
-    <string name="main_screen_status_overlay_permission_granted">已授权</string>
+    <string name="main_screen_status_overlay_permission_granted">权限已授予</string>
     <string name="main_screen_status_overlay_permission_missing">缺少权限</string>
     <string name="main_screen_status_target_process">目标进程</string>
     <string name="main_screen_status_target_none">未附加</string>
-    <string name="main_screen_status_target_pid">PID: %1$d</string>
-    <string name="main_screen_start_hunting_button">开始追踪</string>
-    <string name="main_screen_stop_hunting_button">停止追踪</string>
+    <string name="main_screen_status_target_pid">PID：%1$d</string>
+    <string name="main_screen_start_hunting_button">开始捕获</string>
+    <string name="main_screen_stop_hunting_button">停止捕获</string>
     <string name="main_screen_official_channel">官方频道</string>
     <string name="main_screen_website">官方网站</string>
     <string name="main_screen_source_code">源代码</string>
@@ -42,19 +39,18 @@
     <string name="overlay_ui_open_menu_icon_description">打开菜单</string>
     <string name="overlay_ui_close_menu_icon_description">关闭菜单</string>
     <string name="overlay_ui_select_target">选择目标</string>
-    <string name="overlay_ui_target_pid">PID: %1$d</string>
+    <string name="overlay_ui_target_pid">PID：%1$d</string>
     <string name="overlay_ui_processes_tab">进程</string>
     <string name="overlay_ui_memory_tab">内存</string>
     <string name="overlay_ui_editor_tab">编辑器</string>
+    <string name="overlay_ui_scripts_tab">脚本</string>
     <string name="overlay_ui_settings_tab_and_title">设置</string>
-    <string name="overlay_ui_dialog_ok_button">确定</string>
     <string name="overlay_ui_dialog_cancel_button">取消</string>
-    <string name="overlay_ui_dialog_confirm_button">确认</string>
 
     <!-- Address Table -->
-    <string name="address_table_empty_placeholder">暂无已保存的地址。\n在“内存”标签页点击搜索结果以将其添加到此处。</string>
+    <string name="address_table_empty_placeholder">暂无保存的地址。\n在内存标签页点击搜索结果以添加到此处。</string>
     <string name="address_table_delete_address_dialog_title">删除地址</string>
-    <string name="address_table_delete_address_dialog_message">从列表中删除此地址？</string>
+    <string name="address_table_delete_address_dialog_message">确定要从列表中删除此地址吗？</string>
     <string name="address_table_edit_value_dialog_title">编辑数值</string>
     <string name="address_table_delete_all_button">全部删除</string>
     <string name="address_table_delete_all_addresses_dialog_title">删除所有地址</string>
@@ -63,78 +59,70 @@
     <string name="address_table_edit_all_values_dialog_title">编辑所有数值</string>
     <string name="address_table_freeze_all_button">全部锁定</string>
     <string name="address_table_freeze_all_values_dialog_title">锁定所有数值</string>
-    <string name="address_table_unfreeze_all_button">解锁</string>
+    <string name="address_table_unfreeze_all_button">解除锁定</string>
     <string name="address_table_header_address">地址</string>
     <string name="address_table_header_type">类型</string>
     <string name="address_table_header_value">数值</string>
     <string name="address_table_header_freeze">锁定</string>
+    <string name="address_table_frozen_cd">已锁定</string>
     <string name="address_table_error_dialog_title">错误</string>
     <string name="address_table_no_process_attached_error">未附加任何进程。</string>
     <string name="address_table_process_not_running_error">所选进程已不再运行。</string>
-    <string name="address_table_info_dialog_title">提示</string>
+    <string name="address_table_info_dialog_title">信息</string>
     <string name="address_table_process_changed_info">进程已更改。正在清除地址列表…</string>
 
     <!-- Hunt Settings -->
     <string name="hunt_settings_memory_regions_title">内存区域</string>
     <string name="hunt_settings_show_advanced_options">显示高级选项</string>
     <string name="hunt_settings_hide_advanced_options">隐藏高级选项</string>
-    <string name="hunt_settings_req_read">需要可读</string>
-    <string name="hunt_settings_req_write">需要可写</string>
-    <string name="hunt_settings_inc_swapped">包含 Swapped</string>
-    <string name="hunt_settings_min_size_label">最小大小（字节）</string>
-    <string name="hunt_settings_custom_filter_label">自定义过滤</string>
+    <string name="hunt_settings_req_read">要求可读</string>
+    <string name="hunt_settings_req_write">要求可写</string>
+    <string name="hunt_settings_inc_swapped">包含交换区</string>
+    <string name="hunt_settings_min_size_label">最小大小 (字节)</string>
+    <string name="hunt_settings_custom_filter_label">自定义过滤器</string>
     <string name="hunt_settings_save_button">保存</string>
     <string name="hunt_settings_region_details_name_header">名称</string>
     <string name="hunt_settings_region_details_perm_header">权限</string>
     <string name="hunt_settings_region_details_start_header">起始</string>
     <string name="hunt_settings_region_details_end_header">结束</string>
-    <string name="hunt_settings_no_memory_entries_found">未找到该区域的内存条目。</string>
+    <string name="hunt_settings_no_memory_entries_found">未找到此区域的内存条目。</string>
     <plurals name="hunt_settings_and_more_entries_label">
-        <item quantity="other">… 以及其他 %d 个条目</item>
+        <item quantity="other">… 以及另外 %d 个条目</item>
     </plurals>
 
     <!-- Memory Menu -->
     <string name="memory_menu_default_tab_title">搜索 %1$d</string>
     <string name="memory_menu_close_tab_cd">关闭标签页</string>
     <string name="memory_menu_add_tab_cd">添加标签页</string>
-    <string name="memory_menu_no_tabs_message">添加一个搜索以开始</string>
-    <string name="memory_menu_no_matches_placeholder">未找到匹配项。\n输入目标数值并点击搜索。</string>
+    <string name="memory_menu_no_tabs_message">添加搜索以开始</string>
+    <string name="memory_menu_no_matches_placeholder">未找到匹配项。\n输入目标值并点击搜索。</string>
     <string name="memory_menu_status_no_matches">0 个匹配</string>
     <string name="memory_menu_error_dialog_title">错误</string>
     <string name="memory_menu_no_process_attached_error">未附加任何进程。</string>
     <string name="memory_menu_process_not_exist_error">所选进程已不存在。</string>
-    <string name="memory_menu_info_dialog_title">提示</string>
+    <string name="memory_menu_info_dialog_title">信息</string>
     <string name="memory_menu_process_changed_info">进程已更改。正在清除搜索结果…</string>
-    <string name="memory_menu_added_to_address_table_snackbar">已将 %1$s 添加到地址表</string>
-    <string name="memory_menu_added_all_to_address_table_snackbar">已将所有匹配项添加到地址表。</string>
-    <string name="memory_menu_copy_all_button">全部复制</string>
-    <string name="memory_menu_match_item_value_label">数值: %1$s</string>
-    <string name="memory_menu_scan_settings_title">搜索设置</string>
+    <string name="memory_menu_added_to_address_table_snackbar">已将 %1$s 添加至地址表</string>
+    <string name="memory_menu_added_all_to_address_table_snackbar">已将所有匹配项添加至地址表。</string>
+    <string name="memory_menu_copy_all_button">复制全部</string>
+    <string name="memory_menu_match_item_value_label">数值：%1$s</string>
     <string name="memory_menu_scan_value_label">搜索数值</string>
-    <string name="memory_menu_scan_value_placeholder">输入目标数值…</string>
-    <string name="memory_menu_goto_button">前往</string>
-    <string name="memory_menu_operator_dropdown_label">运算符</string>
-    <string name="memory_menu_value_type_dropdown_label">数值类型</string>
-    <string name="memory_menu_type_label_prefix">类型: %1$s</string>
-    <string name="memory_menu_types_selected_count">%1$d / %2$d 已选择</string>
+    <string name="memory_menu_scan_value_placeholder">数值 / 1.5e6 / xor:100…</string>
+    <string name="memory_menu_goto_button">跳转</string>
+    <string name="memory_menu_type_label_prefix">类型：%1$s</string>
+    <string name="memory_menu_types_selected_count">已选择 %1$d / %2$d 项</string>
     <string name="memory_menu_value_types_all">全部</string>
     <string name="memory_menu_value_types_none">未选择</string>
     <string name="memory_menu_select_types_cd">选择数据类型</string>
     <string name="memory_menu_select_types_dialog_title">选择数据类型</string>
-    <string name="memory_menu_type_all_uppercase">全部 (ALL)</string>
-    <string name="memory_menu_type_byte">Byte (1 字节 / 8位)</string>
-    <string name="memory_menu_type_short">Short (2 字节 / 16位)</string>
-    <string name="memory_menu_type_float16">Float16 (2 字节 / 半精度)</string>
-    <string name="memory_menu_type_int">Int (4 字节 / 32位)</string>
-    <string name="memory_menu_type_long">Long (8 字节 / 64位)</string>
-    <string name="memory_menu_type_float">Float (4 字节 / 单精度)</string>
-    <string name="memory_menu_type_double">Double (8 字节 / 双精度)</string>
-    <string name="memory_menu_type_bigdouble">BigDouble (尾数 / 指数)</string>
-    <string name="memory_menu_type_obscured_int">Obscured Int (ACTk XOR-32)</string>
-    <string name="memory_menu_type_obscured_float">Obscured Float (ACTk XOR-Float)</string>
+    <string name="memory_menu_preset_all">全部</string>
+    <string name="memory_menu_preset_ints">整型</string>
+    <string name="memory_menu_preset_floats">浮点型</string>
+    <string name="memory_menu_preset_spec">特殊</string>
+    <string name="memory_menu_preset_reset">重置</string>
     <string name="memory_menu_syntax_help_title">搜索技巧与语法帮助</string>
     <string name="memory_menu_syntax_help_button_cd">搜索语法帮助</string>
-    <string name="memory_menu_syntax_help_text"><b>1. 尾数 / 指数 (科学计数法 / BigDouble):</b>\n• <i>1.5e6</i> 或 <i>1.5,6</i> 或 <i>1.5:6</i>\n• 类型: 选择 BigDouble 或输入 <i>bigdouble:1.5,6</i>\n\n<b>2. 混淆数值 (Anti-Cheat XOR):</b>\n• 选择 Obscured Int 或 Obscured Float\n• 或使用前缀: <i>xor:1000</i> 或 <i>obscured:1000</i>\n\n<b>3. 浮点容差 / Epsilon:</b>\n• 绝对容差: <i>100.0 +- 0.5</i>\n• 百分比容差: <i>100 +- 2%</i>\n\n<b>4. 缩放定点数:</b>\n• 乘数公式: <i>10.5 * 1000</i> (搜索 10500)\n• 或前缀: <i>scaled:10.5:1000</i>\n\n<b>5. 异构结构体组:</b>\n• 混合类型: <i>f64:1.5; i64:6 : 16</i>\n• 或: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_syntax_help_text"><b>1. 尾数 / 指数 (科学计数法 / BigDouble)：</b>\n• <i>1.5e6</i> 或 <i>1.5,6</i> 或 <i>1.5:6</i>\n• 类型：选择 BigDouble 或输入 <i>bigdouble:1.5,6</i>\n\n<b>2. 混淆 / 加密值 (Anti-Cheat XOR)：</b>\n• 选择 Obscured Int 或 Obscured Float\n• 或使用前缀：<i>xor:1000</i> 或 <i>obscured:1000</i>\n\n<b>3. 浮点容差 / Epsilon：</b>\n• 绝对误差：<i>100.0 +- 0.5</i>\n• 百分比误差：<i>100 +- 2%</i>\n\n<b>4. 定点数缩放：</b>\n• 倍数公式：<i>10.5 * 1000</i> (搜索 10500)\n• 或前缀：<i>scaled:10.5:1000</i>\n\n<b>5. 异构结构体组：</b>\n• 混合类型：<i>f64:1.5; i64:6 : 16</i>\n• 或：<i>f32:100.0; i32:50; byte:1 : 32</i></string>
     <string name="memory_menu_new_scan_button">新搜索</string>
     <string name="memory_menu_new_search_button_initial">新搜索</string>
     <string name="memory_menu_refine_button">改善</string>
@@ -142,45 +130,101 @@
         <item quantity="other">%d 个匹配</item>
     </plurals>
     <plurals name="memory_menu_status_full_with_showing">
-        <item quantity="other">%d 个匹配（显示 %d 个）</item>
+        <item quantity="other">%d 个匹配 (显示 %d 个)</item>
     </plurals>
 
     <!-- Process Menu -->
-    <string name="process_menu_attached_process_none">无</string>
-    <string name="process_menu_attached_process_label">已附加进程</string>
     <string name="process_menu_search_processes_label">搜索进程</string>
     <string name="process_menu_search_icon_description">搜索</string>
     <string name="process_menu_refresh_icon_description">刷新</string>
-    <string name="process_menu_item_attached_icon_description">已附加</string>
     <string name="process_menu_detach_cd">分离</string>
     <string name="process_menu_no_processes_found_message">未找到进程</string>
+    <string name="process_menu_filter_all">全部 (%1$d)</string>
+    <string name="process_menu_filter_user">用户 (%1$d)</string>
+    <string name="process_menu_filter_system">系统 (%1$d)</string>
 
     <!-- Virtual Keyboard -->
     <string name="keyboard_hide_cd">隐藏键盘</string>
     <string name="keyboard_space">空格</string>
+    <string name="keyboard_move_left_cd">向左移动</string>
+    <string name="keyboard_move_right_cd">向右移动</string>
+    <string name="keyboard_clear_cd">清除</string>
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">免责声明</string>
-    <string name="disclaimer_text">欢迎使用 HuntMemory。\n\n本工具是一款内存读取和编辑工具，旨在用于您自己的应用程序和进程中的开发、调试和学习目的。\n\n严禁将本应用程序用于非法活动，例如在网络游戏中作弊、未经授权修改其他应用程序，或任何其他违反第三方服务条款或现行法律的行为。\n\n继续操作即表示您承认并同意对自己的行为承担全部责任。本应用程序的开发者对因使用此工具而导致的任何不当使用、损害或负面后果概不负责。</string>
-    <string name="disclaimer_accept_button">接受并继续</string>
-    <string name="disclaimer_scroll_down_hint">向下滚动以阅读更多</string>
+    <string name="disclaimer_text">欢迎使用 HuntMemory。\n\n这是一款内存读取和编辑工具，旨在用于您自己的应用程序和进程的开发、调试和学习目的。\n\n严禁将此应用程序用于非法活动，例如在线游戏作弊、未经授权修改其他应用程序，或任何违反第三方服务条款或现行法律的行为。\n\n继续操作即表示您承认并同意对自己的行为承担全部责任。对于因使用此工具而导致的任何不当使用、损害或负面后果，开发者概不负责。</string>
+    <string name="disclaimer_accept_button">同意并继续</string>
+    <string name="disclaimer_scroll_down_hint">向下滑动以阅读更多内容</string>
 
     <!-- Credits & Open Source Licenses -->
-    <string name="credits_title">鸣谢与开源许可</string>
-    <string name="credits_subtitle">第三方库、Crates 与原生架构</string>
+    <string name="credits_title">鸣谢与开源</string>
+    <string name="credits_subtitle">第三方库、Crates 及原生架构</string>
     <string name="credits_back_button_cd">返回</string>
-    <string name="credits_search_placeholder">搜索依赖项、Crate、许可证…</string>
+    <string name="credits_search_placeholder">搜索依赖、Crates、许可证…</string>
     <string name="credits_clear_search_cd">清除搜索</string>
     <string name="credits_category_all">全部</string>
     <string name="credits_category_kotlin_android">Android 与 Kotlin</string>
     <string name="credits_category_rust_core">Rust 核心</string>
     <string name="credits_category_kernel_system">内核与系统</string>
-    <string name="credits_empty_search">未找到匹配的依赖项。</string>
+    <string name="credits_empty_search">没有符合搜索条件的依赖项。</string>
     <string name="credits_view_source_button">源码</string>
     <string name="credits_copy_url_cd">复制链接</string>
     <string name="credits_url_copied">链接已复制到剪贴板</string>
     <string name="credits_open_url_failed">无法打开网页浏览器。</string>
-    <string name="credits_footer_disclaimer">HuntMemory 是依据 GNU 通用公共许可证第 3 版 (GPL-3.0-or-later) 发布的开源软件。所有第三方库和组件均在其各自的开源许可下使用。</string>
-    <string name="main_screen_credits_button_cd">鸣谢与开源许可</string>
-    <string name="main_screen_credits_link">鸣谢与许可</string>
+    <string name="credits_footer_disclaimer">HuntMemory 是一款根据 GNU 通用公共许可证 v3.0 (GPL-3.0-or-later) 分发的开源软件。所有第三方库、Crates 和系统组件均在其各自的开源许可证下使用。</string>
+    <string name="main_screen_credits_button_cd">鸣谢与开源</string>
+    <string name="main_screen_credits_link">鸣谢与许可证</string>
+
+    <!-- Lua Scripts & Dynamic Menu -->
+    <string name="lua_tab_editor_subtab">脚本编辑器</string>
+    <string name="lua_tab_menu_subtab">动态菜单</string>
+    <string name="lua_tab_console_subtab">控制台输出</string>
+    <string name="lua_run_script_button">运行脚本</string>
+    <string name="lua_stop_script_button">停止脚本</string>
+    <string name="lua_clear_console_button">清空控制台</string>
+    <string name="lua_script_status_idle">就绪 (空闲)</string>
+    <string name="lua_script_status_running">正在执行…</string>
+    <string name="lua_no_dynamic_menu_placeholder">当前没有活动的动态菜单。\n运行使用 hmem.create_menu() 的 Lua 脚本以在此处构建交互式菜单。</string>
+    <string name="lua_console_empty_placeholder">控制台输出为空。\n在脚本中使用 print() 或 hmem.log() 在此处输出日志。</string>
+    <string name="lua_scripts_manager_title">Lua 脚本</string>
+    <string name="lua_scripts_tab_all">全部</string>
+    <string name="lua_scripts_tab_imported">已导入</string>
+    <string name="lua_scripts_tab_presets">模板</string>
+    <string name="lua_import_script_button">导入</string>
+    <string name="lua_save_script_button">另存为</string>
+    <string name="lua_new_script_button">新建</string>
+    <string name="lua_delete_script_title">删除脚本</string>
+    <string name="lua_delete_script_confirm">确定要删除 \"%1$s\" 吗？</string>
+    <string name="lua_script_save_dialog_title">保存 Lua 脚本</string>
+    <string name="lua_script_save_name_label">脚本名称</string>
+    <string name="lua_script_save_name_placeholder">my_script.lua</string>
+    <string name="lua_script_imported_success">脚本 \"%1$s\" 导入成功。</string>
+    <string name="lua_script_save_success">脚本 \"%1$s\" 保存成功。</string>
+    <string name="lua_script_delete_success">脚本 \"%1$s\" 已删除。</string>
+    <string name="lua_script_no_imported_scripts">暂无导入的脚本。\n点击 \"导入\" 加载 .lua 文件，或点击 \"另存为\" 保存编辑器代码。</string>
+    <string name="lua_script_search_placeholder">搜索脚本…</string>
+    <string name="lua_preset_badge">模板</string>
+    <string name="lua_script_custom_badge">自定义</string>
+    <string name="lua_script_manage_button">管理</string>
+    <string name="lua_editor_copy_button">复制</string>
+    <string name="lua_editor_paste_button">粘贴</string>
+    <string name="lua_editor_clear_button">清除</string>
+    <string name="lua_editor_copied_toast">脚本已复制到剪贴板</string>
+    <string name="lua_editor_pasted_toast">已从剪贴板粘贴脚本</string>
+    <string name="lua_editor_cleared_toast">脚本已清除</string>
+    <string name="lua_editor_lines_chars_format">%1$d 行 • %2$d 字符</string>
+    <string name="search_help_dialog_title">搜索技巧与语法</string>
+    <string name="search_help_try_hint">提示：点击任何示例即可将其直接填入搜索输入框。</string>
+    <string name="search_help_cat_basic_title">精确匹配与浮点容差</string>
+    <string name="search_help_cat_basic_desc">搜索精确数值或带绝对/百分比容差范围的浮点数。</string>
+    <string name="search_help_cat_obscured_title">混淆与反作弊加密 (XOR)</string>
+    <string name="search_help_cat_obscured_desc">扫描由反作弊引擎（如 ACTk）通过动态 XOR 密钥加密保护的内存变量。</string>
+    <string name="search_help_cat_bigdouble_title">科学计数法与 BigDouble</string>
+    <string name="search_help_cat_bigdouble_desc">以尾数和指数形式存储的超大数值（广泛用于挂机和放置类游戏）。</string>
+    <string name="search_help_cat_scaled_title">定点缩放数值</string>
+    <string name="search_help_cat_scaled_desc">在内存中作为缩放整数存储的小数（例如 10.5 乘以 1000 实际搜索 10500）。</string>
+    <string name="search_help_cat_group_title">结构体与联合组搜索</string>
+    <string name="search_help_cat_group_desc">在指定字节范围的连续内存区域内同时匹配多种不同数据类型的组合结构。</string>
+    <string name="search_help_cat_goto_title">直接内存地址与模块跳转</string>
+    <string name="search_help_cat_goto_desc">直接跳转至指定的虚拟内存绝对地址或动态库（.so）偏移量。</string>
 </resources>

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Generic -->
     <string name="app_name" translatable="false">Hunt Memory</string>
     <string name="ok">OK</string>
 
@@ -8,7 +9,6 @@
     <string name="main_activity_error_root_access_missing">Error: Root access is missing.</string>
 
     <!-- Main Screen -->
-    <string name="main_screen_tab_main">Main</string>
     <string name="main_screen_overview_title">SYSTEM ENGINE OVERVIEW</string>
     <string name="main_screen_status_root_access">Root Access</string>
     <string name="main_screen_status_root_granted">Granted (su)</string>
@@ -18,10 +18,8 @@
     <string name="main_screen_hmkpm_available">HMKPM Ready</string>
     <string name="main_screen_hmkpm_not_available">Not Detected</string>
     <string name="main_screen_hmkpm_checking">Checking…</string>
-    <string name="main_screen_hmkpm_refresh_button">Refresh HMKPM Status</string>
     <string name="main_screen_status_overlay_engine">Overlay Engine</string>
     <string name="main_screen_status_overlay_active">Running (Active)</string>
-    <string name="main_screen_status_overlay_inactive">Inactive</string>
     <string name="main_screen_status_overlay_permission_granted">Permission Granted</string>
     <string name="main_screen_status_overlay_permission_missing">Permission Missing</string>
     <string name="main_screen_status_target_process">Target Process</string>
@@ -46,10 +44,9 @@
     <string name="overlay_ui_processes_tab">Processes</string>
     <string name="overlay_ui_memory_tab">Memory</string>
     <string name="overlay_ui_editor_tab">Editor</string>
+    <string name="overlay_ui_scripts_tab">Scripts</string>
     <string name="overlay_ui_settings_tab_and_title">Settings</string>
-    <string name="overlay_ui_dialog_ok_button">OK</string>
     <string name="overlay_ui_dialog_cancel_button">Cancel</string>
-    <string name="overlay_ui_dialog_confirm_button">Confirm</string>
 
     <!-- Address Table -->
     <string name="address_table_empty_placeholder">No addresses saved yet.\nTap on results in the Memory tab to add them here.</string>
@@ -68,6 +65,7 @@
     <string name="address_table_header_type">Type</string>
     <string name="address_table_header_value">Value</string>
     <string name="address_table_header_freeze">Freeze</string>
+    <string name="address_table_frozen_cd">Frozen</string>
     <string name="address_table_error_dialog_title">Error</string>
     <string name="address_table_no_process_attached_error">No process attached.</string>
     <string name="address_table_process_not_running_error">The selected process is no longer running.</string>
@@ -110,29 +108,20 @@
     <string name="memory_menu_added_all_to_address_table_snackbar">Added all matches to Address Table.</string>
     <string name="memory_menu_copy_all_button">Copy All</string>
     <string name="memory_menu_match_item_value_label">Value: %1$s</string>
-    <string name="memory_menu_scan_settings_title">Scan Settings</string>
     <string name="memory_menu_scan_value_label">Scan Value</string>
-    <string name="memory_menu_scan_value_placeholder">Enter target value…</string>
+    <string name="memory_menu_scan_value_placeholder">Value / 1.5e6 / xor:100…</string>
     <string name="memory_menu_goto_button">Go</string>
-    <string name="memory_menu_operator_dropdown_label">Operator</string>
-    <string name="memory_menu_value_type_dropdown_label">Value Type</string>
     <string name="memory_menu_type_label_prefix">Type: %1$s</string>
-    <string name="memory_menu_types_selected_count">%1$d / %2$d selected</string>
+    <string name="memory_menu_types_selected_count" tools:ignore="PluralsCandidate">%1$d / %2$d selected</string>
     <string name="memory_menu_value_types_all">ALL</string>
     <string name="memory_menu_value_types_none">None selected</string>
     <string name="memory_menu_select_types_cd">Select data types</string>
     <string name="memory_menu_select_types_dialog_title">Select Data Types</string>
-    <string name="memory_menu_type_all_uppercase">ALL (ALL)</string>
-    <string name="memory_menu_type_byte">Byte (1 Byte / 8-bit)</string>
-    <string name="memory_menu_type_short">Short (2 Bytes / 16-bit)</string>
-    <string name="memory_menu_type_float16">Float16 (2 Bytes / Half-Float)</string>
-    <string name="memory_menu_type_int">Int (4 Bytes / 32-bit)</string>
-    <string name="memory_menu_type_long">Long (8 Bytes / 64-bit)</string>
-    <string name="memory_menu_type_float">Float (4 Bytes / Single)</string>
-    <string name="memory_menu_type_double">Double (8 Bytes / Double)</string>
-    <string name="memory_menu_type_bigdouble">BigDouble (Mantissa / Exponent)</string>
-    <string name="memory_menu_type_obscured_int">Obscured Int (ACTk XOR-32)</string>
-    <string name="memory_menu_type_obscured_float">Obscured Float (ACTk XOR-Float)</string>
+    <string name="memory_menu_preset_all">ALL</string>
+    <string name="memory_menu_preset_ints">INTs</string>
+    <string name="memory_menu_preset_floats">FLOATs</string>
+    <string name="memory_menu_preset_spec">SPEC</string>
+    <string name="memory_menu_preset_reset">RESET</string>
     <string name="memory_menu_syntax_help_title">Search Techniques &amp; Syntax Help</string>
     <string name="memory_menu_syntax_help_button_cd">Search syntax help</string>
     <string name="memory_menu_syntax_help_text"><b>1. Mantissa / Exponent (Scientific / BigDouble):</b>\n• <i>1.5e6</i> or <i>1.5,6</i> or <i>1.5:6</i>\n• Type: Select BigDouble or type <i>bigdouble:1.5,6</i>\n\n<b>2. Obscured / Encrypted (Anti-Cheat XOR):</b>\n• Select Obscured Int or Obscured Float\n• Or use prefix: <i>xor:1000</i> or <i>obscured:1000</i>\n\n<b>3. Float Tolerance / Epsilon:</b>\n• Absolute margin: <i>100.0 +- 0.5</i>\n• Percentage margin: <i>100 +- 2%</i>\n\n<b>4. Scaled Fixed-Point:</b>\n• Multiplier formula: <i>10.5 * 1000</i> (searches 10500)\n• Or prefix: <i>scaled:10.5:1000</i>\n\n<b>5. Heterogeneous Struct Group:</b>\n• Mixed types: <i>f64:1.5; i64:6 : 16</i>\n• Or: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
@@ -149,18 +138,21 @@
     </plurals>
 
     <!-- Process Menu -->
-    <string name="process_menu_attached_process_none">None</string>
-    <string name="process_menu_attached_process_label">Attached Process</string>
     <string name="process_menu_search_processes_label">Search processes</string>
     <string name="process_menu_search_icon_description">Search</string>
     <string name="process_menu_refresh_icon_description">Refresh</string>
-    <string name="process_menu_item_attached_icon_description">Attached</string>
     <string name="process_menu_detach_cd">Detach</string>
     <string name="process_menu_no_processes_found_message">No processes found</string>
+    <string name="process_menu_filter_all">ALL (%1$d)</string>
+    <string name="process_menu_filter_user">USER (%1$d)</string>
+    <string name="process_menu_filter_system">SYSTEM (%1$d)</string>
 
     <!-- Virtual Keyboard -->
     <string name="keyboard_hide_cd">Hide Keyboard</string>
     <string name="keyboard_space">SPACE</string>
+    <string name="keyboard_move_left_cd">Move Left</string>
+    <string name="keyboard_move_right_cd">Move Right</string>
+    <string name="keyboard_clear_cd">Clear</string>
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">Disclaimer</string>
@@ -186,4 +178,57 @@
     <string name="credits_footer_disclaimer">HuntMemory is open source software distributed under the GNU General Public License v3.0 (GPL-3.0-or-later). All third-party libraries, crates, and system components are used under their respective open source licenses.</string>
     <string name="main_screen_credits_button_cd">Credits &amp; Open Source</string>
     <string name="main_screen_credits_link">Credits &amp; Licenses</string>
+
+    <!-- Lua Scripts & Dynamic Menu -->
+    <string name="lua_tab_editor_subtab">Script Editor</string>
+    <string name="lua_tab_menu_subtab">Dynamic Menu</string>
+    <string name="lua_tab_console_subtab">Console Output</string>
+    <string name="lua_run_script_button">Run Script</string>
+    <string name="lua_stop_script_button">Stop Script</string>
+    <string name="lua_clear_console_button">Clear Console</string>
+    <string name="lua_script_status_idle">Ready (Idle)</string>
+    <string name="lua_script_status_running">Executing…</string>
+    <string name="lua_no_dynamic_menu_placeholder">No dynamic menu active.\nRun a Lua script using hmem.create_menu() to build an interactive menu here.</string>
+    <string name="lua_console_empty_placeholder">Console output is empty.\nUse print() or hmem.log() in your scripts to output logs here.</string>
+    <string name="lua_scripts_manager_title">Lua Scripts</string>
+    <string name="lua_scripts_tab_all">All</string>
+    <string name="lua_scripts_tab_imported">Imported</string>
+    <string name="lua_scripts_tab_presets">Templates</string>
+    <string name="lua_import_script_button">Import</string>
+    <string name="lua_save_script_button">Save As</string>
+    <string name="lua_new_script_button">New</string>
+    <string name="lua_delete_script_title">Delete Script</string>
+    <string name="lua_delete_script_confirm">Are you sure you want to delete \"%1$s\"?</string>
+    <string name="lua_script_save_dialog_title">Save Lua Script</string>
+    <string name="lua_script_save_name_label">Script Name</string>
+    <string name="lua_script_save_name_placeholder">my_script.lua</string>
+    <string name="lua_script_imported_success">Script \"%1$s\" imported successfully.</string>
+    <string name="lua_script_save_success">Script \"%1$s\" saved successfully.</string>
+    <string name="lua_script_delete_success">Script \"%1$s\" deleted.</string>
+    <string name="lua_script_no_imported_scripts">No imported scripts yet.\nTap \"Import\" to load a .lua file or \"Save As\" to save your editor code.</string>
+    <string name="lua_script_search_placeholder">Search scripts…</string>
+    <string name="lua_preset_badge">Template</string>
+    <string name="lua_script_custom_badge">Custom</string>
+    <string name="lua_script_manage_button">Manage</string>
+    <string name="lua_editor_copy_button">Copy</string>
+    <string name="lua_editor_paste_button">Paste</string>
+    <string name="lua_editor_clear_button">Clear</string>
+    <string name="lua_editor_copied_toast">Script copied to clipboard</string>
+    <string name="lua_editor_pasted_toast">Script pasted from clipboard</string>
+    <string name="lua_editor_cleared_toast">Script cleared</string>
+    <string name="lua_editor_lines_chars_format">%1$d lines • %2$d chars</string>
+    <string name="search_help_dialog_title">Search Techniques &amp; Syntax</string>
+    <string name="search_help_try_hint">Tip: Tap any example to insert it into the search bar.</string>
+    <string name="search_help_cat_basic_title">Exact &amp; Float Tolerance</string>
+    <string name="search_help_cat_basic_desc">Search exact numbers or floating-point values with absolute or percentage margins.</string>
+    <string name="search_help_cat_obscured_title">Obscured &amp; Anti-Cheat (XOR)</string>
+    <string name="search_help_cat_obscured_desc">Scans encrypted variables protected by anti-cheat engines (such as ACTk) using dynamic XOR keys.</string>
+    <string name="search_help_cat_bigdouble_title">Scientific &amp; BigDouble</string>
+    <string name="search_help_cat_bigdouble_desc">Huge values stored as mantissa and exponent (widely used in incremental and idle games).</string>
+    <string name="search_help_cat_scaled_title">Scaled Fixed-Point</string>
+    <string name="search_help_cat_scaled_desc">Decimals stored internally as scaled integers (e.g. 10.5 scaled by 1000 searches 10500).</string>
+    <string name="search_help_cat_group_title">Struct &amp; Group Search</string>
+    <string name="search_help_cat_group_desc">Matches multiple heterogeneous data types located within a contiguous memory byte range.</string>
+    <string name="search_help_cat_goto_title">Direct Address &amp; Library Go</string>
+    <string name="search_help_cat_goto_desc">Jump directly to a virtual memory address or dynamic library offset (e.g. libil2cpp.so).</string>
 </resources>

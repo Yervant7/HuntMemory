@@ -28,6 +28,9 @@ import android.os.IBinder
 import android.util.Log
 import com.topjohnwu.superuser.ipc.RootService
 import com.yervant.huntmem.IHMemService
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 object HMemServiceConnection : ServiceConnection {
     private const val TAG = "HMemServiceConnection"
@@ -36,25 +39,53 @@ object HMemServiceConnection : ServiceConnection {
     var service: IHMemService? = null
         private set
 
+    private val _isConnected = MutableStateFlow(false)
+    val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
+
+    @Volatile
     private var binding = false
 
-    fun bind(context: Context) {
-        if (service != null || binding) return
+    fun bind(context: Context, force: Boolean = false) {
+        if (!force && (service != null || binding)) return
         binding = true
-        Log.i(TAG, "Binding to HMemService...")
-        val intent = Intent(context, HMemService::class.java)
-        RootService.bind(intent, this)
+        Log.i(TAG, "Binding to HMemService (force=$force)...")
+        val intent = Intent(context, HMemService::class.java).apply {
+            putExtra("NATIVE_LIB_DIR", context.applicationInfo.nativeLibraryDir)
+            putExtra("PACKAGE_NAME", context.packageName)
+        }
+        try {
+            RootService.bind(intent, this)
+        } catch (e: Throwable) {
+            Log.e(TAG, "RootService.bind failed: ${e.message}", e)
+            binding = false
+        }
     }
 
     override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
         service = IHMemService.Stub.asInterface(binder)
         binding = false
+        _isConnected.value = true
         Log.i(TAG, "Root HMemService connected successfully!")
     }
 
     override fun onServiceDisconnected(name: ComponentName?) {
         service = null
         binding = false
+        _isConnected.value = false
         Log.w(TAG, "Root HMemService disconnected.")
+    }
+
+    override fun onBindingDied(name: ComponentName?) {
+        service = null
+        binding = false
+        _isConnected.value = false
+        Log.w(TAG, "Root HMemService binding died.")
+    }
+
+    override fun onNullBinding(name: ComponentName?) {
+        service = null
+        binding = false
+        _isConnected.value = false
+        Log.w(TAG, "Root HMemService null binding.")
     }
 }

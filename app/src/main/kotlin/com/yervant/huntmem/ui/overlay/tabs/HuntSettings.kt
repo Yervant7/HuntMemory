@@ -29,7 +29,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -464,14 +463,14 @@ fun RegionDetails(details: List<MemoryEngine.MemoryMapEntry>, context: Context) 
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1.5f)
+                    modifier = Modifier.weight(1.4f)
                 )
                 Text(
                     text = stringResource(R.string.hunt_settings_region_details_perm_header),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(0.8f),
                     textAlign = TextAlign.End
                 )
                 Text(
@@ -479,7 +478,7 @@ fun RegionDetails(details: List<MemoryEngine.MemoryMapEntry>, context: Context) 
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1.1f),
                     textAlign = TextAlign.End
                 )
                 Text(
@@ -487,7 +486,7 @@ fun RegionDetails(details: List<MemoryEngine.MemoryMapEntry>, context: Context) 
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1.1f),
                     textAlign = TextAlign.End
                 )
             }
@@ -502,7 +501,7 @@ fun RegionDetails(details: List<MemoryEngine.MemoryMapEntry>, context: Context) 
                         text = getFileName(entry.path),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1.5f),
+                        modifier = Modifier.weight(1.4f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -510,21 +509,21 @@ fun RegionDetails(details: List<MemoryEngine.MemoryMapEntry>, context: Context) 
                         text = entry.permissions,
                         style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(0.8f),
                         textAlign = TextAlign.End
                     )
                     Text(
                         text = String.format("0x%X", entry.start),
                         style = MonospaceAddressStyle.copy(fontSize = 10.sp),
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1.1f),
                         textAlign = TextAlign.End
                     )
                     Text(
                         text = String.format("0x%X", entry.end),
                         style = MonospaceAddressStyle.copy(fontSize = 10.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1.1f),
                         textAlign = TextAlign.End
                     )
                 }

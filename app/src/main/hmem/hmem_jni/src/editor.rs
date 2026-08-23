@@ -272,8 +272,24 @@ impl FreezeEngine {
                 continue;
             }
 
-            for item in items_to_write {
-                let _ = kpm::write_memory(item.pid, item.address, &item.bytes);
+            // Group frozen items by PID to dispatch all writes in a single batch syscall
+            let mut by_pid: HashMap<u32, Vec<(u64, &[u8])>> = HashMap::new();
+            for item in &items_to_write {
+                by_pid
+                    .entry(item.pid)
+                    .or_default()
+                    .push((item.address, item.bytes.as_slice()));
+            }
+
+            for (pid, writes) in by_pid {
+                if writes.len() == 1 {
+                    let _ = kpm::write_memory(pid, writes[0].0, writes[0].1);
+                } else if kpm::write_batch(pid, &writes).is_err() {
+                    // Fallback to individual writes if batch syscall fails
+                    for (addr, data) in writes {
+                        let _ = kpm::write_memory(pid, addr, data);
+                    }
+                }
             }
 
             let s = lock.lock().unwrap();
@@ -339,4 +355,122 @@ static FREEZE_ENGINE: OnceLock<FreezeEngine> = OnceLock::new();
 
 pub fn get_freeze_engine() -> &'static FreezeEngine {
     FREEZE_ENGINE.get_or_init(FreezeEngine::new)
+}
+
+/// Resolves a multi-level pointer chain in target process memory.
+///
+/// Follows the standard multi-level pointer dereference contract:
+/// - Step 1: Read 64-bit pointer (`u64`) from `base_addr`.
+/// - Step 2: Add `offsets[0]` to get next address.
+/// - Step 3: Repeat for each subsequent offset in `offsets[1..]`.
+/// - Returns the final resolved 64-bit virtual memory address.
+pub fn resolve_pointer_chain(pid: u32, base_addr: u64, offsets: &[i64]) -> Result<u64, String> {
+    if base_addr == 0 {
+        return Err("Base address cannot be 0x0".to_string());
+    }
+
+    if offsets.is_empty() {
+        return Ok(base_addr);
+    }
+
+    let mut current_addr = base_addr;
+
+    for (idx, &offset) in offsets.iter().enumerate() {
+        if current_addr < 0x1000 {
+            return Err(format!(
+                "Null or invalid pointer at level {idx} (address: 0x{current_addr:x})"
+            ));
+        }
+
+        let mut buf = [0u8; 8];
+        kpm::read_memory(pid, current_addr, &mut buf).map_err(|e| {
+            format!("Failed to dereference pointer at 0x{current_addr:x} (level {idx}): {e}")
+        })?;
+
+        let ptr = u64::from_le_bytes(buf);
+        if ptr == 0 {
+            return Err(format!(
+                "Null pointer encountered at level {idx} (0x{current_addr:x} -> 0x0)"
+            ));
+        }
+
+        // Apply signed offset safely
+        current_addr = if offset >= 0 {
+            ptr.checked_add(offset as u64).ok_or_else(|| {
+                format!("Address overflow at level {idx}: 0x{ptr:x} + 0x{offset:x}")
+            })?
+        } else {
+            ptr.checked_sub(offset.unsigned_abs()).ok_or_else(|| {
+                format!(
+                    "Address underflow at level {idx}: 0x{ptr:x} - 0x{:x}",
+                    offset.unsigned_abs()
+                )
+            })?
+        };
+    }
+
+    Ok(current_addr)
+}
+
+/// Reads a typed value by dereferencing a multi-level pointer chain.
+pub fn read_pointer_value(
+    pid: u32,
+    base_addr: u64,
+    offsets: &[i64],
+    vtype: ValueType,
+) -> Result<String, String> {
+    let target_addr = resolve_pointer_chain(pid, base_addr, offsets)?;
+    let mut buf = vec![0u8; vtype.size()];
+    kpm::read_memory(pid, target_addr, &mut buf)
+        .map_err(|e| format!("Read pointer target at 0x{target_addr:x} failed: {e}"))?;
+    Ok(bytes_to_value_str(&buf, vtype))
+}
+
+/// Writes a typed value by dereferencing a multi-level pointer chain.
+pub fn write_pointer_value(
+    pid: u32,
+    base_addr: u64,
+    offsets: &[i64],
+    value_str: &str,
+    vtype: ValueType,
+) -> Result<(), String> {
+    let target_addr = resolve_pointer_chain(pid, base_addr, offsets)?;
+    write_value(pid, target_addr, value_str, vtype)
+}
+
+/// Reads a value encrypted with a custom static XOR mask.
+pub fn read_xor_value(
+    pid: u32,
+    address: u64,
+    xor_key: u64,
+    vtype: ValueType,
+) -> Result<String, String> {
+    let mut buf = vec![0u8; vtype.size()];
+    kpm::read_memory(pid, address, &mut buf)
+        .map_err(|e| format!("Read XOR memory at 0x{address:x} failed: {e}"))?;
+
+    let key_bytes = xor_key.to_le_bytes();
+    for (i, b) in buf.iter_mut().enumerate() {
+        *b ^= key_bytes[i % key_bytes.len()];
+    }
+
+    Ok(bytes_to_value_str(&buf, vtype))
+}
+
+/// Writes a value encrypted with a custom static XOR mask.
+pub fn write_xor_value(
+    pid: u32,
+    address: u64,
+    value_str: &str,
+    xor_key: u64,
+    vtype: ValueType,
+) -> Result<(), String> {
+    let mut bytes = value_str_to_bytes(value_str, vtype)?;
+    let key_bytes = xor_key.to_le_bytes();
+    for (i, b) in bytes.iter_mut().enumerate() {
+        *b ^= key_bytes[i % key_bytes.len()];
+    }
+
+    kpm::write_memory(pid, address, &bytes)
+        .map_err(|e| format!("Write XOR memory at 0x{address:x} failed: {e}"))
 }

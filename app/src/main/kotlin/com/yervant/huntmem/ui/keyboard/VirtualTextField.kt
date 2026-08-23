@@ -23,7 +23,9 @@ package com.yervant.huntmem.ui.keyboard
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,7 +40,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.yervant.huntmem.R
 
 @Composable
 fun defaultVirtualTextFieldColors(): TextFieldColors {
@@ -82,7 +86,7 @@ fun VirtualTextField(
                 IconButton(
                     onClick = {
                         onValueChange("")
-                        if (keyboardController.isVisible.value) {
+                        if (keyboardController.isVisible.value && keyboardController.onTextChange == onValueChange) {
                             keyboardController.onClear()
                         }
                     },
@@ -90,7 +94,7 @@ fun VirtualTextField(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Clear,
-                        contentDescription = "Clear",
+                        contentDescription = stringResource(R.string.keyboard_clear_cd),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
@@ -104,7 +108,7 @@ fun VirtualTextField(
         OutlinedTextField(
             value = value,
             onValueChange = {}, // Ignored because field is readOnly
-            modifier = Modifier.fillMaxWidth(),
+            modifier = if (singleLine) Modifier.fillMaxWidth() else Modifier.fillMaxSize(),
             label = label,
             placeholder = placeholder,
             leadingIcon = leadingIcon,
@@ -116,10 +120,11 @@ fun VirtualTextField(
             colors = colors
         )
 
-        // Transparent overlay to capture clicks and invoke custom virtual keyboard
+        // Transparent overlay to capture clicks and invoke custom virtual keyboard (excluding trailing icon action slot)
         Box(
             modifier = Modifier
                 .matchParentSize()
+                .padding(end = if (effectiveTrailingIcon != null) 48.dp else 0.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,

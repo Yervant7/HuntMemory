@@ -521,12 +521,19 @@ fn scan_buffer_f32_neon(data: &[u8], target_val: f32, op: NeonOp, results: &mut 
 
     unsafe {
         let target_vec = vdupq_n_f32(target_val);
+        let eps_vec = vdupq_n_f32(1e-5);
         while offset + 16 <= len {
             let ptr = data.as_ptr().add(offset) as *const f32;
             let chunk = vld1q_f32(ptr);
             let mask = match op {
-                NeonOp::Eq => vceqq_f32(chunk, target_vec),
-                NeonOp::Ne => vmvnq_u32(vceqq_f32(chunk, target_vec)),
+                NeonOp::Eq => {
+                    let diff = vabdq_f32(chunk, target_vec);
+                    vcltq_f32(diff, eps_vec)
+                }
+                NeonOp::Ne => {
+                    let diff = vabdq_f32(chunk, target_vec);
+                    vcgeq_f32(diff, eps_vec)
+                }
                 NeonOp::Gt => vcgtq_f32(chunk, target_vec),
                 NeonOp::Lt => vcltq_f32(chunk, target_vec),
                 NeonOp::Ge => vcgeq_f32(chunk, target_vec),
@@ -572,10 +579,12 @@ fn scan_buffer_f64_eq_neon(data: &[u8], target_val: f64, results: &mut Vec<usize
 
     unsafe {
         let target_vec = vdupq_n_f64(target_val);
+        let eps_vec = vdupq_n_f64(1e-9);
         while offset + 16 <= len {
             let ptr = data.as_ptr().add(offset) as *const f64;
             let chunk = vld1q_f64(ptr);
-            let mask = vceqq_f64(chunk, target_vec);
+            let diff = vabdq_f64(chunk, target_vec);
+            let mask = vcltq_f64(diff, eps_vec);
             let mask_u32 = vreinterpretq_u32_u64(mask);
             if vmaxvq_u32(mask_u32) != 0 {
                 let mut mask_arr = [0u64; 2];
@@ -1146,13 +1155,9 @@ pub fn filter_matches(
     target_value_str: &str,
     operator: ScanOperator,
 ) -> Result<ScanSession, String> {
-    let mut updated_matches = Vec::new();
     const BATCH_WINDOW: u64 = 65536;
-
-    let mut sorted = session.matches.clone();
-    if !sorted.windows(2).all(|w| w[0].address <= w[1].address) {
-        sorted.sort_by_key(|m| m.address);
-    }
+    let items = &session.matches;
+    let mut updated_matches = Vec::with_capacity(items.len());
 
     let max_step = session
         .active_types
@@ -1164,27 +1169,27 @@ pub fn filter_matches(
     let mut i = 0;
     let mut block_buf = Vec::with_capacity(BATCH_WINDOW as usize + max_step);
 
-    while i < sorted.len() {
-        let base = sorted[i].address;
-        let region_idx = sorted[i].region_idx;
+    while i < items.len() {
+        let base = items[i].address;
+        let region_idx = items[i].region_idx;
         let mut j = i;
 
-        while j < sorted.len()
-            && sorted[j].address < base + BATCH_WINDOW
-            && sorted[j].address >= base
-            && sorted[j].region_idx == region_idx
+        while j < items.len()
+            && items[j].address < base + BATCH_WINDOW
+            && items[j].address >= base
+            && items[j].region_idx == region_idx
         {
             j += 1;
         }
 
-        let block_len = (sorted[j - 1].address - base) as usize + max_step;
+        let block_len = (items[j - 1].address - base) as usize + max_step;
         if block_buf.len() < block_len {
             block_buf.resize(block_len, 0);
         }
 
         let read_ok = kpm::read_memory(pid, base, &mut block_buf[..block_len]).is_ok();
 
-        for m in &sorted[i..j] {
+        for m in &items[i..j] {
             let step = m.value_type.size();
             let mut single_buf = [0u8; 8];
             let current_bytes = if read_ok {
@@ -1254,13 +1259,9 @@ pub fn filter_range_matches(
     min_str: &str,
     max_str: &str,
 ) -> Result<ScanSession, String> {
-    let mut updated_matches = Vec::new();
     const BATCH_WINDOW: u64 = 65536;
-
-    let mut sorted = session.matches.clone();
-    if !sorted.windows(2).all(|w| w[0].address <= w[1].address) {
-        sorted.sort_by_key(|m| m.address);
-    }
+    let items = &session.matches;
+    let mut updated_matches = Vec::with_capacity(items.len());
 
     let max_step = session
         .active_types
@@ -1272,27 +1273,27 @@ pub fn filter_range_matches(
     let mut i = 0;
     let mut block_buf = Vec::with_capacity(BATCH_WINDOW as usize + max_step);
 
-    while i < sorted.len() {
-        let base = sorted[i].address;
-        let region_idx = sorted[i].region_idx;
+    while i < items.len() {
+        let base = items[i].address;
+        let region_idx = items[i].region_idx;
         let mut j = i;
 
-        while j < sorted.len()
-            && sorted[j].address < base + BATCH_WINDOW
-            && sorted[j].address >= base
-            && sorted[j].region_idx == region_idx
+        while j < items.len()
+            && items[j].address < base + BATCH_WINDOW
+            && items[j].address >= base
+            && items[j].region_idx == region_idx
         {
             j += 1;
         }
 
-        let block_len = (sorted[j - 1].address - base) as usize + max_step;
+        let block_len = (items[j - 1].address - base) as usize + max_step;
         if block_buf.len() < block_len {
             block_buf.resize(block_len, 0);
         }
 
         let read_ok = kpm::read_memory(pid, base, &mut block_buf[..block_len]).is_ok();
 
-        for m in &sorted[i..j] {
+        for m in &items[i..j] {
             let step = m.value_type.size();
             let mut single_buf = [0u8; 8];
             let current_bytes = if read_ok {
@@ -1369,38 +1370,34 @@ pub fn filter_obscured_matches(
     };
 
     let step = obscured_type.size();
-    let mut updated_matches = Vec::new();
     const BATCH_WINDOW: u64 = 65536;
-
-    let mut sorted = session.matches.clone();
-    if !sorted.windows(2).all(|w| w[0].address <= w[1].address) {
-        sorted.sort_by_key(|m| m.address);
-    }
+    let items = &session.matches;
+    let mut updated_matches = Vec::with_capacity(items.len());
 
     let mut i = 0;
     let mut block_buf = Vec::with_capacity(BATCH_WINDOW as usize + step);
 
-    while i < sorted.len() {
-        let base = sorted[i].address;
-        let region_idx = sorted[i].region_idx;
+    while i < items.len() {
+        let base = items[i].address;
+        let region_idx = items[i].region_idx;
         let mut j = i;
 
-        while j < sorted.len()
-            && sorted[j].address < base + BATCH_WINDOW
-            && sorted[j].address >= base
-            && sorted[j].region_idx == region_idx
+        while j < items.len()
+            && items[j].address < base + BATCH_WINDOW
+            && items[j].address >= base
+            && items[j].region_idx == region_idx
         {
             j += 1;
         }
 
-        let block_len = (sorted[j - 1].address - base) as usize + step;
+        let block_len = (items[j - 1].address - base) as usize + step;
         if block_buf.len() < block_len {
             block_buf.resize(block_len, 0);
         }
 
         let read_ok = kpm::read_memory(pid, base, &mut block_buf[..block_len]).is_ok();
 
-        for m in &sorted[i..j] {
+        for m in &items[i..j] {
             let mut single_buf = [0u8; 16];
             let buf_slice: &[u8] = if read_ok {
                 let off = (m.address - base) as usize;
@@ -1458,39 +1455,35 @@ pub fn filter_big_double_matches(
     target_str: &str,
 ) -> Result<ScanSession, String> {
     let target = BigDouble::parse(target_str)?;
-    let mut updated_matches = Vec::new();
     const BATCH_WINDOW: u64 = 65536;
     const MAX_STRUCT_SIZE: usize = 16;
-
-    let mut sorted = session.matches.clone();
-    if !sorted.windows(2).all(|w| w[0].address <= w[1].address) {
-        sorted.sort_by_key(|m| m.address);
-    }
+    let items = &session.matches;
+    let mut updated_matches = Vec::with_capacity(items.len());
 
     let mut i = 0;
     let mut block_buf = Vec::with_capacity(BATCH_WINDOW as usize + MAX_STRUCT_SIZE);
 
-    while i < sorted.len() {
-        let base = sorted[i].address;
-        let region_idx = sorted[i].region_idx;
+    while i < items.len() {
+        let base = items[i].address;
+        let region_idx = items[i].region_idx;
         let mut j = i;
 
-        while j < sorted.len()
-            && sorted[j].address < base + BATCH_WINDOW
-            && sorted[j].address >= base
-            && sorted[j].region_idx == region_idx
+        while j < items.len()
+            && items[j].address < base + BATCH_WINDOW
+            && items[j].address >= base
+            && items[j].region_idx == region_idx
         {
             j += 1;
         }
 
-        let block_len = (sorted[j - 1].address - base) as usize + MAX_STRUCT_SIZE;
+        let block_len = (items[j - 1].address - base) as usize + MAX_STRUCT_SIZE;
         if block_buf.len() < block_len {
             block_buf.resize(block_len, 0);
         }
 
         let read_ok = kpm::read_memory(pid, base, &mut block_buf[..block_len]).is_ok();
 
-        for m in &sorted[i..j] {
+        for m in &items[i..j] {
             let mut single_buf = [0u8; 16];
             let buf_slice: &[u8] = if read_ok {
                 let off = (m.address - base) as usize;

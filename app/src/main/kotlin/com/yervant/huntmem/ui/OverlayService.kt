@@ -52,7 +52,10 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.yervant.huntmem.R
 import com.yervant.huntmem.ui.keyboard.KeyboardType
+import com.yervant.huntmem.ui.overlay.LuaCanvasOverlay
+import com.yervant.huntmem.ui.overlay.tabs.LuaUiBridge
 import com.yervant.huntmem.ui.overlay.tabs.ProcessViewModel
+import com.yervant.huntmem.ui.theme.HuntMemTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -97,9 +100,11 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
 
     private lateinit var iconView: ComposeView
     private lateinit var menuView: ComposeView
+    private lateinit var canvasView: ComposeView
 
     private lateinit var iconParams: WindowManager.LayoutParams
     private lateinit var menuParams: WindowManager.LayoutParams
+    private lateinit var canvasParams: WindowManager.LayoutParams
 
     private var screenWidth: Int = 0
     private var screenHeight: Int = 0
@@ -138,6 +143,7 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
 
         setupViews()
 
+        windowManager.addView(canvasView, canvasParams)
         windowManager.addView(menuView, menuParams)
         windowManager.addView(iconView, iconParams)
 
@@ -165,16 +171,36 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
         menuParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             layoutFlag,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.START }
 
+        val canvasFlag = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+
+        canvasParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+            layoutFlag,
+            canvasFlag,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+
+        canvasView = createComposeView {
+            LuaCanvasOverlay()
+        }
+
         iconView = createComposeView {
-            FloatingIcon(
-                onToggleMenu = ::toggleMenu,
-                onUpdatePosition = ::updateIconPositionBy,
-                onDragEnd = {}
-            )
+            HuntMemTheme(darkTheme = true) {
+                FloatingIcon(
+                    onToggleMenu = ::toggleMenu,
+                    onUpdatePosition = ::updateIconPositionBy,
+                    onDragEnd = {}
+                )
+            }
         }
 
         menuView = createComposeView {
@@ -187,6 +213,8 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
                 onToggleMenu = ::toggleMenu,
                 onTabSelected = { tabIndex -> _uiState.update { it.copy(selectedTab = tabIndex) } },
             )
+        }.apply {
+            visibility = View.GONE
         }
     }
 
@@ -214,15 +242,21 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
     }
 
     private fun updateIconPositionBy(dragAmount: IntOffset) {
-        val maxX = (screenWidth - iconView.width).coerceAtLeast(0)
-        val maxY = (screenHeight - iconView.height).coerceAtLeast(0)
+        val estimatedIconSize = (54 * resources.displayMetrics.density).toInt()
+        val iconW = if (iconView.width > 0) iconView.width else estimatedIconSize
+        val iconH = if (iconView.height > 0) iconView.height else estimatedIconSize
+
+        val maxX = (screenWidth - iconW).coerceAtLeast(0)
+        val maxY = (screenHeight - iconH).coerceAtLeast(0)
 
         val newX = (iconParams.x + dragAmount.x).coerceIn(0, maxX)
         val newY = (iconParams.y + dragAmount.y).coerceIn(0, maxY)
 
         iconParams.x = newX
         iconParams.y = newY
-        windowManager.updateViewLayout(iconView, iconParams)
+        if (iconView.isAttachedToWindow) {
+            windowManager.updateViewLayout(iconView, iconParams)
+        }
 
         _uiState.update { it.copy(iconPosition = IntOffset(newX, newY)) }
     }
@@ -252,6 +286,7 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
             screenWidth = size.x
             screenHeight = size.y
         }
+        LuaUiBridge.updateScreenDimensions(screenWidth, screenHeight)
     }
 
     private fun setupNotification() {
@@ -325,7 +360,8 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
         super.onDestroy()
         _isServiceRunning.value = false
         viewModelStore.clear()
-        if (iconView.isAttachedToWindow) windowManager.removeView(iconView)
-        if (menuView.isAttachedToWindow) windowManager.removeView(menuView)
+        if (::iconView.isInitialized && iconView.isAttachedToWindow) runCatching { windowManager.removeView(iconView) }
+        if (::menuView.isInitialized && menuView.isAttachedToWindow) runCatching { windowManager.removeView(menuView) }
+        if (::canvasView.isInitialized && canvasView.isAttachedToWindow) runCatching { windowManager.removeView(canvasView) }
     }
 }

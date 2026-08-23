@@ -20,16 +20,69 @@
 
 package com.yervant.huntmem.backend
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.util.Log
 import dalvik.annotation.optimization.FastNative
+import java.io.File
 
 object NativeBridge {
 
     private const val LIB_NAME = "hmem_jni"
-    init {
+    private const val TAG = "NativeBridge"
+    private var isLibraryLoaded = false
+
+    /**
+     * Loads the native library. Must be invoked ONLY in the root daemon process (HMemService).
+     * Does NOT run or autoload in the normal app process.
+     */
+    @SuppressLint("UnsafeDynamicallyLoadedCode")
+    fun loadLibrary(context: Context? = null, customLibDir: String? = null) {
+        if (isLibraryLoaded) return
+
+        // 1. Try explicit directory passed from App process via Intent
+        if (!customLibDir.isNullOrBlank()) {
+            try {
+                val libFile = File(customLibDir, "lib$LIB_NAME.so")
+                if (libFile.exists()) {
+                    System.load(libFile.absolutePath)
+                    isLibraryLoaded = true
+                    Log.i(TAG, "Native library loaded from customLibDir: ${libFile.absolutePath}")
+                    return
+                } else {
+                    Log.w(TAG, "lib$LIB_NAME.so not found in customLibDir: $customLibDir")
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Failed loading from customLibDir ($customLibDir): ${e.message}")
+            }
+        }
+
+        // 2. Try context.applicationInfo.nativeLibraryDir
+        if (context != null) {
+            try {
+                val libDir = context.applicationInfo.nativeLibraryDir
+                if (!libDir.isNullOrBlank()) {
+                    val libFile = File(libDir, "lib$LIB_NAME.so")
+                    if (libFile.exists()) {
+                        System.load(libFile.absolutePath)
+                        isLibraryLoaded = true
+                        Log.i(TAG, "Native library loaded from nativeLibraryDir: ${libFile.absolutePath}")
+                        return
+                    }
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Failed loading from context.applicationInfo.nativeLibraryDir: ${e.message}")
+            }
+        }
+
+        // 3. Fallback to standard System.loadLibrary
         try {
             System.loadLibrary(LIB_NAME)
-        } catch (_: Throwable) {
-            // Ignored, service will load it in its process
+            isLibraryLoaded = true
+            Log.i(TAG, "Native library '$LIB_NAME' loaded via System.loadLibrary")
+            return
+        } catch (e: Throwable) {
+            Log.w(TAG, "System.loadLibrary($LIB_NAME) failed: ${e.message}")
         }
     }
 
@@ -88,15 +141,14 @@ object NativeBridge {
     external fun nativeIsHmkpmAvailable(): Boolean
     fun isHmkpmAvailable(): Boolean {
         val s = HMemServiceConnection.service
-        return if (s != null) {
+        if (s != null) {
             try {
-                s.nativeIsHmkpmAvailable()
-            } catch (_: Exception) {
-                false
+                return s.nativeIsHmkpmAvailable()
+            } catch (e: Exception) {
+                Log.w(TAG, "nativeIsHmkpmAvailable on root service failed: ${e.message}")
             }
-        } else {
-            false
         }
+        return false
     }
 
     @FastNative
@@ -577,6 +629,120 @@ object NativeBridge {
             }
         } else {
             -1
+        }
+    }
+
+    /**
+     * Executes a Lua script with full process memory access.
+     *
+     * JNI Contract:
+     * - `pid`: Target process ID (> 0).
+     * - `script`: Non-null string containing Lua script code.
+     * - `callback`: Optional ILuaUiCallback instance for interactive UI/canvas/console bridging.
+     * - Returns JSON string: `{"success":bool,"output":string,"error":string|null,"result":string|null}`.
+     */
+    @FastNative
+    external fun nativeRunLuaScript(
+        pid: Int,
+        script: String,
+        callback: com.yervant.huntmem.ILuaUiCallback?
+    ): String
+
+    /**
+     * Cancels / interrupts currently running Lua script.
+     */
+    @FastNative
+    external fun nativeCancelLuaScript()
+
+    /**
+     * High-level wrapper to run a Lua script via root IPC service.
+     *
+     * @param pid Target process ID.
+     * @param script Lua 5.4 script code to execute.
+     * @param callback Optional UI callback for dialogs, logs, canvas, and menus.
+     * @return JSON response string with execution results.
+     */
+    fun runLuaScript(
+        pid: Int,
+        script: String,
+        callback: com.yervant.huntmem.ILuaUiCallback? = null
+    ): String {
+        val s = HMemServiceConnection.service
+        return if (s != null) {
+            try {
+                s.nativeRunLuaScript(pid, script, callback)
+            } catch (e: Exception) {
+                "{\"success\":false,\"output\":\"\",\"error\":\"Service error: ${e.message}\",\"result\":null}"
+            }
+        } else {
+            "{\"success\":false,\"output\":\"\",\"error\":\"Root service not connected\",\"result\":null}"
+        }
+    }
+
+    /**
+     * High-level wrapper to cancel running Lua script.
+     */
+    fun cancelLuaScript() {
+        val s = HMemServiceConnection.service
+        if (s != null) {
+            try {
+                s.nativeCancelLuaScript()
+            } catch (_: Exception) {}
+        }
+        try {
+            nativeCancelLuaScript()
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Retrieves the base virtual memory address of a loaded shared library or module.
+     */
+    @FastNative
+    external fun nativeGetModuleBase(
+        pid: Int,
+        moduleName: String
+    ): Long
+
+    fun getModuleBase(
+        pid: Int,
+        moduleName: String
+    ): Long {
+        val s = HMemServiceConnection.service
+        return if (s != null) {
+            try {
+                s.nativeGetModuleBase(pid, moduleName)
+            } catch (_: Exception) {
+                0L
+            }
+        } else {
+            0L
+        }
+    }
+
+    /**
+     * Resolves a multi-level pointer chain in target process memory.
+     */
+    @FastNative
+    external fun nativeResolvePointerChain(
+        pid: Int,
+        baseExpr: String,
+        offsetsJson: String
+    ): Long
+
+    fun resolvePointerChain(
+        pid: Int,
+        baseExpr: String,
+        offsetsJson: String
+    ): Long {
+        val s = HMemServiceConnection.service
+        return if (s != null) {
+            try {
+                s.nativeResolvePointerChain(pid, baseExpr, offsetsJson)
+            } catch (_: Exception) {
+                0L
+            }
+        } else {
+            0L
         }
     }
 }

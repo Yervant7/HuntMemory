@@ -1,3 +1,15 @@
 [workspace]
 members = ["hmem_jni"]
 resolver = "2"
+
+[profile.dev]
+opt-level = 0
+debug = true
+overflow-checks = true
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+panic = "unwind"

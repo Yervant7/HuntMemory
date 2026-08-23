@@ -129,7 +129,7 @@ class ProcessViewModel(private val packageManager: PackageManager) : ViewModel()
         refreshJob = viewModelScope.launch {
             while (true) {
                 refreshProcessList()
-                delay(30.seconds)
+                delay(10.seconds)
             }
         }
     }

@@ -20,9 +20,13 @@
 
 package com.yervant.huntmem.ui.credits
 
+import android.os.Build
 import androidx.annotation.StringRes
+import androidx.compose.runtime.Immutable
+import com.yervant.huntmem.BuildConfig
 import com.yervant.huntmem.R
 
+@Immutable
 enum class DependencyCategory(@StringRes val titleRes: Int) {
     ALL(R.string.credits_category_all),
     KOTLIN_ANDROID(R.string.credits_category_kotlin_android),
@@ -30,6 +34,7 @@ enum class DependencyCategory(@StringRes val titleRes: Int) {
     KERNEL_SYSTEM(R.string.credits_category_kernel_system)
 }
 
+@Immutable
 data class DependencyCredit(
     val name: String,
     val version: String,
@@ -45,7 +50,7 @@ object CreditsRepository {
         // Core Project & Architecture
         DependencyCredit(
             name = "HuntMemory",
-            version = "3.0.0",
+            version = BuildConfig.VERSION_NAME,
             category = DependencyCategory.KERNEL_SYSTEM,
             license = "GPL-3.0-or-later",
             description = "Android process memory editor, scanner, and interactive floating overlay engine for ARM64 devices.",
@@ -54,7 +59,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "HMKPM (HuntMemory KernelPatch Module)",
-            version = "2.0.0",
+            version = "2.x.x",
             category = DependencyCategory.KERNEL_SYSTEM,
             license = "GPL-2.0-only",
             description = "KernelPatch module hooked via SYS_GETRESUID for high-speed direct kernel virtual and physical memory read/write operations.",
@@ -71,17 +76,17 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "Linux Kernel & AOSP Memory APIs",
-            version = "API 29+ (Linux 4.14+/5.x/6.x)",
+            version = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) / Linux ${System.getProperty("os.version") ?: "4.4+"}",
             category = DependencyCategory.KERNEL_SYSTEM,
             license = "GPL-2.0 / Apache-2.0",
-            description = "Linux kernel procfs memory subsystems (/proc/pid/maps, /proc/pid/pagemap, process_vm_readv, process_vm_writev).",
+            description = "Linux kernel procfs memory subsystems (/proc/pid/maps, /proc/pid/pagemap).",
             url = "https://source.android.com"
         ),
 
         // Android & Kotlin Dependencies
         DependencyCredit(
             name = "Jetpack Compose",
-            version = "2026.08.00 (BOM) / 1.4.0",
+            version = "${BuildConfig.DEP_VERSION_COMPOSE_BOM} (BOM) / ${BuildConfig.DEP_VERSION_MATERIAL3}",
             category = DependencyCategory.KOTLIN_ANDROID,
             license = "Apache-2.0",
             description = "Modern declarative UI toolkit for Android, powering the main dashboard and floating overlay interface.",
@@ -89,7 +94,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "Libsu (Core & Service)",
-            version = "6.0.0",
+            version = BuildConfig.DEP_VERSION_LIBSU,
             category = DependencyCategory.KOTLIN_ANDROID,
             license = "Apache-2.0",
             description = "Robust Root IPC framework by topjohnwu for executing privileged root processes and managing background services.",
@@ -97,7 +102,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "Kotlinx Coroutines Android",
-            version = "1.11.0",
+            version = BuildConfig.DEP_VERSION_COROUTINES,
             category = DependencyCategory.KOTLIN_ANDROID,
             license = "Apache-2.0",
             description = "Asynchronous programming library powering background scanning, freeze polling, and non-blocking IO dispatchers.",
@@ -105,7 +110,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "Coil Compose",
-            version = "2.7.0",
+            version = BuildConfig.DEP_VERSION_COIL,
             category = DependencyCategory.KOTLIN_ANDROID,
             license = "Apache-2.0",
             description = "Fast, lightweight Kotlin-first image loader used for decoding and displaying running target application icons.",
@@ -113,7 +118,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "AndroidX Activity & Activity Compose",
-            version = "1.13.0",
+            version = BuildConfig.DEP_VERSION_ACTIVITY_COMPOSE,
             category = DependencyCategory.KOTLIN_ANDROID,
             license = "Apache-2.0",
             description = "Activity integrations for Jetpack Compose, overlay permissions launcher, and system back-press handling.",
@@ -121,7 +126,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "AndroidX Lifecycle",
-            version = "2.11.0",
+            version = BuildConfig.DEP_VERSION_LIFECYCLE,
             category = DependencyCategory.KOTLIN_ANDROID,
             license = "Apache-2.0",
             description = "LifecycleService, SavedStateRegistryOwner, and ViewModelStoreOwner bindings for Compose overlay services.",
@@ -129,7 +134,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "AndroidX Core KTX",
-            version = "1.19.0",
+            version = BuildConfig.DEP_VERSION_CORE_KTX,
             category = DependencyCategory.KOTLIN_ANDROID,
             license = "Apache-2.0",
             description = "Kotlin extensions providing idiomatic wrappers for core Android system frameworks.",
@@ -137,7 +142,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "AndroidX AppCompat",
-            version = "1.8.0",
+            version = BuildConfig.DEP_VERSION_APPCOMPAT,
             category = DependencyCategory.KOTLIN_ANDROID,
             license = "Apache-2.0",
             description = "Android support compatibility layer and per-app dynamic locale management.",
@@ -145,7 +150,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "Material Icons Extended",
-            version = "1.7.8",
+            version = BuildConfig.DEP_VERSION_MATERIAL_ICONS,
             category = DependencyCategory.KOTLIN_ANDROID,
             license = "Apache-2.0",
             description = "Extended Material Design vector icon catalog for memory search tools, controls, and status indicators.",
@@ -153,7 +158,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "AndroidX Annotation",
-            version = "1.10.0",
+            version = BuildConfig.DEP_VERSION_ANNOTATION,
             category = DependencyCategory.KOTLIN_ANDROID,
             license = "Apache-2.0",
             description = "Metadata annotations for compile-time validation, API level checking, and thread annotations.",
@@ -161,17 +166,33 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "Kotlin Standard Library",
-            version = "2.4.0",
+            version = KotlinVersion.CURRENT.toString(),
             category = DependencyCategory.KOTLIN_ANDROID,
             license = "Apache-2.0",
             description = "Official Kotlin 2.x standard library runtime and collections primitives.",
             url = "https://kotlinlang.org"
         ),
+        DependencyCredit(
+            name = "Kotlinx Serialization JSON",
+            version = BuildConfig.DEP_VERSION_SERIALIZATION,
+            category = DependencyCategory.KOTLIN_ANDROID,
+            license = "Apache-2.0",
+            description = "Cross-platform Kotlin multiplatform serialization library for type-safe route handling and JSON parsing.",
+            url = "https://github.com/Kotlin/kotlinx.serialization"
+        ),
+        DependencyCredit(
+            name = "Android Gradle Plugin",
+            version = BuildConfig.DEP_VERSION_AGP,
+            category = DependencyCategory.KOTLIN_ANDROID,
+            license = "Apache-2.0",
+            description = "Official build system plugin for Android applications using modern Gradle 9.x toolchain.",
+            url = "https://developer.android.com/build"
+        ),
 
         // Rust Core Dependencies (app/src/main/hmem/hmem_jni)
         DependencyCredit(
             name = "hmem_jni (Rust Native Core)",
-            version = "0.1.0",
+            version = BuildConfig.RUST_VERSION_HMEM_JNI,
             category = DependencyCategory.RUST_CORE,
             license = "GPL-3.0-or-later",
             description = "Native ARM64 Rust 2024 core library implementing SIMD memory scanning, maps filtering, and JNI bridges.",
@@ -180,7 +201,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "jni crate",
-            version = "0.22.4",
+            version = BuildConfig.RUST_VERSION_JNI,
             category = DependencyCategory.RUST_CORE,
             license = "MIT OR Apache-2.0",
             description = "Type-safe Rust bindings to the Java Native Interface (JNI) for high-speed cross-boundary calls.",
@@ -188,15 +209,23 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "libc crate",
-            version = "0.2.189",
+            version = BuildConfig.RUST_VERSION_LIBC,
             category = DependencyCategory.RUST_CORE,
             license = "MIT OR Apache-2.0",
             description = "Raw Rust FFI bindings for Linux and Android bionic C library system calls and data structures.",
             url = "https://crates.io/crates/libc"
         ),
         DependencyCredit(
+            name = "mlua crate",
+            version = BuildConfig.RUST_VERSION_MLUA,
+            category = DependencyCategory.RUST_CORE,
+            license = "MIT",
+            description = "Safe, high-level Lua 5.4 bindings for Rust powering memory search automation and custom scripting engine.",
+            url = "https://crates.io/crates/mlua"
+        ),
+        DependencyCredit(
             name = "serde & serde_derive",
-            version = "1.0.229",
+            version = BuildConfig.RUST_VERSION_SERDE,
             category = DependencyCategory.RUST_CORE,
             license = "MIT OR Apache-2.0",
             description = "High-performance zero-copy serialization and deserialization framework for Rust.",
@@ -204,59 +233,11 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "serde_json",
-            version = "1.0.151",
+            version = BuildConfig.RUST_VERSION_SERDE_JSON,
             category = DependencyCategory.RUST_CORE,
             license = "MIT OR Apache-2.0",
             description = "Fast JSON parser and serializer for exchanging complex memory scan metadata across JNI boundaries.",
             url = "https://crates.io/crates/serde_json"
         ),
-        DependencyCredit(
-            name = "memchr",
-            version = "2.8.3",
-            category = DependencyCategory.RUST_CORE,
-            license = "Unlicense OR MIT",
-            description = "Heavily optimized byte and substring search routines utilizing ARM64 NEON vector extensions.",
-            url = "https://crates.io/crates/memchr"
-        ),
-        DependencyCredit(
-            name = "combine",
-            version = "4.6.7",
-            category = DependencyCategory.RUST_CORE,
-            license = "MIT OR Apache-2.0",
-            description = "Fast parser combinator library used for parsing native signatures and type descriptors.",
-            url = "https://crates.io/crates/combine"
-        ),
-        DependencyCredit(
-            name = "simd_cesu8 & simdutf8",
-            version = "1.2.0 / 0.1.5",
-            category = DependencyCategory.RUST_CORE,
-            license = "MIT OR Apache-2.0",
-            description = "SIMD-accelerated CESU-8 and UTF-8 string decoding and validation library for JNI strings.",
-            url = "https://crates.io/crates/simd_cesu8"
-        ),
-        DependencyCredit(
-            name = "thiserror",
-            version = "2.0.20",
-            category = DependencyCategory.RUST_CORE,
-            license = "MIT OR Apache-2.0",
-            description = "Custom derive macro for convenient and idiomatic Rust error type implementations.",
-            url = "https://crates.io/crates/thiserror"
-        ),
-        DependencyCredit(
-            name = "walkdir",
-            version = "2.5.0",
-            category = DependencyCategory.RUST_CORE,
-            license = "Unlicense OR MIT",
-            description = "Efficient recursive directory walker used for inspecting Android process structures.",
-            url = "https://crates.io/crates/walkdir"
-        ),
-        DependencyCredit(
-            name = "itoa",
-            version = "1.0.18",
-            category = DependencyCategory.RUST_CORE,
-            license = "MIT OR Apache-2.0",
-            description = "Ultra-fast integer to string formatting primitives avoiding heap allocations.",
-            url = "https://crates.io/crates/itoa"
-        )
     )
 }

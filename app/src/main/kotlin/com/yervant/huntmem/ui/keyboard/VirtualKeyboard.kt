@@ -26,19 +26,14 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -72,6 +67,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yervant.huntmem.R
 import com.yervant.huntmem.ui.theme.MonospaceValueStyle
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 
 @Composable
 fun VirtualKeyboard(controller: KeyboardController) {
@@ -85,10 +83,11 @@ fun VirtualKeyboard(controller: KeyboardController) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = 560.dp)
                 .wrapContentHeight(),
             shape = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f)
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
             ),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
@@ -137,7 +136,7 @@ private fun KeyboardPreviewHeader(controller: KeyboardController) {
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                    contentDescription = "Move Left",
+                    contentDescription = stringResource(R.string.keyboard_move_left_cd),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp)
                 )
@@ -148,7 +147,7 @@ private fun KeyboardPreviewHeader(controller: KeyboardController) {
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = "Move Right",
+                    contentDescription = stringResource(R.string.keyboard_move_right_cd),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp)
                 )
@@ -365,16 +364,20 @@ private fun HexadecimalLayout(controller: KeyboardController) {
 private fun QwertyLayout(controller: KeyboardController) {
     val isShift = controller.isShiftActive.value
 
-    val row1 = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
+    val row1 = if (isShift) {
+        listOf("!", "@", "#", "$", "%", "^", "&", "*", "(", ")")
+    } else {
+        listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
+    }
     val row2 = if (isShift) {
         listOf("Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P")
     } else {
         listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")
     }
     val row3 = if (isShift) {
-        listOf("A", "S", "D", "F", "G", "H", "J", "K", "L")
+        listOf("A", "S", "D", "F", "G", "H", "J", "K", "L", "?")
     } else {
-        listOf("a", "s", "d", "f", "g", "h", "j", "k", "l")
+        listOf("a", "s", "d", "f", "g", "h", "j", "k", "l", "~")
     }
     val row4 = if (isShift) {
         listOf("Z", "X", "C", "V", "B", "N", "M")
@@ -395,18 +398,21 @@ private fun QwertyLayout(controller: KeyboardController) {
                 icon = Icons.Default.KeyboardCapslock,
                 containerColor = if (isShift) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = if (isShift) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1.2f)
+                modifier = Modifier.weight(1.1f)
             ) { controller.toggleShift() }
 
             row4.forEach { key ->
                 DigitKey(key, Modifier.weight(1f)) { controller.onKeyPress(key) }
             }
 
+            DigitKey(if (isShift) "+" else "_", Modifier.weight(0.8f)) { controller.onKeyPress(if (isShift) "+" else "_") }
+            DigitKey(if (isShift) "/" else "=", Modifier.weight(0.8f)) { controller.onKeyPress(if (isShift) "/" else "=") }
+
             ActionKey(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1.2f)
+                modifier = Modifier.weight(1.1f)
             ) { controller.onBackspace() }
         }
 
@@ -418,31 +424,39 @@ private fun QwertyLayout(controller: KeyboardController) {
                 text = "0x",
                 containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(0.9f)
             ) { controller.toggleHexPrefix() }
 
             ActionKey(
                 text = "CLR",
                 containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
                 contentColor = MaterialTheme.colorScheme.error,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(0.9f)
             ) { controller.onClear() }
 
             KeyButton(
                 text = stringResource(R.string.keyboard_space),
-                modifier = Modifier.weight(3.5f),
+                modifier = Modifier.weight(2.6f),
                 onClick = { controller.onKeyPress(" ") }
             )
 
-            DigitKey(":", Modifier.weight(0.8f)) { controller.onKeyPress(":") }
-            DigitKey(";", Modifier.weight(0.8f)) { controller.onKeyPress(";") }
-            DigitKey(".", Modifier.weight(0.8f)) { controller.onKeyPress(".") }
+            DigitKey("\"", Modifier.weight(0.7f)) { controller.onKeyPress("\"") }
+            DigitKey(":", Modifier.weight(0.7f)) { controller.onKeyPress(":") }
+            DigitKey(";", Modifier.weight(0.7f)) { controller.onKeyPress(";") }
+            DigitKey(".", Modifier.weight(0.7f)) { controller.onKeyPress(".") }
+
+            ActionKey(
+                text = "⏎",
+                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.weight(1.0f)
+            ) { controller.onKeyPress("\n") }
 
             ActionKey(
                 icon = Icons.Default.Check,
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.weight(1.2f)
+                modifier = Modifier.weight(1.0f)
             ) {
                 controller.onDone?.invoke()
                 controller.hide()
@@ -505,9 +519,16 @@ private fun KeyButton(
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
     onClick: () -> Unit
 ) {
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
+    val isCompactHeight = windowHeightDp < 500.dp
+    val keyHeight = if (isCompactHeight) 28.dp else 36.dp
+    val fontSize = if (isCompactHeight) 12.sp else 14.sp
+
     Button(
         onClick = onClick,
-        modifier = modifier.height(36.dp),
+        modifier = modifier.height(keyHeight),
         contentPadding = PaddingValues(0.dp),
         shape = RoundedCornerShape(5.dp),
         colors = ButtonDefaults.buttonColors(
@@ -518,7 +539,7 @@ private fun KeyButton(
     ) {
         Text(
             text = text,
-            fontSize = 14.sp,
+            fontSize = fontSize,
             fontWeight = FontWeight.SemiBold,
             fontFamily = FontFamily.Monospace
         )
@@ -527,16 +548,24 @@ private fun KeyButton(
 
 @Composable
 private fun ActionKey(
+    modifier: Modifier = Modifier,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
     text: String? = null,
     icon: ImageVector? = null,
-    containerColor: Color,
-    contentColor: Color,
-    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
+    val isCompactHeight = windowHeightDp < 500.dp
+    val keyHeight = if (isCompactHeight) 28.dp else 36.dp
+    val fontSize = if (isCompactHeight) 9.5.sp else 11.sp
+    val iconSize = if (isCompactHeight) 14.dp else 16.dp
+
     Button(
         onClick = onClick,
-        modifier = modifier.height(36.dp),
+        modifier = modifier.height(keyHeight),
         contentPadding = PaddingValues(0.dp),
         shape = RoundedCornerShape(5.dp),
         colors = ButtonDefaults.buttonColors(
@@ -549,13 +578,14 @@ private fun ActionKey(
             Icon(
                 imageVector = icon,
                 contentDescription = text,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(iconSize)
             )
         } else if (text != null) {
             Text(
                 text = text,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
+                fontSize = fontSize,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
             )
         }
     }

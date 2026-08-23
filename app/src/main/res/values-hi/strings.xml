@@ -1,40 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">Hunt Memory</string>
+    <!-- Generic -->
     <string name="ok">ठीक है</string>
 
     <!-- MainActivity -->
     <string name="main_activity_permission_overlay_denied">ओवरले प्रदर्शित करने की अनुमति अस्वीकृत कर दी गई थी।</string>
-    <string name="main_activity_error_root_access_missing">त्रुटि: रूट पहुंच गायब है।</string>
+    <string name="main_activity_error_root_access_missing">त्रुटि: रूट एक्सेस अनुपलब्ध है।</string>
 
     <!-- Main Screen -->
-    <string name="main_screen_tab_main">मुख्य</string>
-    <string name="main_screen_overview_title">सिस्टम इंजन अवलोकन</string>
+    <string name="main_screen_overview_title">सिस्टम इंजन विवरण</string>
     <string name="main_screen_status_root_access">रूट एक्सेस</string>
-    <string name="main_screen_status_root_granted">अनुमति प्राप्त (su)</string>
+    <string name="main_screen_status_root_granted">स्वीकृत (su)</string>
     <string name="main_screen_status_root_missing">अनुपलब्ध / अस्वीकृत</string>
-    <string name="main_screen_status_root_checking">जांच हो रही है…</string>
+    <string name="main_screen_status_root_checking">जाँच हो रही है…</string>
     <string name="main_screen_status_kernelpatch">HM-KPM</string>
-    <string name="main_screen_hmkpm_available">HMKPM तैयार है</string>
-    <string name="main_screen_hmkpm_not_available">पता नहीं चला</string>
-    <string name="main_screen_hmkpm_checking">जांच हो रही है…</string>
-    <string name="main_screen_hmkpm_refresh_button">HMKPM स्थिति रीफ़्रेश करें</string>
+    <string name="main_screen_hmkpm_available">HMKPM तैयार</string>
+    <string name="main_screen_hmkpm_not_available">पहचान नहीं हुई</string>
+    <string name="main_screen_hmkpm_checking">जाँच हो रही है…</string>
     <string name="main_screen_status_overlay_engine">ओवरले इंजन</string>
-    <string name="main_screen_status_overlay_active">चल रहा है (सक्रिय)</string>
-    <string name="main_screen_status_overlay_inactive">निष्क्रिय</string>
-    <string name="main_screen_status_overlay_permission_granted">अनुमति दी गई</string>
-    <string name="main_screen_status_overlay_permission_missing">अनुमति नहीं है</string>
+    <string name="main_screen_status_overlay_active">सक्रिय (चल रहा है)</string>
+    <string name="main_screen_status_overlay_permission_granted">अनुमति स्वीकृत</string>
+    <string name="main_screen_status_overlay_permission_missing">अनुमति अनुपलब्ध</string>
     <string name="main_screen_status_target_process">लक्षित प्रक्रिया</string>
     <string name="main_screen_status_target_none">कोई संलग्न नहीं</string>
     <string name="main_screen_status_target_pid">PID: %1$d</string>
-    <string name="main_screen_start_hunting_button">शिकार शुरू करें</string>
-    <string name="main_screen_stop_hunting_button">शिकार रोकें</string>
+    <string name="main_screen_start_hunting_button">हंटिंग शुरू करें</string>
+    <string name="main_screen_stop_hunting_button">हंटिंग रोकें</string>
     <string name="main_screen_official_channel">आधिकारिक चैनल</string>
     <string name="main_screen_website">वेबसाइट</string>
-    <string name="main_screen_source_code">स्रोत कोड</string>
+    <string name="main_screen_source_code">सोर्स कोड</string>
     <string name="main_screen_change_language_button">भाषा बदलें</string>
     <string name="main_screen_system_default_dropdown">सिस्टम डिफ़ॉल्ट</string>
-    <string name="main_screen_refresh_cd">ताज़ा करें</string>
+    <string name="main_screen_refresh_cd">रीफ्रेश करें</string>
 
     <!-- Overlay Service & UI -->
     <string name="overlay_service_notification_channel_name">ओवरले सेवा</string>
@@ -45,42 +42,42 @@
     <string name="overlay_ui_target_pid">PID: %1$d</string>
     <string name="overlay_ui_processes_tab">प्रक्रियाएं</string>
     <string name="overlay_ui_memory_tab">मेमोरी</string>
-    <string name="overlay_ui_editor_tab">संपादक</string>
+    <string name="overlay_ui_editor_tab">एडिटर</string>
+    <string name="overlay_ui_scripts_tab">स्क्रिप्ट्स</string>
     <string name="overlay_ui_settings_tab_and_title">सेटिंग्स</string>
-    <string name="overlay_ui_dialog_ok_button">ठीक है</string>
     <string name="overlay_ui_dialog_cancel_button">रद्द करें</string>
-    <string name="overlay_ui_dialog_confirm_button">पुष्टि करें</string>
 
     <!-- Address Table -->
-    <string name="address_table_empty_placeholder">अभी तक कोई पता सहेजा नहीं गया है।\nउन्हें यहां जोड़ने के लिए मेमोरी टैब में परिणामों पर टैप करें।</string>
+    <string name="address_table_empty_placeholder">कोई पता सहेजा नहीं गया है।\nउन्हें यहाँ जोड़ने के लिए मेमोरी टैब के परिणामों पर टैप करें।</string>
     <string name="address_table_delete_address_dialog_title">पता हटाएं</string>
-    <string name="address_table_delete_address_dialog_message">सूची से यह पता हटाएं?</string>
+    <string name="address_table_delete_address_dialog_message">क्या इस पते को सूची से हटाना चाहते हैं?</string>
     <string name="address_table_edit_value_dialog_title">मान संपादित करें</string>
     <string name="address_table_delete_all_button">सभी हटाएं</string>
     <string name="address_table_delete_all_addresses_dialog_title">सभी पते हटाएं</string>
-    <string name="address_table_delete_all_warning_message">क्या आप वाकई सभी सहेजे गए पतों को हटाना चाहते हैं?</string>
+    <string name="address_table_delete_all_warning_message">क्या आप वाकई सभी सहेजे गए पते हटाना चाहते हैं?</string>
     <string name="address_table_edit_all_button">सभी संपादित करें</string>
     <string name="address_table_edit_all_values_dialog_title">सभी मान संपादित करें</string>
-    <string name="address_table_freeze_all_button">सभी फ्रीज करें</string>
-    <string name="address_table_freeze_all_values_dialog_title">सभी मान फ्रीज करें</string>
-    <string name="address_table_unfreeze_all_button">अनफ्रीज</string>
+    <string name="address_table_freeze_all_button">सभी फ़्रीज़ करें</string>
+    <string name="address_table_freeze_all_values_dialog_title">सभी मान फ़्रीज़ करें</string>
+    <string name="address_table_unfreeze_all_button">अनफ़्रीज़ करें</string>
     <string name="address_table_header_address">पता</string>
     <string name="address_table_header_type">प्रकार</string>
     <string name="address_table_header_value">मान</string>
-    <string name="address_table_header_freeze">फ्रीज</string>
+    <string name="address_table_header_freeze">फ़्रीज़</string>
+    <string name="address_table_frozen_cd">फ़्रीज़ किया हुआ</string>
     <string name="address_table_error_dialog_title">त्रुटि</string>
     <string name="address_table_no_process_attached_error">कोई प्रक्रिया संलग्न नहीं है।</string>
-    <string name="address_table_process_not_running_error">चयनित प्रक्रिया अब नहीं चल रही है।</string>
+    <string name="address_table_process_not_running_error">चयनित प्रक्रिया अब सक्रिय नहीं है।</string>
     <string name="address_table_info_dialog_title">जानकारी</string>
-    <string name="address_table_process_changed_info">प्रक्रिया बदल गई है। पता सूची साफ़ की जा रही है…</string>
+    <string name="address_table_process_changed_info">प्रक्रिया बदल गई है। पता सूची खाली की जा रही है…</string>
 
     <!-- Hunt Settings -->
     <string name="hunt_settings_memory_regions_title">मेमोरी क्षेत्र</string>
     <string name="hunt_settings_show_advanced_options">उन्नत विकल्प दिखाएं</string>
-    <string name="hunt_settings_hide_advanced_options">उन्नत विकल्प छिपाएं</string>
-    <string name="hunt_settings_req_read">पठन आवश्यक</string>
-    <string name="hunt_settings_req_write">लेखन आवश्यक</string>
-    <string name="hunt_settings_inc_swapped">Swapped शामिल करें</string>
+    <string name="hunt_settings_hide_advanced_options">उन्नत विकल्प छुपाएं</string>
+    <string name="hunt_settings_req_read">रीड आवश्यक</string>
+    <string name="hunt_settings_req_write">राइट आवश्यक</string>
+    <string name="hunt_settings_inc_swapped">स्वैप शामिल करें</string>
     <string name="hunt_settings_min_size_label">न्यूनतम आकार (बाइट्स)</string>
     <string name="hunt_settings_custom_filter_label">कस्टम फ़िल्टर</string>
     <string name="hunt_settings_save_button">सहेजें</string>
@@ -88,10 +85,10 @@
     <string name="hunt_settings_region_details_perm_header">अनुमति</string>
     <string name="hunt_settings_region_details_start_header">प्रारंभ</string>
     <string name="hunt_settings_region_details_end_header">समाप्त</string>
-    <string name="hunt_settings_no_memory_entries_found">इस क्षेत्र के लिए कोई मेमोरी प्रविष्टियाँ नहीं मिलीं।</string>
+    <string name="hunt_settings_no_memory_entries_found">इस क्षेत्र के लिए कोई मेमोरी प्रविष्टि नहीं मिली।</string>
     <plurals name="hunt_settings_and_more_entries_label">
         <item quantity="one">… और %d और प्रविष्टि</item>
-        <item quantity="other">… और %d और प्रविष्टियाँ</item>
+        <item quantity="other">… और %d अन्य प्रविष्टियाँ</item>
     </plurals>
 
     <!-- Memory Menu -->
@@ -99,43 +96,34 @@
     <string name="memory_menu_close_tab_cd">टैब बंद करें</string>
     <string name="memory_menu_add_tab_cd">टैब जोड़ें</string>
     <string name="memory_menu_no_tabs_message">शुरू करने के लिए एक खोज जोड़ें</string>
-    <string name="memory_menu_no_matches_placeholder">कोई मेल नहीं मिला।\nलक्षित मान दर्ज करें और खोजें पर टैप करें।</string>
+    <string name="memory_menu_no_matches_placeholder">कोई परिणाम नहीं मिला।\nलक्षित मान दर्ज करें और खोज पर टैप करें।</string>
     <string name="memory_menu_status_no_matches">0 परिणाम</string>
     <string name="memory_menu_error_dialog_title">त्रुटि</string>
     <string name="memory_menu_no_process_attached_error">कोई प्रक्रिया संलग्न नहीं है।</string>
     <string name="memory_menu_process_not_exist_error">चयनित प्रक्रिया अब मौजूद नहीं है।</string>
     <string name="memory_menu_info_dialog_title">जानकारी</string>
     <string name="memory_menu_process_changed_info">प्रक्रिया बदल गई है। खोज परिणाम साफ़ किए जा रहे हैं…</string>
-    <string name="memory_menu_added_to_address_table_snackbar">पता तालिका में %1$s जोड़ा गया</string>
-    <string name="memory_menu_added_all_to_address_table_snackbar">सभी मिलान पता तालिका में जोड़े गए।</string>
+    <string name="memory_menu_added_to_address_table_snackbar">%1$s को पता तालिका में जोड़ा गया</string>
+    <string name="memory_menu_added_all_to_address_table_snackbar">सभी परिणाम पता तालिका में जोड़े गए।</string>
     <string name="memory_menu_copy_all_button">सभी कॉपी करें</string>
     <string name="memory_menu_match_item_value_label">मान: %1$s</string>
-    <string name="memory_menu_scan_settings_title">खोज सेटिंग्स</string>
-    <string name="memory_menu_scan_value_label">खोज मान</string>
-    <string name="memory_menu_scan_value_placeholder">लक्ष्य मान दर्ज करें…</string>
-    <string name="memory_menu_goto_button">जाओ</string>
-    <string name="memory_menu_operator_dropdown_label">ऑपरेटर</string>
-    <string name="memory_menu_value_type_dropdown_label">मान प्रकार</string>
+    <string name="memory_menu_scan_value_label">स्कैन मान</string>
+    <string name="memory_menu_scan_value_placeholder">मान / 1.5e6 / xor:100…</string>
+    <string name="memory_menu_goto_button">जाएं</string>
     <string name="memory_menu_type_label_prefix">प्रकार: %1$s</string>
     <string name="memory_menu_types_selected_count">%1$d / %2$d चयनित</string>
     <string name="memory_menu_value_types_all">सभी</string>
     <string name="memory_menu_value_types_none">कोई चयनित नहीं</string>
     <string name="memory_menu_select_types_cd">डेटा प्रकार चुनें</string>
     <string name="memory_menu_select_types_dialog_title">डेटा प्रकार चुनें</string>
-    <string name="memory_menu_type_all_uppercase">सभी (ALL)</string>
-    <string name="memory_menu_type_byte">Byte (1 बाइट / 8-बिट)</string>
-    <string name="memory_menu_type_short">Short (2 बाइट्स / 16-बिट)</string>
-    <string name="memory_menu_type_float16">Float16 (2 बाइट्स / हाफ-फ्लोट)</string>
-    <string name="memory_menu_type_int">Int (4 बाइट्स / 32-बिट)</string>
-    <string name="memory_menu_type_long">Long (8 बाइट्स / 64-बिट)</string>
-    <string name="memory_menu_type_float">Float (4 बाइट्स / एकल)</string>
-    <string name="memory_menu_type_double">Double (8 बाइट्स / डबल)</string>
-    <string name="memory_menu_type_bigdouble">BigDouble (मेंटिसा / घातांक)</string>
-    <string name="memory_menu_type_obscured_int">Obscured Int (ACTk XOR-32)</string>
-    <string name="memory_menu_type_obscured_float">Obscured Float (ACTk XOR-Float)</string>
+    <string name="memory_menu_preset_all">सभी</string>
+    <string name="memory_menu_preset_ints">INTs</string>
+    <string name="memory_menu_preset_floats">FLOATs</string>
+    <string name="memory_menu_preset_spec">विशेष</string>
+    <string name="memory_menu_preset_reset">रीसेट</string>
     <string name="memory_menu_syntax_help_title">खोज तकनीक और सिंटैक्स सहायता</string>
-    <string name="memory_menu_syntax_help_button_cd">सिंटैक्स सहायता खोजें</string>
-    <string name="memory_menu_syntax_help_text"><b>1. मेंटिसा / घातांक (वैज्ञानिक / BigDouble):</b>\n• <i>1.5e6</i> या <i>1.5,6</i> या <i>1.5:6</i>\n• प्रकार: BigDouble चुनें या लिखें <i>bigdouble:1.5,6</i>\n\n<b>2. एन्क्रिप्टेड मान (एंटी-चीट XOR):</b>\n• Obscured Int या Obscured Float चुनें\n• या उपसर्ग का उपयोग करें: <i>xor:1000</i> या <i>obscured:1000</i>\n\n<b>3. फ्लोट सहनशीलता / एप्सिलॉन:</b>\n• निरपेक्ष अंतर: <i>100.0 +- 0.5</i>\n• प्रतिशत अंतर: <i>100 +- 2%</i>\n\n<b>4. स्केल किया गया निश्चित बिंदु:</b>\n• गुणक सूत्र: <i>10.5 * 1000</i> (10500 खोजता है)\n• या उपसर्ग: <i>scaled:10.5:1000</i>\n\n<b>5. विषम संरचना समूह:</b>\n• मिश्रित प्रकार: <i>f64:1.5; i64:6 : 16</i>\n• या: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_syntax_help_button_cd">खोज सिंटैक्स सहायता</string>
+    <string name="memory_menu_syntax_help_text"><b>1. मैन्टिसा / घातांक (वैज्ञानिक / BigDouble):</b>\n• <i>1.5e6</i> या <i>1.5,6</i> या <i>1.5:6</i>\n• प्रकार: BigDouble चुनें या <i>bigdouble:1.5,6</i> लिखें\n\n<b>2. एन्क्रिप्टेड मान (Anti-Cheat XOR):</b>\n• Obscured Int या Obscured Float चुनें\n• या उपसर्ग: <i>xor:1000</i> या <i>obscured:1000</i>\n\n<b>3. फ़्लोट सहनशीलता / एप्सिलॉन:</b>\n• निरपेक्ष अंतर: <i>100.0 +- 0.5</i>\n• प्रतिशत अंतर: <i>100 +- 2%</i>\n\n<b>4. स्केल्ड फिक्स्ड-पॉइंट:</b>\n• गुणक सूत्र: <i>10.5 * 1000</i> (10500 खोजता है)\n• या उपसर्ग: <i>scaled:10.5:1000</i>\n\n<b>5. विषम संरचना समूह:</b>\n• मिश्रित प्रकार: <i>f64:1.5; i64:6 : 16</i>\n• या: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
     <string name="memory_menu_new_scan_button">नया स्कैन</string>
     <string name="memory_menu_new_search_button_initial">नई खोज</string>
     <string name="memory_menu_refine_button">परिष्कृत करें</string>
@@ -144,46 +132,102 @@
         <item quantity="other">%d परिणाम</item>
     </plurals>
     <plurals name="memory_menu_status_full_with_showing">
-        <item quantity="one">%d परिणाम (दिखाया गया %d)</item>
-        <item quantity="other">%d परिणाम (दिखाए गए %d)</item>
+        <item quantity="one">%d परिणाम (%d दिखाया जा रहा है)</item>
+        <item quantity="other">%d परिणाम (%d दिखाए जा रहे हैं)</item>
     </plurals>
 
     <!-- Process Menu -->
-    <string name="process_menu_attached_process_none">कोई नहीं</string>
-    <string name="process_menu_attached_process_label">संलग्न प्रक्रिया</string>
     <string name="process_menu_search_processes_label">प्रक्रियाएं खोजें</string>
-    <string name="process_menu_search_icon_description">खोज</string>
-    <string name="process_menu_refresh_icon_description">ताज़ा करें</string>
-    <string name="process_menu_item_attached_icon_description">संलग्न</string>
+    <string name="process_menu_search_icon_description">खोजें</string>
+    <string name="process_menu_refresh_icon_description">रीफ्रेश करें</string>
     <string name="process_menu_detach_cd">अलग करें</string>
     <string name="process_menu_no_processes_found_message">कोई प्रक्रिया नहीं मिली</string>
+    <string name="process_menu_filter_all">सभी (%1$d)</string>
+    <string name="process_menu_filter_user">यूजर (%1$d)</string>
+    <string name="process_menu_filter_system">सिस्टम (%1$d)</string>
 
     <!-- Virtual Keyboard -->
-    <string name="keyboard_hide_cd">कीबोर्ड छिपाएं</string>
-    <string name="keyboard_space">स्पेस</string>
+    <string name="keyboard_hide_cd">कीबोर्ड छुपाएं</string>
+    <string name="keyboard_space">SPACE</string>
+    <string name="keyboard_move_left_cd">बाएं ले जाएं</string>
+    <string name="keyboard_move_right_cd">दाएं ले जाएं</string>
+    <string name="keyboard_clear_cd">साफ़ करें</string>
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">अस्वीकरण</string>
-    <string name="disclaimer_text">HuntMemory में आपका स्वागत है।\n\nयह आपके अपने अनुप्रयोगों और प्रक्रियाओं में विकास, डिबगिंग और सीखने के उद्देश्यों के लिए एक मेमोरी रीडिंग और संपादन उपकरण है।\n\nऑनलाइन गेम में धोखाधड़ी, अन्य अनुप्रयोगों के अनधिकृत संशोधन, या किसी भी अन्य कार्रवाई जो तीसरे पक्ष की सेवा की शर्तों या लागू कानून का उल्लंघन करती है, जैसी अवैध गतिविधियों के लिए इस एप्लिकेशन का उपयोग करना सख्त वर्जित है।\n\nजारी रखकर, आप स्वीकार करते हैं और सहमत होते हैं कि आप अपने कार्यों के लिए पूरी तरह से जिम्मेदार हैं। इस उपकरण के उपयोग से होने वाले किसी भी दुरुपयोग, क्षति या नकारात्मक परिणामों के लिए इस एप्लिकेशन के डेवलपर्स जिम्मेदार नहीं हैं।</string>
+    <string name="disclaimer_text">HuntMemory में आपका स्वागत है।\n\nयह एक मेमोरी पढ़ने और संपादित करने का उपकरण है जो आपके अपने अनुप्रयोगों और प्रक्रियाओं में विकास, डिबगिंग और सीखने के उद्देश्यों के लिए है।\n\nइस एप्लिकेशन का उपयोग अवैध गतिविधियों के लिए करना सख्त वर्जित है, जैसे कि ऑनलाइन गेम में धोखाधड़ी, अन्य एप्लिकेशन का अनधिकृत संशोधन, या कोई अन्य कार्रवाई जो तीसरे पक्ष की सेवा की शर्तों या वर्तमान कानून का उल्लंघन करती है।\n\nजारी रखकर, आप स्वीकार करते हैं और सहमत होते हैं कि आप अपने कार्यों के लिए पूरी तरह जिम्मेदार हैं। इस उपकरण के उपयोग से होने वाले किसी भी दुरुपयोग, क्षति या नकारात्मक परिणामों के लिए डेवलपर जिम्मेदार नहीं हैं।</string>
     <string name="disclaimer_accept_button">स्वीकार करें और जारी रखें</string>
     <string name="disclaimer_scroll_down_hint">अधिक पढ़ने के लिए नीचे स्क्रॉल करें</string>
 
     <!-- Credits & Open Source Licenses -->
     <string name="credits_title">क्रेडिट और ओपन सोर्स</string>
-    <string name="credits_subtitle">तृतीय-पक्ष लाइब्रेरी, क्रेट और नेटिव आर्किटेक्चर</string>
+    <string name="credits_subtitle">तृतीय-पक्ष लाइब्रेरी, क्रेट्स और नेटिव आर्किटेक्चर</string>
     <string name="credits_back_button_cd">वापस</string>
-    <string name="credits_search_placeholder">निर्भरताएँ, क्रेट, लाइसेंस खोजें…</string>
+    <string name="credits_search_placeholder">निर्भरताएँ, क्रेट्स, लाइसेंस खोजें…</string>
     <string name="credits_clear_search_cd">खोज साफ़ करें</string>
     <string name="credits_category_all">सभी</string>
     <string name="credits_category_kotlin_android">Android और Kotlin</string>
     <string name="credits_category_rust_core">Rust कोर</string>
     <string name="credits_category_kernel_system">कर्नेल और सिस्टम</string>
-    <string name="credits_empty_search">आपकी खोज से मेल खाने वाली कोई निर्भरता नहीं मिली।</string>
+    <string name="credits_empty_search">आपके खोज मानदंडों से कोई निर्भरता मेल नहीं खाती।</string>
     <string name="credits_view_source_button">स्रोत</string>
     <string name="credits_copy_url_cd">लिंक कॉपी करें</string>
     <string name="credits_url_copied">लिंक क्लिपबोर्ड पर कॉपी किया गया</string>
     <string name="credits_open_url_failed">वेब ब्राउज़र नहीं खोला जा सका।</string>
-    <string name="credits_footer_disclaimer">HuntMemory एक ओपन सोर्स सॉफ्टवेयर है जो GNU General Public License v3.0 (GPL-3.0-or-later) के तहत वितरित किया गया है। सभी तृतीय-पक्ष घटकों का उपयोग उनके संबंधित ओपन सोर्स लाइसेंस के तहत किया जाता है।</string>
+    <string name="credits_footer_disclaimer">HuntMemory एक ओपन सोर्स सॉफ्टवेयर है जिसे GNU जनरल पब्लिक लाइसेंस v3.0 (GPL-3.0-or-later) के तहत वितरित किया गया है। सभी तृतीय-पक्ष लाइब्रेरी, क्रेट्स और सिस्टम घटकों का उपयोग उनके संबंधित ओपन सोर्स लाइसेंस के तहत किया जाता है।</string>
     <string name="main_screen_credits_button_cd">क्रेडिट और ओपन सोर्स</string>
     <string name="main_screen_credits_link">क्रेडिट और लाइसेंस</string>
+
+    <!-- Lua Scripts & Dynamic Menu -->
+    <string name="lua_tab_editor_subtab">स्क्रिप्ट एडिटर</string>
+    <string name="lua_tab_menu_subtab">डायनामिक मेनू</string>
+    <string name="lua_tab_console_subtab">कंसोल आउटपुट</string>
+    <string name="lua_run_script_button">स्क्रिप्ट चलाएं</string>
+    <string name="lua_stop_script_button">स्क्रिप्ट रोकें</string>
+    <string name="lua_clear_console_button">कंसोल साफ़ करें</string>
+    <string name="lua_script_status_idle">तैयार (निष्क्रिय)</string>
+    <string name="lua_script_status_running">निष्पादित हो रहा है…</string>
+    <string name="lua_no_dynamic_menu_placeholder">कोई गतिशील मेनू सक्रिय नहीं है।\nयहाँ एक इंटरैक्टिव मेनू बनाने के लिए hmem.create_menu() का उपयोग करके Lua स्क्रिप्ट चलाएं।</string>
+    <string name="lua_console_empty_placeholder">कंसोल आउटपुट खाली है।\nयहाँ लॉग आउटपुट करने के लिए अपनी स्क्रिप्ट में print() या hmem.log() का उपयोग करें।</string>
+    <string name="lua_scripts_manager_title">लुआ स्क्रिप्ट</string>
+    <string name="lua_scripts_tab_all">सभी</string>
+    <string name="lua_scripts_tab_imported">आयातित</string>
+    <string name="lua_scripts_tab_presets">टेम्पलेट</string>
+    <string name="lua_import_script_button">आयात करें</string>
+    <string name="lua_save_script_button">इस रूप में सहेजें</string>
+    <string name="lua_new_script_button">नया</string>
+    <string name="lua_delete_script_title">स्क्रिप्ट हटाएं</string>
+    <string name="lua_delete_script_confirm">क्या आप वाकई \"%1$s\" को हटाना चाहते हैं?</string>
+    <string name="lua_script_save_dialog_title">लुआ स्क्रिप्ट सहेजें</string>
+    <string name="lua_script_save_name_label">स्क्रिप्ट नाम</string>
+    <string name="lua_script_save_name_placeholder">my_script.lua</string>
+    <string name="lua_script_imported_success">स्क्रिप्ट \"%1$s\" सफलतापूर्वक आयात की गई।</string>
+    <string name="lua_script_save_success">स्क्रिप्ट \"%1$s\" सफलतापूर्वक सहेजी गई।</string>
+    <string name="lua_script_delete_success">स्क्रिप्ट \"%1$s\" हटाई गई।</string>
+    <string name="lua_script_no_imported_scripts">अभी तक कोई आयातित स्क्रिप्ट नहीं है।\n.lua फ़ाइल लोड करने के लिए \"आयात करें\" या संपादक कोड सहेजने के लिए \"इस रूप में सहेजें\" पर टैप करें।</string>
+    <string name="lua_script_search_placeholder">स्क्रिप्ट खोजें…</string>
+    <string name="lua_preset_badge">टेम्पलेट</string>
+    <string name="lua_script_custom_badge">कस्टम</string>
+    <string name="lua_script_manage_button">प्रबंधित करें</string>
+    <string name="lua_editor_copy_button">कॉपी</string>
+    <string name="lua_editor_paste_button">पेस्ट</string>
+    <string name="lua_editor_clear_button">साफ़ करें</string>
+    <string name="lua_editor_copied_toast">स्क्रिप्ट क्लिपबोर्ड पर कॉपी की गई</string>
+    <string name="lua_editor_pasted_toast">क्लिपबोर्ड से स्क्रिप्ट चिपकाई गई</string>
+    <string name="lua_editor_cleared_toast">स्क्रिप्ट साफ़ की गई</string>
+    <string name="lua_editor_lines_chars_format">%1$d पंक्तियाँ • %2$d वर्ण</string>
+    <string name="search_help_dialog_title">खोज तकनीक और सिंटैक्स</string>
+    <string name="search_help_try_hint">सुझाव: खोज बार में सीधे डालने के लिए किसी भी उदाहरण पर टैप करें।</string>
+    <string name="search_help_cat_basic_title">सटीक और फ़्लोट सहनशीलता</string>
+    <string name="search_help_cat_basic_desc">सटीक संख्याएँ या पूर्ण/प्रतिशत अंतर के साथ फ़्लोटिंग मान खोजें।</string>
+    <string name="search_help_cat_obscured_title">अस्पष्ट और एंटी-चीट (XOR)</string>
+    <string name="search_help_cat_obscured_desc">गतिशील XOR कुंजियों का उपयोग करके एंटी-चीट इंजन (जैसे ACTk) द्वारा सुरक्षित एन्क्रिप्टेड चर स्कैन करता है।</string>
+    <string name="search_help_cat_bigdouble_title">वैज्ञानिक और बिगडबल</string>
+    <string name="search_help_cat_bigdouble_desc">मेंटिसा और घातांक के रूप में संग्रहीत विशाल मान (वृद्धिशील और निष्क्रिय खेलों में आम)।</string>
+    <string name="search_help_cat_scaled_title">स्केल्ड फिक्स्ड-पॉइंट</string>
+    <string name="search_help_cat_scaled_desc">दशमलव जो आंतरिक रूप से पूर्णांक के रूप में संग्रहीत होते हैं (उदा. 10.5 * 1000 -> 10500)।</string>
+    <string name="search_help_cat_group_title">स्ट्रक्चर और ग्रुप सर्च</string>
+    <string name="search_help_cat_group_desc">मेमोरी बाइट रेंज के भीतर स्थित कई अलग-अलग डेटा प्रकारों का मिलान करता है।</string>
+    <string name="search_help_cat_goto_title">सीधा पता और लाइब्रेरी</string>
+    <string name="search_help_cat_goto_desc">सीधे वर्चुअल मेमोरी पते या गतिशील लाइब्रेरी ऑफ़सेट पर जाएँ।</string>
 </resources>

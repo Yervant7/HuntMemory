@@ -20,27 +20,27 @@
 
 package com.yervant.huntmem.ui
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
@@ -98,14 +98,19 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.topjohnwu.superuser.Shell
+import com.yervant.huntmem.BuildConfig
 import com.yervant.huntmem.R
 import com.yervant.huntmem.backend.AttachedProcessRepository
+import com.yervant.huntmem.backend.HMemServiceConnection
 import com.yervant.huntmem.backend.NativeBridge.isHmkpmAvailable
+import com.yervant.huntmem.ui.theme.ComponentStyles
 import com.yervant.huntmem.ui.theme.SuccessEmerald
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
+@SuppressLint("LocalContextGetResourceValueCall")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
@@ -151,6 +156,7 @@ fun MainScreen(
 
     val isServiceRunning by OverlayService.isServiceRunning.collectAsState()
     val attachedPid by AttachedProcessRepository.attachedProcessPid.collectAsState()
+    val isRootServiceConnected by HMemServiceConnection.isConnected.collectAsState()
 
     LaunchedEffect(Unit) {
         val rootResult = withContext(Dispatchers.IO) {
@@ -163,13 +169,28 @@ fun MainScreen(
         isRootGranted = rootResult
     }
 
-    LaunchedEffect(isRootGranted, hmkpmRefreshTrigger) {
+    LaunchedEffect(isRootGranted, isRootServiceConnected, hmkpmRefreshTrigger) {
         when (isRootGranted) {
             true -> {
-                isCheckingHmkpm = true
-                if (hmkpmRefreshTrigger == 0) {
-                    delay(3000L)
+                if (!isRootServiceConnected) {
+                    isCheckingHmkpm = true
+                    HMemServiceConnection.bind(ctx, force = hmkpmRefreshTrigger > 0)
+                    val connected = withContext(Dispatchers.IO) {
+                        var waitedMs = 0L
+                        while (!HMemServiceConnection.isConnected.value && waitedMs < 3500L) {
+                            delay(100L.milliseconds)
+                            waitedMs += 100L
+                        }
+                        HMemServiceConnection.isConnected.value
+                    }
+                    if (!connected) {
+                        isCheckingHmkpm = false
+                        isHmkpmReady = false
+                        return@LaunchedEffect
+                    }
                 }
+
+                isCheckingHmkpm = true
                 isHmkpmReady = withContext(Dispatchers.IO) {
                     try {
                         isHmkpmAvailable()
@@ -209,7 +230,7 @@ fun MainScreen(
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                         ) {
                             Text(
-                                text = "v3.0 • ARM64",
+                                text = "v${BuildConfig.VERSION_NAME} • ARM64",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary,
@@ -272,19 +293,26 @@ fun MainScreen(
             )
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+                .padding(innerPadding),
+            contentAlignment = Alignment.TopCenter
         ) {
-            // Top Section: 2x2 Status Grid
             Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 680.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // Top Section: 2x2 Status Grid
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                 Text(
                     text = stringResource(id = R.string.main_screen_overview_title),
                     style = MaterialTheme.typography.labelSmall,
@@ -386,13 +414,13 @@ fun MainScreen(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp),
-                        shape = RoundedCornerShape(12.dp),
+                            .height(ComponentStyles.ActionButton.height),
+                        shape = ComponentStyles.ActionButton.shape,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary
                         ),
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = ComponentStyles.ActionButton.elevation)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -401,7 +429,7 @@ fun MainScreen(
                             Icon(
                                 Icons.Default.PlayArrow,
                                 contentDescription = null,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(ComponentStyles.ActionButton.iconSize)
                             )
                             Text(
                                 text = stringResource(id = R.string.main_screen_start_hunting_button),
@@ -418,14 +446,14 @@ fun MainScreen(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp),
-                        shape = RoundedCornerShape(12.dp),
+                            .height(ComponentStyles.ActionButton.height),
+                        shape = ComponentStyles.ActionButton.shape,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.errorContainer,
                             contentColor = MaterialTheme.colorScheme.error
                         ),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)),
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = ComponentStyles.ActionButton.elevation)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -434,7 +462,7 @@ fun MainScreen(
                             Icon(
                                 Icons.Default.Stop,
                                 contentDescription = null,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(ComponentStyles.ActionButton.iconSize)
                             )
                             Text(
                                 text = stringResource(id = R.string.main_screen_stop_hunting_button),
@@ -545,6 +573,7 @@ fun MainScreen(
         }
     }
 }
+}
 
 @Composable
 private fun CompactStatusCard(
@@ -566,23 +595,26 @@ private fun CompactStatusCard(
 
     val cardModifier = if (onClick != null) {
         modifier
-            .height(76.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .height(ComponentStyles.StatusCard.height)
+            .clip(ComponentStyles.StatusCard.shape)
             .clickable(onClick = onClick)
     } else {
-        modifier.height(76.dp)
+        modifier.height(ComponentStyles.StatusCard.height)
     }
 
     Card(
         modifier = cardModifier,
-        shape = RoundedCornerShape(10.dp),
+        shape = ComponentStyles.StatusCard.shape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, borderColor)
+        border = BorderStroke(ComponentStyles.StatusCard.borderWidth, borderColor)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(
+                    horizontal = ComponentStyles.StatusCard.horizontalPadding,
+                    vertical = ComponentStyles.StatusCard.verticalPadding
+                ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -592,9 +624,9 @@ private fun CompactStatusCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
+                    shape = ComponentStyles.StatusCard.iconContainerShape,
                     color = if (isOk) SuccessEmerald.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(ComponentStyles.StatusCard.iconContainerSize)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         if (isLoading) {
@@ -608,7 +640,7 @@ private fun CompactStatusCard(
                                 imageVector = icon,
                                 contentDescription = null,
                                 tint = if (isOk) SuccessEmerald else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(ComponentStyles.StatusCard.iconSize)
                             )
                         }
                     }
