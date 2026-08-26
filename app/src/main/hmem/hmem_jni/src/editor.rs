@@ -42,7 +42,9 @@ pub fn write_raw_bytes(pid: u32, address: u64, bytes: &[u8]) -> Result<(), Strin
     if end_addr / page_size != address / page_size
         && !crate::pagemap::is_page_present(pid, end_addr, crate::pagemap::PM_PRESENT)?
     {
-        return Err(format!("Write aborted: End page not resident at 0x{end_addr:x}"));
+        return Err(format!(
+            "Write aborted: End page not resident at 0x{end_addr:x}"
+        ));
     }
 
     kpm::write_memory(pid, address, bytes)
@@ -86,7 +88,9 @@ pub fn write_obscured(
     obscured_type: ObscuredType,
 ) -> Result<(), String> {
     if !crate::pagemap::is_page_present(pid, address, crate::pagemap::PM_PRESENT)? {
-        return Err(format!("Write obscured aborted: Page not resident at 0x{address:x}"));
+        return Err(format!(
+            "Write obscured aborted: Page not resident at 0x{address:x}"
+        ));
     }
 
     let s = value_str.trim();
@@ -130,7 +134,9 @@ pub fn write_obscured(
                 .map_err(|e| format!("Write ObscuredFloat failed at 0x{address:x}: {e}"))
         }
         ObscuredType::ObscuredDouble => {
-            let target: f64 = s.parse().map_err(|e| format!("Invalid double '{s}': {e}"))?;
+            let target: f64 = s
+                .parse()
+                .map_err(|e| format!("Invalid double '{s}': {e}"))?;
             let mut buf = [0u8; 16];
             let key = if kpm::read_memory(pid, address, &mut buf).is_ok() {
                 u64::from_le_bytes(buf[..8].try_into().unwrap())
@@ -172,7 +178,9 @@ pub fn write_obscured(
 /// Writes a BigDouble scientific structure (mantissa & exponent) to memory
 pub fn write_big_double(pid: u32, address: u64, value_str: &str) -> Result<(), String> {
     if !crate::pagemap::is_page_present(pid, address, crate::pagemap::PM_PRESENT)? {
-        return Err(format!("Write BigDouble aborted: Page not resident at 0x{address:x}"));
+        return Err(format!(
+            "Write BigDouble aborted: Page not resident at 0x{address:x}"
+        ));
     }
 
     let target = BigDouble::parse(value_str)?;

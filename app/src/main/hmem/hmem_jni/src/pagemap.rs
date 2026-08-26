@@ -121,8 +121,6 @@ impl PagemapReader {
         })
     }
 
-
-
     /// Returns `Ok(true)` if at least one page in `[start, end)` matches `mask`.
     /// With `PM_PRESENT | PM_SWAP`, this keeps regions that may become
     /// readable after faulting swapped pages back in.
@@ -140,7 +138,9 @@ impl PagemapReader {
         let num_pages = (last_page_idx - first_page_idx) + 1;
 
         let Some(mut offset) = first_page_idx.checked_mul(8) else {
-            return Err(format!("Pagemap start address 0x{start:X} overflowed offset calculation"));
+            return Err(format!(
+                "Pagemap start address 0x{start:X} overflowed offset calculation"
+            ));
         };
 
         let mut remaining = num_pages;
@@ -172,7 +172,9 @@ impl PagemapReader {
 
             remaining -= batch_entries as u64;
             let Some(next) = offset.checked_add(bytes_to_read as u64) else {
-                return Err(format!("Pagemap offset overflow advancing from 0x{offset:X}"));
+                return Err(format!(
+                    "Pagemap offset overflow advancing from 0x{offset:X}"
+                ));
             };
             offset = next;
         }
@@ -184,7 +186,12 @@ impl PagemapReader {
     /// pages matching `mask` into `(start, end)` ranges clamped strictly to `[start, end)`.
     ///
     /// If an unrecoverable I/O error occurs, returns `Err(String)`.
-    pub fn get_present_ranges(&mut self, start: u64, end: u64, mask: u64) -> Result<Vec<(u64, u64)>, String> {
+    pub fn get_present_ranges(
+        &mut self,
+        start: u64,
+        end: u64,
+        mask: u64,
+    ) -> Result<Vec<(u64, u64)>, String> {
         if end <= start || mask == 0 {
             return Ok(Vec::new());
         }
@@ -195,7 +202,9 @@ impl PagemapReader {
         let num_pages = (last_page_idx - first_page_idx) + 1;
 
         let Some(mut offset) = first_page_idx.checked_mul(8) else {
-            return Err(format!("Pagemap offset calculation overflow for 0x{start:X}"));
+            return Err(format!(
+                "Pagemap offset calculation overflow for 0x{start:X}"
+            ));
         };
 
         let mut ranges: Vec<(u64, u64)> = Vec::new();
@@ -243,7 +252,9 @@ impl PagemapReader {
 
             remaining -= batch_entries as u64;
             let Some(next) = offset.checked_add(bytes_to_read as u64) else {
-                return Err(format!("Pagemap offset overflow advancing from 0x{offset:X}"));
+                return Err(format!(
+                    "Pagemap offset overflow advancing from 0x{offset:X}"
+                ));
             };
             offset = next;
         }
@@ -280,7 +291,9 @@ pub fn is_page_present(pid: u32, addr: u64, mask: u64) -> Result<bool, String> {
         .map_err(|e| format!("Cannot read pagemap for 0x{addr:X}: {e}"))?;
 
     if read_bytes != 8 {
-        return Err(format!("Pagemap read truncated ({read_bytes}/8 bytes) for 0x{addr:X}"));
+        return Err(format!(
+            "Pagemap read truncated ({read_bytes}/8 bytes) for 0x{addr:X}"
+        ));
     }
 
     let entry = u64::from_ne_bytes(buf);
@@ -377,10 +390,16 @@ mod tests {
         assert_eq!(reader.has_candidate_pages(0, 16384, PM_PRESENT), Ok(true));
 
         // Range [8192, 12288) -> Page 2: Page 2 is present -> Ok(true)
-        assert_eq!(reader.has_candidate_pages(8192, 12288, PM_PRESENT), Ok(true));
+        assert_eq!(
+            reader.has_candidate_pages(8192, 12288, PM_PRESENT),
+            Ok(true)
+        );
 
         // Range [12288, 16384) -> Page 3: No present pages -> Ok(false)
-        assert_eq!(reader.has_candidate_pages(12288, 16384, PM_PRESENT), Ok(false));
+        assert_eq!(
+            reader.has_candidate_pages(12288, 16384, PM_PRESENT),
+            Ok(false)
+        );
 
         // Clean up
         let _ = std::fs::remove_file(file_path);
@@ -428,8 +447,14 @@ mod tests {
         assert_eq!(ranges, vec![(2000, 4096), (8192, 15000)]);
 
         // Inverted or empty range: returns empty
-        assert_eq!(reader.get_present_ranges(15000, 2000, PM_PRESENT).unwrap(), vec![]);
-        assert_eq!(reader.get_present_ranges(2000, 2000, PM_PRESENT).unwrap(), vec![]);
+        assert_eq!(
+            reader.get_present_ranges(15000, 2000, PM_PRESENT).unwrap(),
+            vec![]
+        );
+        assert_eq!(
+            reader.get_present_ranges(2000, 2000, PM_PRESENT).unwrap(),
+            vec![]
+        );
 
         // Zero mask: returns empty
         assert_eq!(reader.get_present_ranges(2000, 15000, 0).unwrap(), vec![]);

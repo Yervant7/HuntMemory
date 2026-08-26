@@ -62,8 +62,8 @@ pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, Str
     let mut regions = Vec::with_capacity(1024);
 
     // Open pagemap once and reuse buffer and descriptor
-    let mut scanner = PagemapReader::new(pid)
-        .map_err(|e| format!("Cannot open pagemap for PID {pid}: {e}"))?;
+    let mut scanner =
+        PagemapReader::new(pid).map_err(|e| format!("Cannot open pagemap for PID {pid}: {e}"))?;
     let mut raw_line = Vec::with_capacity(512);
 
     loop {
@@ -616,18 +616,35 @@ mod tests {
 
     #[test]
     fn test_path_matches_module() {
-        assert!(path_matches_module("/system/lib64/libunity.so", "libunity.so"));
+        assert!(path_matches_module(
+            "/system/lib64/libunity.so",
+            "libunity.so"
+        ));
         assert!(path_matches_module("/system/lib64/libunity.so", "libunity"));
-        assert!(path_matches_module("/system/lib64/libunity.so (deleted)", "libunity"));
+        assert!(path_matches_module(
+            "/system/lib64/libunity.so (deleted)",
+            "libunity"
+        ));
         assert!(path_matches_module("/data/app/base.apk", "base.apk"));
-        assert!(!path_matches_module("/system/lib64/libunity_extra.so", "libunity"));
+        assert!(!path_matches_module(
+            "/system/lib64/libunity_extra.so",
+            "libunity"
+        ));
     }
 
     #[test]
     fn test_match_filter_type_java_heap() {
-        assert!(match_filter_type("JAVA_HEAP", "[anon:dalvik-main space]", None));
+        assert!(match_filter_type(
+            "JAVA_HEAP",
+            "[anon:dalvik-main space]",
+            None
+        ));
         assert!(match_filter_type("JAVA_HEAP", "[anon:region space]", None));
-        assert!(match_filter_type("JH", "/dev/ashmem/dalvik-LinearAlloc", None));
+        assert!(match_filter_type(
+            "JH",
+            "/dev/ashmem/dalvik-LinearAlloc",
+            None
+        ));
     }
 
     #[test]

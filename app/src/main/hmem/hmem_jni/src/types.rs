@@ -433,7 +433,10 @@ pub struct MemoryRegion {
     pub offset: u64,
     #[serde(default)]
     pub path: String,
-    #[serde(default = "default_merged_count", skip_serializing_if = "is_single_region")]
+    #[serde(
+        default = "default_merged_count",
+        skip_serializing_if = "is_single_region"
+    )]
     pub merged_count: u32,
 }
 
@@ -531,7 +534,9 @@ where
         } else if unsigned < 0x8000_0000_0000_0000 {
             -(unsigned as i64)
         } else {
-            return Err(format!("Hex '{s}' out of range: magnitude exceeds 64-bit signed integer"));
+            return Err(format!(
+                "Hex '{s}' out of range: magnitude exceeds 64-bit signed integer"
+            ));
         };
         T::try_from(signed).map_err(|e| format!("Hex '{s}' out of range: {e}"))
     } else {
@@ -565,7 +570,9 @@ pub fn value_str_to_bytes(value: &str, vtype: ValueType) -> Result<Vec<u8>, Stri
             } else if let Ok(u) = parse_int_flexible::<u16>(s) {
                 Ok(u.to_le_bytes().to_vec())
             } else {
-                Err(format!("Invalid short '{s}' (range: -32768..=32767 or 0..=65535)"))
+                Err(format!(
+                    "Invalid short '{s}' (range: -32768..=32767 or 0..=65535)"
+                ))
             }
         }
         ValueType::Int => {
@@ -574,7 +581,9 @@ pub fn value_str_to_bytes(value: &str, vtype: ValueType) -> Result<Vec<u8>, Stri
             } else if let Ok(u) = parse_int_flexible::<u32>(s) {
                 Ok(u.to_le_bytes().to_vec())
             } else {
-                Err(format!("Invalid int '{s}' (must fit in 32-bit signed or unsigned)"))
+                Err(format!(
+                    "Invalid int '{s}' (must fit in 32-bit signed or unsigned)"
+                ))
             }
         }
         ValueType::Long => {
@@ -583,7 +592,9 @@ pub fn value_str_to_bytes(value: &str, vtype: ValueType) -> Result<Vec<u8>, Stri
             } else if let Ok(u) = parse_int_flexible::<u64>(s) {
                 Ok(u.to_le_bytes().to_vec())
             } else {
-                Err(format!("Invalid long '{s}' (must fit in 64-bit signed or unsigned)"))
+                Err(format!(
+                    "Invalid long '{s}' (must fit in 64-bit signed or unsigned)"
+                ))
             }
         }
         ValueType::Float16 => {
@@ -801,8 +812,8 @@ pub fn compare_values(current: &[u8], target: &[u8], vtype: ValueType, op: ScanO
             } else {
                 f32::from_le_bytes(target[..4].try_into().unwrap())
             };
-            let is_eq = c.to_bits() == t.to_bits()
-                || (!c.is_nan() && !t.is_nan() && (c - t).abs() < 1e-5);
+            let is_eq =
+                c.to_bits() == t.to_bits() || (!c.is_nan() && !t.is_nan() && (c - t).abs() < 1e-5);
             match op {
                 ScanOperator::Equal => is_eq,
                 ScanOperator::NotEqual => !is_eq,
@@ -821,8 +832,8 @@ pub fn compare_values(current: &[u8], target: &[u8], vtype: ValueType, op: ScanO
             } else {
                 f64::from_le_bytes(target[..8].try_into().unwrap())
             };
-            let is_eq = c.to_bits() == t.to_bits()
-                || (!c.is_nan() && !t.is_nan() && (c - t).abs() < 1e-9);
+            let is_eq =
+                c.to_bits() == t.to_bits() || (!c.is_nan() && !t.is_nan() && (c - t).abs() < 1e-9);
             match op {
                 ScanOperator::Equal => is_eq,
                 ScanOperator::NotEqual => !is_eq,
@@ -1266,8 +1277,18 @@ mod tests {
         let nan_bytes = f32::NAN.to_le_bytes();
         let zero_bytes = 0.0f32.to_le_bytes();
 
-        let eq = compare_values(&nan_bytes, &zero_bytes, ValueType::Float, ScanOperator::Equal);
-        let ne = compare_values(&nan_bytes, &zero_bytes, ValueType::Float, ScanOperator::NotEqual);
+        let eq = compare_values(
+            &nan_bytes,
+            &zero_bytes,
+            ValueType::Float,
+            ScanOperator::Equal,
+        );
+        let ne = compare_values(
+            &nan_bytes,
+            &zero_bytes,
+            ValueType::Float,
+            ScanOperator::NotEqual,
+        );
 
         assert!(!eq);
         assert!(ne);
@@ -1275,8 +1296,18 @@ mod tests {
         let double_nan = f64::NAN.to_le_bytes();
         let double_zero = 0.0f64.to_le_bytes();
 
-        let d_eq = compare_values(&double_nan, &double_zero, ValueType::Double, ScanOperator::Equal);
-        let d_ne = compare_values(&double_nan, &double_zero, ValueType::Double, ScanOperator::NotEqual);
+        let d_eq = compare_values(
+            &double_nan,
+            &double_zero,
+            ValueType::Double,
+            ScanOperator::Equal,
+        );
+        let d_ne = compare_values(
+            &double_nan,
+            &double_zero,
+            ValueType::Double,
+            ScanOperator::NotEqual,
+        );
 
         assert!(!d_eq);
         assert!(d_ne);

@@ -126,7 +126,13 @@ pub fn scan_regions(
                             }
                         } else {
                             offsets_buf.clear();
-                            scan_buffer_to(block_data, target_bytes, *vt, operator, &mut offsets_buf);
+                            scan_buffer_to(
+                                block_data,
+                                target_bytes,
+                                *vt,
+                                operator,
+                                &mut offsets_buf,
+                            );
                             for &off in &offsets_buf {
                                 let match_addr = start_addr + off as u64;
                                 let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
@@ -1073,7 +1079,13 @@ pub fn scan_range(
                         }
 
                         offsets_buf.clear();
-                        scan_range_buffer_to(block_data, min_bytes, max_bytes, *vt, &mut offsets_buf);
+                        scan_range_buffer_to(
+                            block_data,
+                            min_bytes,
+                            max_bytes,
+                            *vt,
+                            &mut offsets_buf,
+                        );
 
                         for &off in &offsets_buf {
                             let match_addr = start_addr + off as u64;
@@ -1193,14 +1205,15 @@ pub fn scan_group(
                 if crate::kpm::read_memory(pid, start_addr, &mut chunk_buf[..range_len]).is_ok() {
                     let block_slice = &chunk_buf[..range_len];
 
-                    let (data_cow, overlap_len): (std::borrow::Cow<[u8]>, usize) = if overlap_buffer.is_empty() {
-                        (std::borrow::Cow::Borrowed(block_slice), 0)
-                    } else {
-                        let mut full = overlap_buffer.clone();
-                        full.extend_from_slice(block_slice);
-                        let olen = overlap_buffer.len();
-                        (std::borrow::Cow::Owned(full), olen)
-                    };
+                    let (data_cow, overlap_len): (std::borrow::Cow<[u8]>, usize) =
+                        if overlap_buffer.is_empty() {
+                            (std::borrow::Cow::Borrowed(block_slice), 0)
+                        } else {
+                            let mut full = overlap_buffer.clone();
+                            full.extend_from_slice(block_slice);
+                            let olen = overlap_buffer.len();
+                            (std::borrow::Cow::Owned(full), olen)
+                        };
                     let data = &data_cow[..];
 
                     let effective_start_addr = start_addr.saturating_sub(overlap_len as u64);
@@ -1425,7 +1438,10 @@ pub fn filter_range_matches(
     let mut ranges_by_type: std::collections::HashMap<ValueType, RangeBytes> =
         std::collections::HashMap::with_capacity(session.active_types.len());
     for &vt in &session.active_types {
-        let r = match (value_str_to_bytes(min_str, vt), value_str_to_bytes(max_str, vt)) {
+        let r = match (
+            value_str_to_bytes(min_str, vt),
+            value_str_to_bytes(max_str, vt),
+        ) {
             (Ok(mn), Ok(mx)) => Some((mn, mx)),
             _ => None,
         };

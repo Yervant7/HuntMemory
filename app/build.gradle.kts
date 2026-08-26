@@ -146,9 +146,17 @@ val jniReleaseArm64Dir = layout.projectDirectory.dir("src/release/jniLibs/arm64-
 val rustDebugSo = rustDir.file("target/aarch64-linux-android/debug/libhmem_jni.so")
 val rustReleaseSo = rustDir.file("target/aarch64-linux-android/release/libhmem_jni.so")
 
+val fmtRust = tasks.register<Exec>("fmtRust") {
+    description = "Formats Rust code using cargo fmt"
+    group = "rust"
+    workingDir = rustDir.asFile
+    commandLine("cargo", "fmt", "--all")
+}
+
 val buildRustDebug = tasks.register<Exec>("buildRustDebug") {
     description = "Compiles libhmem_jni.so in debug mode for arm64-v8a (fast compilation, debug symbols, debug assertions)"
     group = "rust"
+    dependsOn(fmtRust)
     workingDir = rustDir.asFile
     inputs.dir(rustDir.dir("hmem_jni/src"))
     inputs.file(rustDir.file("Cargo.toml"))
@@ -160,6 +168,7 @@ val buildRustDebug = tasks.register<Exec>("buildRustDebug") {
 val buildRustRelease = tasks.register<Exec>("buildRustRelease") {
     description = "Compiles libhmem_jni.so in release mode for arm64-v8a (LTO, opt-level=3, stripped debug info)"
     group = "rust"
+    dependsOn(fmtRust)
     workingDir = rustDir.asFile
     inputs.dir(rustDir.dir("hmem_jni/src"))
     inputs.file(rustDir.file("Cargo.toml"))

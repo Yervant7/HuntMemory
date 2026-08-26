@@ -1248,7 +1248,8 @@ pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeUnf
     pid: jint,
     address: jlong,
 ) -> jboolean {
-    let res = catch_unwind(move || editor::get_freeze_engine().unfreeze(pid as u32, address as u64));
+    let res =
+        catch_unwind(move || editor::get_freeze_engine().unfreeze(pid as u32, address as u64));
     if res.unwrap_or(false) {
         JNI_TRUE
     } else {
@@ -1272,7 +1273,8 @@ pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeIsA
     pid: jint,
     address: jlong,
 ) -> jboolean {
-    let res = catch_unwind(move || editor::get_freeze_engine().is_frozen(pid as u32, address as u64));
+    let res =
+        catch_unwind(move || editor::get_freeze_engine().is_frozen(pid as u32, address as u64));
     if res.unwrap_or(false) {
         JNI_TRUE
     } else {
