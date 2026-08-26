@@ -54,7 +54,7 @@ class MemoryEditor {
     }
 
     fun unfreezeAddress(addressInfo: AddressInfo) {
-        NativeBridge.unfreezeAddress(addressInfo.matchInfo.address)
+        NativeBridge.unfreezeAddress(addressInfo.matchInfo.pid, addressInfo.matchInfo.address)
         addressInfo.isFrozen = false
     }
 
@@ -80,7 +80,7 @@ class MemoryEditor {
 
     fun syncFreezeState(addressList: List<AddressInfo>) {
         addressList.forEach { addressInfo ->
-            val isFrozen = NativeBridge.isAddressFrozen(addressInfo.matchInfo.address)
+            val isFrozen = NativeBridge.isAddressFrozen(addressInfo.matchInfo.pid, addressInfo.matchInfo.address)
             if (addressInfo.isFrozen != isFrozen) {
                 addressInfo.isFrozen = isFrozen
             }

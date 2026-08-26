@@ -319,6 +319,7 @@ fn lua_table_to_regions(table: &mlua::Table) -> mlua::Result<Vec<MemoryRegion>> 
                 permissions,
                 offset,
                 path,
+                merged_count: 1,
             });
         }
     }
@@ -1371,11 +1372,12 @@ fn setup_environment(
                 match kpm::read_memory(pid, addr, &mut buf) {
                     Ok(()) => {
                         let m = f64::from_le_bytes(buf[..8].try_into().unwrap());
-                        let exp64 = i64::from_le_bytes(buf[8..16].try_into().unwrap());
-                        let exp32 = i32::from_le_bytes(buf[8..12].try_into().unwrap()) as i64;
-                        if exp64 == 0 && exp32 != 0 {
+                        let exp32 = i32::from_le_bytes(buf[8..12].try_into().unwrap());
+                        let upper = u32::from_le_bytes(buf[12..16].try_into().unwrap());
+                        if upper == 0 && exp32 != 0 {
                             Ok(Some(format!("{m}e{exp32}")))
                         } else {
+                            let exp64 = i64::from_le_bytes(buf[8..16].try_into().unwrap());
                             Ok(Some(format!("{m}e{exp64}")))
                         }
                     }
@@ -1394,7 +1396,7 @@ fn setup_environment(
         lua.create_function(move |_lua, (addr, val): (u64, i8)| {
             let pid = *p_wb.lock().unwrap();
             let bytes = [val as u8];
-            Ok(kpm::write_memory(pid, addr, &bytes).is_ok())
+            Ok(editor::write_raw_bytes(pid, addr, &bytes).is_ok())
         })?,
     )?;
 
@@ -1404,7 +1406,7 @@ fn setup_environment(
         lua.create_function(move |_lua, (addr, val): (u64, i16)| {
             let pid = *p_ws.lock().unwrap();
             let bytes = val.to_le_bytes();
-            Ok(kpm::write_memory(pid, addr, &bytes).is_ok())
+            Ok(editor::write_raw_bytes(pid, addr, &bytes).is_ok())
         })?,
     )?;
 
@@ -1414,7 +1416,7 @@ fn setup_environment(
         lua.create_function(move |_lua, (addr, val): (u64, i32)| {
             let pid = *p_wi.lock().unwrap();
             let bytes = val.to_le_bytes();
-            Ok(kpm::write_memory(pid, addr, &bytes).is_ok())
+            Ok(editor::write_raw_bytes(pid, addr, &bytes).is_ok())
         })?,
     )?;
 
@@ -1424,7 +1426,7 @@ fn setup_environment(
         lua.create_function(move |_lua, (addr, val): (u64, i64)| {
             let pid = *p_wl.lock().unwrap();
             let bytes = val.to_le_bytes();
-            Ok(kpm::write_memory(pid, addr, &bytes).is_ok())
+            Ok(editor::write_raw_bytes(pid, addr, &bytes).is_ok())
         })?,
     )?;
 
@@ -1434,7 +1436,7 @@ fn setup_environment(
         lua.create_function(move |_lua, (addr, val): (u64, f32)| {
             let pid = *p_wf.lock().unwrap();
             let bytes = val.to_le_bytes();
-            Ok(kpm::write_memory(pid, addr, &bytes).is_ok())
+            Ok(editor::write_raw_bytes(pid, addr, &bytes).is_ok())
         })?,
     )?;
 
@@ -1444,7 +1446,7 @@ fn setup_environment(
         lua.create_function(move |_lua, (addr, val): (u64, f64)| {
             let pid = *p_wd.lock().unwrap();
             let bytes = val.to_le_bytes();
-            Ok(kpm::write_memory(pid, addr, &bytes).is_ok())
+            Ok(editor::write_raw_bytes(pid, addr, &bytes).is_ok())
         })?,
     )?;
 
@@ -1455,7 +1457,7 @@ fn setup_environment(
             let pid = *p_wf16.lock().unwrap();
             let h = f32_to_f16(val);
             let bytes = h.to_le_bytes();
-            Ok(kpm::write_memory(pid, addr, &bytes).is_ok())
+            Ok(editor::write_raw_bytes(pid, addr, &bytes).is_ok())
         })?,
     )?;
 
@@ -1465,7 +1467,7 @@ fn setup_environment(
         lua.create_function(move |_lua, (addr, bytes_str): (u64, mlua::LuaString)| {
             let pid = *p_wbytes.lock().unwrap();
             let raw_bytes = bytes_str.as_bytes();
-            Ok(kpm::write_memory(pid, addr, &raw_bytes).is_ok())
+            Ok(editor::write_raw_bytes(pid, addr, &raw_bytes).is_ok())
         })?,
     )?;
 
@@ -1480,7 +1482,7 @@ fn setup_environment(
                 if zero_term_opt.unwrap_or(true) {
                     bytes.push(0);
                 }
-                Ok(kpm::write_memory(pid, addr, &bytes).is_ok())
+                Ok(editor::write_raw_bytes(pid, addr, &bytes).is_ok())
             },
         )?,
     )?;
@@ -1490,7 +1492,7 @@ fn setup_environment(
     let write_ptr_fn = lua.create_function(move |_lua, (addr, target): (u64, u64)| {
         let pid = *p_wptr64.lock().unwrap();
         let bytes = target.to_le_bytes();
-        Ok(kpm::write_memory(pid, addr, &bytes).is_ok())
+        Ok(editor::write_raw_bytes(pid, addr, &bytes).is_ok())
     })?;
     hmem.set("write_ptr", write_ptr_fn.clone())?;
     hmem.set("write_ptr64", write_ptr_fn)?;
@@ -1580,9 +1582,13 @@ fn setup_environment(
         })?,
     )?;
 
+    let p_unfz = target_pid.clone();
     hmem.set(
         "unfreeze",
-        lua.create_function(|_lua, addr: u64| Ok(editor::get_freeze_engine().unfreeze(addr)))?,
+        lua.create_function(move |_lua, addr: u64| {
+            let pid = *p_unfz.lock().unwrap();
+            Ok(editor::get_freeze_engine().unfreeze(pid, addr))
+        })?,
     )?;
 
     hmem.set(
@@ -1590,9 +1596,13 @@ fn setup_environment(
         lua.create_function(|_lua, ()| Ok(editor::get_freeze_engine().unfreeze_all()))?,
     )?;
 
+    let p_isfz = target_pid.clone();
     hmem.set(
         "is_frozen",
-        lua.create_function(|_lua, addr: u64| Ok(editor::get_freeze_engine().is_frozen(addr)))?,
+        lua.create_function(move |_lua, addr: u64| {
+            let pid = *p_isfz.lock().unwrap();
+            Ok(editor::get_freeze_engine().is_frozen(pid, addr))
+        })?,
     )?;
 
     // Memory Maps

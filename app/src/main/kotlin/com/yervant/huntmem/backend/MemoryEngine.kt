@@ -40,10 +40,11 @@ object MemoryEngine {
         val start: Long,
         val end: Long,
         val permissions: String,
-        val offset: Long,
-        val device: String,
-        val inode: Long,
-        val path: String
+        val offset: Long = 0L,
+        val device: String = "",
+        val inode: Long = 0L,
+        val path: String,
+        val mergedCount: Int = 1
     )
 
     @Keep
@@ -104,7 +105,8 @@ object MemoryEngine {
                     offset = obj.optLong("offset", 0L),
                     device = "",
                     inode = 0L,
-                    path = obj.optString("path", "")
+                    path = obj.optString("path", ""),
+                    mergedCount = obj.optInt("merged_count", 1)
                 )
             }
         } catch (e: Exception) {

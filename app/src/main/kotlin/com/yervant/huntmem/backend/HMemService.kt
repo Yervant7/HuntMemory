@@ -150,8 +150,8 @@ class HMemService : RootService() {
                 return NativeBridge.nativeFreezeAddress(pid, address, value, valueType)
             }
 
-            override fun nativeUnfreezeAddress(address: Long): Boolean {
-                return NativeBridge.nativeUnfreezeAddress(address)
+            override fun nativeUnfreezeAddress(pid: Int, address: Long): Boolean {
+                return NativeBridge.nativeUnfreezeAddress(pid, address)
             }
 
             override fun nativeUnfreezeAll(): Int {
@@ -211,8 +211,8 @@ class HMemService : RootService() {
                 return NativeBridge.nativeWriteBigDouble(pid, address, value)
             }
 
-            override fun nativeIsAddressFrozen(address: Long): Boolean {
-                return NativeBridge.nativeIsAddressFrozen(address)
+            override fun nativeIsAddressFrozen(pid: Int, address: Long): Boolean {
+                return NativeBridge.nativeIsAddressFrozen(pid, address)
             }
 
             override fun nativeRunLuaScript(pid: Int, script: String, callback: com.yervant.huntmem.ILuaUiCallback?): String {

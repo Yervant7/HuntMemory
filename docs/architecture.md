@@ -113,10 +113,12 @@ The computational engine is implemented in **Rust (Edition 2024)** and compiled 
 
 - **Memory Map Streaming Parser (`maps.rs` & `pagemap.rs`)**:
   - Parses `/proc/[pid]/maps` using reusable heap buffers and zero-copy string slicing.
+  - Automatically merges contiguous adjacent regions sharing identical permissions, paths, and continuous file offsets into consolidated entries with `merged_count`.
   - Cross-references virtual memory ranges with `/proc/[pid]/pagemap` using batched `pread` to discard non-resident pages before scanning.
 
-- **Freeze Engine (`editor.rs`)**:
-  - Runs a dedicated background worker thread synchronized via `Arc<(Mutex<FreezeState>, Condvar)>`.
+- **Freeze Engine & Memory Editor (`editor.rs`)**:
+  - Runs a dedicated background worker thread synchronized via `Arc<(Mutex<FreezeState>, Condvar)>`, partitioning locked addresses by `(pid, address)` for multi-process safety.
+  - Validates physical page residency (`PM_PRESENT`) on all memory write operations (`write_raw_bytes`) before dispatching kernel operations.
   - Re-applies desired memory values to registered addresses at configurable intervals (default: 100ms) with microsecond precision.
 
 ---

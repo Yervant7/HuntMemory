@@ -497,14 +497,36 @@ fun RegionDetails(details: List<MemoryEngine.MemoryMapEntry>, context: Context) 
                     modifier = Modifier.padding(top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = getFileName(entry.path),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
+                    Row(
                         modifier = Modifier.weight(1.4f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = getFileName(entry.path),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (entry.mergedCount > 1) {
+                            Spacer(Modifier.width(4.dp))
+                            Surface(
+                                shape = RoundedCornerShape(3.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f)
+                            ) {
+                                Text(
+                                    text = "${entry.mergedCount}x",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = entry.permissions,
                         style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),

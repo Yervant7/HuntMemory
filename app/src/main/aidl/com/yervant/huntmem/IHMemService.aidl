@@ -52,7 +52,7 @@ interface IHMemService {
 
     int nativeFreezeAddress(int pid, long address, String value, String valueType);
 
-    boolean nativeUnfreezeAddress(long address);
+    boolean nativeUnfreezeAddress(int pid, long address);
 
     int nativeUnfreezeAll();
 
@@ -68,7 +68,7 @@ interface IHMemService {
 
     int nativeWriteBigDouble(int pid, long address, String value);
 
-    boolean nativeIsAddressFrozen(long address);
+    boolean nativeIsAddressFrozen(int pid, long address);
 
     String nativeRunLuaScript(int pid, String script, ILuaUiCallback callback);
 

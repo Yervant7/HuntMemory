@@ -236,6 +236,7 @@ pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeGet
         require_write,
         include_swapped,
         min_size: min_size as u64,
+        merge_adjacent: true,
     };
 
     let res = catch_unwind(move || match maps::parse_maps(pid as u32, &maps_opt) {
@@ -997,11 +998,12 @@ pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeRea
             match kpm::read_memory(pid as u32, address as u64, &mut buf) {
                 Ok(()) => {
                     let m = f64::from_le_bytes(buf[..8].try_into().unwrap());
-                    let exp64 = i64::from_le_bytes(buf[8..16].try_into().unwrap());
-                    let exp32 = i32::from_le_bytes(buf[8..12].try_into().unwrap()) as i64;
-                    if exp64 == 0 && exp32 != 0 {
+                    let exp32 = i32::from_le_bytes(buf[8..12].try_into().unwrap());
+                    let upper = u32::from_le_bytes(buf[12..16].try_into().unwrap());
+                    if upper == 0 && exp32 != 0 {
                         format!("{m}e{exp32}")
                     } else {
+                        let exp64 = i64::from_le_bytes(buf[8..16].try_into().unwrap());
                         format!("{m}e{exp64}")
                     }
                 }
@@ -1243,9 +1245,10 @@ pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeFre
 pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeUnfreezeAddress(
     _unowned_env: EnvUnowned,
     _class: JClass,
+    pid: jint,
     address: jlong,
 ) -> jboolean {
-    let res = catch_unwind(move || editor::get_freeze_engine().unfreeze(address as u64));
+    let res = catch_unwind(move || editor::get_freeze_engine().unfreeze(pid as u32, address as u64));
     if res.unwrap_or(false) {
         JNI_TRUE
     } else {
@@ -1266,9 +1269,10 @@ pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeUnf
 pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeIsAddressFrozen(
     _unowned_env: EnvUnowned,
     _class: JClass,
+    pid: jint,
     address: jlong,
 ) -> jboolean {
-    let res = catch_unwind(move || editor::get_freeze_engine().is_frozen(address as u64));
+    let res = catch_unwind(move || editor::get_freeze_engine().is_frozen(pid as u32, address as u64));
     if res.unwrap_or(false) {
         JNI_TRUE
     } else {

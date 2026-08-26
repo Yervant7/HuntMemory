@@ -55,15 +55,22 @@ Memory regions are parsed from `/proc/[pid]/maps` and matched against physical p
 | **`[CB]`** | C++ BSS | `[anon:.bss]`, `[anon:bss]` |
 | **`[CD]`** | C++ Data | `/data/app/*`, `/data/data/*`, `/data/user/*` |
 | **`[CH]`** | C++ Heap | `[heap]` |
-| **`[JH]`** | Java Heap | `/dev/ashmem/dalvik*`, `[anon:dalvik-*]`, `[anon:art_*]`, `[anon:main space]` |
+| **`[JH]`** | Java Heap | `/dev/ashmem/dalvik*`, `[anon:dalvik-*]`, `[anon:art_*]`, `[anon:main space]`, `[anon:region space]` |
 | **`[S]`** | Stack | `[stack]`, `[stack:*]` |
 | **`[AS]`** | Ashmem | `/dev/ashmem*`, `[anon:ashmem]` |
 | **`[XA]`** | Libraries / Code | `*.so`, `*.apk`, `*.dex`, `*.odex`, `*.oat`, `*.vdex`, `*.art`, `*.jar` |
+| **`[NL]`** | Native Libs | `*.so` native shared libraries |
+| **`[F]`** | Files | Mapped filesystem files (`/data/*`, `/system/*`, etc.) |
 | **`[CUSTOM]`** | Custom Filter | Regex or substring match against path names |
 
-### Pagemap Residency & Swap Rules
+### Contiguous Region Consolidation (`merged_count`)
+Contiguous adjacent memory mappings sharing identical permissions, paths, and continuous file offsets are automatically consolidated into single unified entries with a `merged_count` indicator, significantly reducing memory table clutter and kernel scan dispatch overhead.
+
+### Pagemap Residency & Memory Safety Rules
 - **Non-File Regions**: Verified against `/proc/[pid]/pagemap` using `PM_PRESENT` (bit 63) to ensure memory is resident in physical RAM before reading.
 - **Data & Libs (`CD`, `XA`)**: Supports both `PM_PRESENT` and `PM_SWAP` (bit 62) to handle Android zram-compressed pages.
+- **Memory Write Verification**: All memory writing operations (`write_value`, `write_obscured`, `write_big_double`, `batch_write`, `write_xor_value`, Lua scripts, and `FreezeEngine`) validate `PM_PRESENT` for starting and ending boundary pages before issuing kernel syscalls.
+- **Chunk Boundary Overlap**: Scans across 4 MB chunks use an overlap rewind window (`max_step - 1`) with deduplication to guarantee multi-byte values crossing chunk boundaries are never split or missed.
 
 ---
 

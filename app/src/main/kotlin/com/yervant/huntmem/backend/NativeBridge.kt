@@ -389,15 +389,17 @@ object NativeBridge {
     /** Unfreeze address */
     @FastNative
     external fun nativeUnfreezeAddress(
+        pid: Int,
         address: Long
     ): Boolean
     fun unfreezeAddress(
+        pid: Int,
         address: Long
     ): Boolean {
         val s = HMemServiceConnection.service
         return if (s != null) {
             try {
-                s.nativeUnfreezeAddress(address)
+                s.nativeUnfreezeAddress(pid, address)
             } catch (_: Exception) {
                 false
             }
@@ -425,15 +427,17 @@ object NativeBridge {
     /** Check if address is frozen */
     @FastNative
     external fun nativeIsAddressFrozen(
+        pid: Int,
         address: Long
     ): Boolean
     fun isAddressFrozen(
+        pid: Int,
         address: Long
     ): Boolean {
         val s = HMemServiceConnection.service
         return if (s != null) {
             try {
-                s.nativeIsAddressFrozen(address)
+                s.nativeIsAddressFrozen(pid, address)
             } catch (_: Exception) {
                 false
             }

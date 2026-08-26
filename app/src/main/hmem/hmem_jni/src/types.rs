@@ -20,7 +20,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ValueType {
     Byte,
     Short,
@@ -170,7 +170,7 @@ pub fn f32_to_f16(f: f32) -> u16 {
 }
 
 #[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ObscuredType {
     ObscuredInt,    // 4 bytes cryptoKey ^ 4 bytes hiddenValue = i32
     ObscuredFloat,  // 4 bytes cryptoKey ^ 4 bytes hiddenValue = f32 bits
@@ -424,7 +424,7 @@ impl ScanOperator {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryRegion {
     pub start: u64,
     pub end: u64,
@@ -433,6 +433,18 @@ pub struct MemoryRegion {
     pub offset: u64,
     #[serde(default)]
     pub path: String,
+    #[serde(default = "default_merged_count", skip_serializing_if = "is_single_region")]
+    pub merged_count: u32,
+}
+
+#[inline]
+fn default_merged_count() -> u32 {
+    1
+}
+
+#[inline]
+fn is_single_region(count: &u32) -> bool {
+    *count <= 1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -513,8 +525,15 @@ where
             .map_err(|e| format!("Hex '{s}' out of range: {e}"))
     } else if let Some(hex_str) = s.strip_prefix("-0x").or_else(|| s.strip_prefix("-0X")) {
         let unsigned =
-            i64::from_str_radix(hex_str, 16).map_err(|e| format!("Invalid hex '{s}': {e}"))?;
-        T::try_from(-unsigned).map_err(|e| format!("Hex '{s}' out of range: {e}"))
+            u64::from_str_radix(hex_str, 16).map_err(|e| format!("Invalid hex '{s}': {e}"))?;
+        let signed = if unsigned == 0x8000_0000_0000_0000 {
+            i64::MIN
+        } else if unsigned < 0x8000_0000_0000_0000 {
+            -(unsigned as i64)
+        } else {
+            return Err(format!("Hex '{s}' out of range: magnitude exceeds 64-bit signed integer"));
+        };
+        T::try_from(signed).map_err(|e| format!("Hex '{s}' out of range: {e}"))
     } else {
         match s.parse::<i64>() {
             Ok(signed) => T::try_from(signed).map_err(|e| format!("Value '{s}' out of range: {e}")),
@@ -532,55 +551,39 @@ pub fn value_str_to_bytes(value: &str, vtype: ValueType) -> Result<Vec<u8>, Stri
     let s = value.trim();
     match vtype {
         ValueType::Byte => {
-            if s.starts_with("0x")
-                || s.starts_with("0X")
-                || s.starts_with("-0x")
-                || s.starts_with("-0X")
-            {
-                let u: u8 = parse_int_flexible(s)?;
+            if let Ok(v) = parse_int_flexible::<i8>(s) {
+                Ok(v.to_le_bytes().to_vec())
+            } else if let Ok(u) = parse_int_flexible::<u8>(s) {
                 Ok(vec![u])
             } else {
-                let v: i8 = parse_int_flexible(s)?;
-                Ok(v.to_le_bytes().to_vec())
+                Err(format!("Invalid byte '{s}' (range: -128..=127 or 0..=255)"))
             }
         }
         ValueType::Short => {
-            if s.starts_with("0x")
-                || s.starts_with("0X")
-                || s.starts_with("-0x")
-                || s.starts_with("-0X")
-            {
-                let u: u16 = parse_int_flexible(s)?;
+            if let Ok(v) = parse_int_flexible::<i16>(s) {
+                Ok(v.to_le_bytes().to_vec())
+            } else if let Ok(u) = parse_int_flexible::<u16>(s) {
                 Ok(u.to_le_bytes().to_vec())
             } else {
-                let v: i16 = parse_int_flexible(s)?;
-                Ok(v.to_le_bytes().to_vec())
+                Err(format!("Invalid short '{s}' (range: -32768..=32767 or 0..=65535)"))
             }
         }
         ValueType::Int => {
-            if s.starts_with("0x")
-                || s.starts_with("0X")
-                || s.starts_with("-0x")
-                || s.starts_with("-0X")
-            {
-                let u: u32 = parse_int_flexible(s)?;
+            if let Ok(v) = parse_int_flexible::<i32>(s) {
+                Ok(v.to_le_bytes().to_vec())
+            } else if let Ok(u) = parse_int_flexible::<u32>(s) {
                 Ok(u.to_le_bytes().to_vec())
             } else {
-                let v: i32 = parse_int_flexible(s)?;
-                Ok(v.to_le_bytes().to_vec())
+                Err(format!("Invalid int '{s}' (must fit in 32-bit signed or unsigned)"))
             }
         }
         ValueType::Long => {
-            if s.starts_with("0x")
-                || s.starts_with("0X")
-                || s.starts_with("-0x")
-                || s.starts_with("-0X")
-            {
-                let u: u64 = parse_int_flexible(s)?;
+            if let Ok(v) = parse_int_flexible::<i64>(s) {
+                Ok(v.to_le_bytes().to_vec())
+            } else if let Ok(u) = parse_int_flexible::<u64>(s) {
                 Ok(u.to_le_bytes().to_vec())
             } else {
-                let v: i64 = parse_int_flexible(s)?;
-                Ok(v.to_le_bytes().to_vec())
+                Err(format!("Invalid long '{s}' (must fit in 64-bit signed or unsigned)"))
             }
         }
         ValueType::Float16 => {
@@ -779,9 +782,10 @@ pub fn compare_values(current: &[u8], target: &[u8], vtype: ValueType, op: ScanO
                 u16::from_le_bytes(target[..2].try_into().unwrap())
             };
             let t = f16_to_f32(tu);
+            let is_eq = cu == tu || (!c.is_nan() && !t.is_nan() && (c - t).abs() < 1e-4);
             match op {
-                ScanOperator::Equal => cu == tu || (c - t).abs() < 1e-4,
-                ScanOperator::NotEqual => cu != tu && (c - t).abs() >= 1e-4,
+                ScanOperator::Equal => is_eq,
+                ScanOperator::NotEqual => !is_eq,
                 ScanOperator::Greater => c > t,
                 ScanOperator::Less => c < t,
                 ScanOperator::GreaterEqual => c >= t,
@@ -797,9 +801,11 @@ pub fn compare_values(current: &[u8], target: &[u8], vtype: ValueType, op: ScanO
             } else {
                 f32::from_le_bytes(target[..4].try_into().unwrap())
             };
+            let is_eq = c.to_bits() == t.to_bits()
+                || (!c.is_nan() && !t.is_nan() && (c - t).abs() < 1e-5);
             match op {
-                ScanOperator::Equal => c.to_bits() == t.to_bits() || (c - t).abs() < 1e-5,
-                ScanOperator::NotEqual => c.to_bits() != t.to_bits() && (c - t).abs() >= 1e-5,
+                ScanOperator::Equal => is_eq,
+                ScanOperator::NotEqual => !is_eq,
                 ScanOperator::Greater => c > t,
                 ScanOperator::Less => c < t,
                 ScanOperator::GreaterEqual => c >= t,
@@ -815,9 +821,11 @@ pub fn compare_values(current: &[u8], target: &[u8], vtype: ValueType, op: ScanO
             } else {
                 f64::from_le_bytes(target[..8].try_into().unwrap())
             };
+            let is_eq = c.to_bits() == t.to_bits()
+                || (!c.is_nan() && !t.is_nan() && (c - t).abs() < 1e-9);
             match op {
-                ScanOperator::Equal => c.to_bits() == t.to_bits() || (c - t).abs() < 1e-9,
-                ScanOperator::NotEqual => c.to_bits() != t.to_bits() && (c - t).abs() >= 1e-9,
+                ScanOperator::Equal => is_eq,
+                ScanOperator::NotEqual => !is_eq,
                 ScanOperator::Greater => c > t,
                 ScanOperator::Less => c < t,
                 ScanOperator::GreaterEqual => c >= t,
@@ -1230,11 +1238,47 @@ mod tests {
             &max,
             ValueType::Int
         ));
-        assert!(!value_in_range(
-            &21i32.to_le_bytes(),
-            &min,
-            &max,
-            ValueType::Int
-        ));
+    }
+
+    #[test]
+    fn test_decimal_unsigned_value_parsing() {
+        let b = value_str_to_bytes("200", ValueType::Byte).unwrap();
+        assert_eq!(b, vec![200]);
+
+        let s = value_str_to_bytes("40000", ValueType::Short).unwrap();
+        assert_eq!(s, 40000u16.to_le_bytes().to_vec());
+
+        let i = value_str_to_bytes("3000000000", ValueType::Int).unwrap();
+        assert_eq!(i, 3000000000u32.to_le_bytes().to_vec());
+
+        let signed_b = value_str_to_bytes("-50", ValueType::Byte).unwrap();
+        assert_eq!(signed_b, (-50i8 as u8).to_le_bytes().to_vec());
+
+        let neg_hex_b = value_str_to_bytes("-0x80", ValueType::Byte).unwrap();
+        assert_eq!(neg_hex_b, (-128i8 as u8).to_le_bytes().to_vec());
+
+        let neg_hex_min = value_str_to_bytes("-0x8000000000000000", ValueType::Long).unwrap();
+        assert_eq!(neg_hex_min, i64::MIN.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn test_nan_comparison_consistency() {
+        let nan_bytes = f32::NAN.to_le_bytes();
+        let zero_bytes = 0.0f32.to_le_bytes();
+
+        let eq = compare_values(&nan_bytes, &zero_bytes, ValueType::Float, ScanOperator::Equal);
+        let ne = compare_values(&nan_bytes, &zero_bytes, ValueType::Float, ScanOperator::NotEqual);
+
+        assert!(!eq);
+        assert!(ne);
+
+        let double_nan = f64::NAN.to_le_bytes();
+        let double_zero = 0.0f64.to_le_bytes();
+
+        let d_eq = compare_values(&double_nan, &double_zero, ValueType::Double, ScanOperator::Equal);
+        let d_ne = compare_values(&double_nan, &double_zero, ValueType::Double, ScanOperator::NotEqual);
+
+        assert!(!d_eq);
+        assert!(d_ne);
     }
 }

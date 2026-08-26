@@ -30,11 +30,14 @@ pub struct MapsOptions {
     /// Requires write permission ('w')
     pub require_write: bool,
 
-    /// If true, considers swapped pages as valid for supported types (DATA/CD and LIBS/XA).
+    /// If true, considers swapped pages as valid.
     pub include_swapped: bool,
 
     /// Minimum region size in bytes.
     pub min_size: u64,
+
+    /// When true, merges contiguous adjacent regions with identical permissions and paths.
+    pub merge_adjacent: bool,
 }
 
 impl Default for MapsOptions {
@@ -44,12 +47,13 @@ impl Default for MapsOptions {
             require_write: false,
             include_swapped: true,
             min_size: 0,
+            merge_adjacent: true,
         }
     }
 }
 
 /// Configurable streaming parser for `/proc/<pid>/maps`.
-/// Implemented with minimal heap allocations per line.
+/// Implemented with minimal heap allocations per line and resilient lossy UTF-8 decoding.
 pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, String> {
     let maps_path = format!("/proc/{pid}/maps");
     let file = File::open(&maps_path).map_err(|e| format!("Cannot read {maps_path}: {e}"))?;
@@ -58,13 +62,22 @@ pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, Str
     let mut regions = Vec::with_capacity(1024);
 
     // Open pagemap once and reuse buffer and descriptor
-    let mut scanner = PagemapReader::new(pid);
-    let mut line = String::with_capacity(512);
+    let mut scanner = PagemapReader::new(pid)
+        .map_err(|e| format!("Cannot open pagemap for PID {pid}: {e}"))?;
+    let mut raw_line = Vec::with_capacity(512);
 
-    while reader.read_line(&mut line).unwrap_or(0) > 0 {
+    loop {
+        raw_line.clear();
+        let n = reader
+            .read_until(b'\n', &mut raw_line)
+            .map_err(|e| format!("Cannot read {maps_path}: {e}"))?;
+        if n == 0 {
+            break;
+        }
+
+        let line = String::from_utf8_lossy(&raw_line);
         let trimmed = line.trim();
         if trimmed.is_empty() {
-            line.clear();
             continue;
         }
 
@@ -72,40 +85,32 @@ pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, Str
         let mut tokens = trimmed.split_ascii_whitespace();
 
         let Some(addr_range) = tokens.next() else {
-            line.clear();
             continue;
         };
         let Some((start_str, end_str)) = addr_range.split_once('-') else {
-            line.clear();
             continue;
         };
 
         let Ok(start) = u64::from_str_radix(start_str, 16) else {
-            line.clear();
             continue;
         };
         let Ok(end) = u64::from_str_radix(end_str, 16) else {
-            line.clear();
             continue;
         };
 
         if end <= start {
-            line.clear();
             continue;
         }
 
         let Some(permissions) = tokens.next() else {
-            line.clear();
             continue;
         };
 
         if opts.require_read && !permissions.contains('r') {
-            line.clear();
             continue;
         }
 
         if opts.require_write && !permissions.contains('w') {
-            line.clear();
             continue;
         }
 
@@ -122,20 +127,18 @@ pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, Str
         let path = normalize_path(path_slice);
 
         if is_excluded_region(&path) {
-            line.clear();
             continue;
         }
 
         let size = end - start;
 
         if opts.min_size > 0 && size < opts.min_size {
-            line.clear();
             continue;
         }
 
-        // Swap rule: only "DATA" | "CD" and "LIBS" | "XA" support swap.
-        // All other regions strictly require PM_PRESENT (in RAM).
-        let pagemap_mask = if opts.include_swapped && region_supports_swap(&path) {
+        let pagemap_mask = if is_file_backed(&path) {
+            0
+        } else if opts.include_swapped && region_supports_swap(&path) {
             PM_PRESENT | PM_SWAP
         } else {
             PM_PRESENT
@@ -144,8 +147,7 @@ pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, Str
         // Pagemap check: apply to all regions except file-backed regions.
         let should_check = pagemap_mask != 0 && !is_file_backed(&path);
 
-        if should_check && !scanner.has_resident_pages(start, end, pagemap_mask) {
-            line.clear();
+        if should_check && !scanner.has_candidate_pages(start, end, pagemap_mask)? {
             continue;
         }
 
@@ -155,12 +157,49 @@ pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, Str
             permissions: permissions.to_string(),
             offset,
             path,
+            merged_count: 1,
         });
-
-        line.clear();
     }
 
-    Ok(regions)
+    if opts.merge_adjacent {
+        Ok(merge_adjacent_regions(regions))
+    } else {
+        Ok(regions)
+    }
+}
+
+/// Consolidates contiguous memory regions that have identical permissions,
+/// identical paths, and contiguous file offsets (for file-backed regions).
+pub fn merge_adjacent_regions(regions: Vec<MemoryRegion>) -> Vec<MemoryRegion> {
+    if regions.len() <= 1 {
+        return regions;
+    }
+
+    let mut merged = Vec::with_capacity(regions.len());
+    let mut iter = regions.into_iter();
+    let mut current = iter.next().unwrap();
+
+    for next in iter {
+        let is_adjacent = current.end == next.start;
+        let same_perms = current.permissions == next.permissions;
+        let same_path = current.path == next.path;
+        let offset_ok = if is_file_backed(&current.path) {
+            next.offset == current.offset.saturating_add(current.end - current.start)
+        } else {
+            true
+        };
+
+        if is_adjacent && same_perms && same_path && offset_ok {
+            current.end = next.end;
+            current.merged_count = current.merged_count.saturating_add(next.merged_count);
+        } else {
+            merged.push(current);
+            current = next;
+        }
+    }
+
+    merged.push(current);
+    merged
 }
 
 /// Extracts the path slice from the maps line without heap allocations.
@@ -186,30 +225,85 @@ fn extract_maps_path(line: &str) -> &str {
 }
 
 /// Checks whether a region supports swap.
-/// Only "DATA" | "CD" and "LIBS" | "XA" support swapped pages.
 pub fn region_supports_swap(path: &str) -> bool {
-    is_data_region(path) || is_libs_region(path)
+    if is_excluded_region(path) {
+        return false;
+    }
+
+    if is_file_backed(path) {
+        return false;
+    }
+
+    // Heap
+    if path == "[heap]" || path.starts_with("[heap") {
+        return true;
+    }
+
+    // Stack
+    if path.contains("[stack]") || path.contains("[stack:") {
+        return true;
+    }
+
+    // Allocators
+    if path.contains("[anon:libc_malloc]")
+        || path.contains("[anon:scudo:")
+        || path.contains("[anon:GWP-ASan]")
+        || path.contains("[anon:jemalloc]")
+        || path.contains("[anon:malloc]")
+    {
+        return true;
+    }
+
+    // BSS
+    if path.contains("[anon:.bss]") || path.contains("[anon:bss]") {
+        return true;
+    }
+
+    // Java heap / ART
+    if path.contains("/dev/ashmem/dalvik")
+        || path.contains("[anon:dalvik-")
+        || path.contains("[anon:art_")
+        || path.contains("[anon:main space]")
+        || path.contains("[anon:alloc space]")
+        || path.contains("[anon:region space]")
+        || path.contains("[anon:zygote")
+        || path.contains("[anon:large object space]")
+        || path.contains("[anon:non moving space]")
+    {
+        return true;
+    }
+
+    // Ashmem
+    if path.contains("/dev/ashmem") || path.contains("[anon:ashmem]") {
+        return true;
+    }
+
+    // memfd/shmem
+    if path.starts_with("/memfd:") {
+        return true;
+    }
+
+    // Anonymous
+    if path.is_empty() || path.starts_with("[anon:") {
+        return true;
+    }
+
+    false
 }
 
 #[inline]
 fn is_data_region(path: &str) -> bool {
-    (path.contains("/data/app/")
-        || path.contains("/data/data/")
-        || path.contains("/data/user/")
-        || path.contains("/data/user_de/")
-        || path.contains("/mnt/expand/"))
-        && !is_libs_region(path)
+    (path.starts_with("/data/app/")
+        || path.starts_with("/data/data/")
+        || path.starts_with("/data/user/")
+        || path.starts_with("/data/user_de/")
+        || path.starts_with("/mnt/expand/"))
+        && !is_native_libs_region(path)
 }
 
 #[inline]
-fn is_libs_region(path: &str) -> bool {
+fn is_native_libs_region(path: &str) -> bool {
     path.ends_with(".so")
-        || path.ends_with(".apk")
-        || path.ends_with(".odex")
-        || path.ends_with(".oat")
-        || path.ends_with(".vdex")
-        || path.ends_with(".art")
-        || path.ends_with(".jar")
 }
 
 /// Removes " (deleted)" suffix and extra whitespace.
@@ -249,9 +343,9 @@ fn is_excluded_region(path: &str) -> bool {
         return true;
     }
 
-    // Devices: most should not be read directly. Keep ashmem/memfd/dma_heap.
+    // Devices: exclude all /dev/ device nodes except /dev/ashmem.
     if p.starts_with("/dev/") {
-        if p.starts_with("/dev/ashmem") || p.contains("dma_heap") {
+        if p.starts_with("/dev/ashmem") {
             return false;
         }
         return true;
@@ -267,13 +361,10 @@ fn is_excluded_region(path: &str) -> bool {
 /// (anonymous memory, heap, stack, ashmem, memfd) are checked against pagemap.
 pub fn is_file_backed(path: &str) -> bool {
     let p = path.trim();
-    if p.is_empty() {
+    if p.is_empty() || p.starts_with('[') {
         return false;
     }
-    if p.starts_with('[') {
-        return false;
-    }
-    if p.starts_with("/dev/ashmem") || p.starts_with("/memfd:") {
+    if p.starts_with("/dev/") || p.starts_with("/memfd:") {
         return false;
     }
     p.starts_with('/')
@@ -296,27 +387,32 @@ pub fn get_module_base_opt(pid: u32, module_name: &str) -> Result<Option<u64>, S
     let mut reader = BufReader::with_capacity(32 * 1024, file);
 
     let mut fallback_base: Option<u64> = None;
-    let mut line = String::with_capacity(512);
+    let mut raw_line = Vec::with_capacity(512);
 
-    while reader.read_line(&mut line).unwrap_or(0) > 0 {
+    loop {
+        raw_line.clear();
+        let n = reader
+            .read_until(b'\n', &mut raw_line)
+            .map_err(|e| format!("Cannot read {maps_path}: {e}"))?;
+        if n == 0 {
+            break;
+        }
+
+        let line = String::from_utf8_lossy(&raw_line);
         let trimmed = line.trim();
         if trimmed.is_empty() {
-            line.clear();
             continue;
         }
 
         let mut tokens = trimmed.split_ascii_whitespace();
 
         let Some(addr_range) = tokens.next() else {
-            line.clear();
             continue;
         };
         let Some((start_str, _)) = addr_range.split_once('-') else {
-            line.clear();
             continue;
         };
         let Ok(start) = u64::from_str_radix(start_str, 16) else {
-            line.clear();
             continue;
         };
 
@@ -337,7 +433,6 @@ pub fn get_module_base_opt(pid: u32, module_name: &str) -> Result<Option<u64>, S
                 fallback_base = Some(start);
             }
         }
-        line.clear();
     }
 
     Ok(fallback_base)
@@ -349,8 +444,8 @@ pub fn path_matches_module(path: &str, module_name: &str) -> bool {
         return false;
     }
 
-    let norm = normalize_path(path);
-    let p = norm.as_str();
+    let p = path.trim();
+    let p = p.strip_suffix(" (deleted)").unwrap_or(p).trim();
 
     // Complete or partial path match
     if mod_clean.contains('/') {
@@ -444,6 +539,7 @@ fn match_filter_type(ft: &str, path: &str, custom: Option<&str>) -> bool {
                 || path.contains("[anon:art_")
                 || path.contains("[anon:main space]")
                 || path.contains("[anon:alloc space]")
+                || path.contains("[anon:region space]")
                 || path.contains("[anon:zygote")
                 || path.contains("[anon:large object space]")
                 || path.contains("[anon:non moving space]")
@@ -466,7 +562,9 @@ fn match_filter_type(ft: &str, path: &str, custom: Option<&str>) -> bool {
 
         "ASHMEM" | "AS" => path.contains("/dev/ashmem") || path.contains("[anon:ashmem]"),
 
-        "LIBS" | "XA" => is_libs_region(path),
+        "NATIVE_LIBS" | "NL" => is_native_libs_region(path),
+
+        "FILES" | "F" => is_file_backed(path),
 
         "CUSTOM" => custom.is_some_and(|cf| path.contains(cf)),
 
@@ -492,6 +590,7 @@ mod tests {
         assert!(!is_file_backed("[anon:.bss]"));
         assert!(!is_file_backed("/dev/ashmem"));
         assert!(!is_file_backed("/dev/ashmem/dalvik-LinearAlloc"));
+        assert!(!is_file_backed("/dev/dma_heap/system"));
         assert!(!is_file_backed("/memfd:jit-cache"));
 
         // File-backed regions: must return true
@@ -512,5 +611,137 @@ mod tests {
         assert!(!opts.require_write);
         assert!(opts.include_swapped);
         assert_eq!(opts.min_size, 0);
+        assert!(opts.merge_adjacent);
+    }
+
+    #[test]
+    fn test_path_matches_module() {
+        assert!(path_matches_module("/system/lib64/libunity.so", "libunity.so"));
+        assert!(path_matches_module("/system/lib64/libunity.so", "libunity"));
+        assert!(path_matches_module("/system/lib64/libunity.so (deleted)", "libunity"));
+        assert!(path_matches_module("/data/app/base.apk", "base.apk"));
+        assert!(!path_matches_module("/system/lib64/libunity_extra.so", "libunity"));
+    }
+
+    #[test]
+    fn test_match_filter_type_java_heap() {
+        assert!(match_filter_type("JAVA_HEAP", "[anon:dalvik-main space]", None));
+        assert!(match_filter_type("JAVA_HEAP", "[anon:region space]", None));
+        assert!(match_filter_type("JH", "/dev/ashmem/dalvik-LinearAlloc", None));
+    }
+
+    #[test]
+    fn test_merge_adjacent_regions_anon() {
+        let regions = vec![
+            MemoryRegion {
+                start: 0x1000,
+                end: 0x2000,
+                permissions: "rw-p".to_string(),
+                offset: 0,
+                path: "[anon:scudo:primary]".to_string(),
+                merged_count: 1,
+            },
+            MemoryRegion {
+                start: 0x2000,
+                end: 0x5000,
+                permissions: "rw-p".to_string(),
+                offset: 0,
+                path: "[anon:scudo:primary]".to_string(),
+                merged_count: 1,
+            },
+            MemoryRegion {
+                start: 0x5000,
+                end: 0x8000,
+                permissions: "rw-p".to_string(),
+                offset: 0,
+                path: "[anon:scudo:primary]".to_string(),
+                merged_count: 1,
+            },
+        ];
+
+        let merged = merge_adjacent_regions(regions);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].start, 0x1000);
+        assert_eq!(merged[0].end, 0x8000);
+        assert_eq!(merged[0].merged_count, 3);
+        assert_eq!(merged[0].permissions, "rw-p");
+        assert_eq!(merged[0].path, "[anon:scudo:primary]");
+    }
+
+    #[test]
+    fn test_merge_adjacent_regions_different_perms_not_merged() {
+        let regions = vec![
+            MemoryRegion {
+                start: 0x1000,
+                end: 0x2000,
+                permissions: "r--p".to_string(),
+                offset: 0,
+                path: "/system/lib64/libc.so".to_string(),
+                merged_count: 1,
+            },
+            MemoryRegion {
+                start: 0x2000,
+                end: 0x3000,
+                permissions: "r-xp".to_string(),
+                offset: 0x1000,
+                path: "/system/lib64/libc.so".to_string(),
+                merged_count: 1,
+            },
+        ];
+
+        let merged = merge_adjacent_regions(regions);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].merged_count, 1);
+        assert_eq!(merged[1].merged_count, 1);
+    }
+
+    #[test]
+    fn test_merge_adjacent_regions_non_contiguous_not_merged() {
+        let regions = vec![
+            MemoryRegion {
+                start: 0x1000,
+                end: 0x2000,
+                permissions: "rw-p".to_string(),
+                offset: 0,
+                path: "[heap]".to_string(),
+                merged_count: 1,
+            },
+            MemoryRegion {
+                start: 0x3000, // Gap of 0x1000
+                end: 0x4000,
+                permissions: "rw-p".to_string(),
+                offset: 0,
+                path: "[heap]".to_string(),
+                merged_count: 1,
+            },
+        ];
+
+        let merged = merge_adjacent_regions(regions);
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn test_merge_adjacent_regions_file_backed_offset_mismatch() {
+        let regions = vec![
+            MemoryRegion {
+                start: 0x1000,
+                end: 0x2000,
+                permissions: "r--p".to_string(),
+                offset: 0,
+                path: "/data/app/base.apk".to_string(),
+                merged_count: 1,
+            },
+            MemoryRegion {
+                start: 0x2000,
+                end: 0x3000,
+                permissions: "r--p".to_string(),
+                offset: 0x5000, // Offset does not match 0x1000 (0 + 0x1000)
+                path: "/data/app/base.apk".to_string(),
+                merged_count: 1,
+            },
+        ];
+
+        let merged = merge_adjacent_regions(regions);
+        assert_eq!(merged.len(), 2);
     }
 }

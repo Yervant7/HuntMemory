@@ -23,42 +23,6 @@ use crate::types::*;
 
 const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4MB chunks per read
 
-/// Helper for reading memory blocks with subdividing fallback
-/// to ensure regions with sparse or non-resident pages are read properly.
-#[inline]
-fn read_region_chunk_robust(
-    pid: u32,
-    addr: u64,
-    len: usize,
-    buf: &mut Vec<u8>,
-    valid_blocks: &mut Vec<(u64, usize, usize)>, // (block_addr, block_len, buf_offset)
-) {
-    valid_blocks.clear();
-    if buf.len() < len {
-        buf.resize(len, 0);
-    }
-
-    if kpm::read_memory(pid, addr, &mut buf[..len]).is_ok() {
-        valid_blocks.push((addr, len, 0));
-        return;
-    }
-
-    // If large block read fails (e.g. sparse pages in between),
-    // retry with smaller chunks of 64 KiB
-    const SUB_CHUNK: usize = 64 * 1024;
-    let mut sub_addr = addr;
-    let end_addr = addr + len as u64;
-
-    while sub_addr < end_addr {
-        let sub_len = ((end_addr - sub_addr) as usize).min(SUB_CHUNK);
-        let off = (sub_addr - addr) as usize;
-        if kpm::read_memory(pid, sub_addr, &mut buf[off..off + sub_len]).is_ok() {
-            valid_blocks.push((sub_addr, sub_len, off));
-        }
-        sub_addr += sub_len as u64;
-    }
-}
-
 /// First scan: read regions and find matching values across multiple types, returning compact matches
 pub fn scan_regions(
     pid: u32,
@@ -97,6 +61,11 @@ pub fn scan_regions(
         .map(|(vt, _)| vt.size())
         .min()
         .unwrap_or(4);
+    let max_step = valid_targets
+        .iter()
+        .map(|(vt, _)| vt.size())
+        .max()
+        .unwrap_or(8);
     let estimated = regions
         .iter()
         .map(|r| r.end.saturating_sub(r.start))
@@ -106,7 +75,8 @@ pub fn scan_regions(
     let mut matches = Vec::with_capacity(estimated.min(131_072));
     let mut offsets_buf: Vec<usize> = Vec::new();
     let mut chunk_buf: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
-    let mut valid_blocks: Vec<(u64, usize, usize)> = Vec::new();
+    let mut pagemap = crate::pagemap::PagemapReader::new(pid)
+        .map_err(|e| format!("Failed to initialize pagemap reader for PID {pid}: {e}"))?;
 
     for (region_idx, region) in regions.iter().enumerate() {
         let mut addr = region.start;
@@ -116,48 +86,68 @@ pub fn scan_regions(
                 break;
             }
 
-            read_region_chunk_robust(pid, addr, chunk_len, &mut chunk_buf, &mut valid_blocks);
+            let present_ranges = pagemap.get_present_ranges(
+                addr,
+                addr + chunk_len as u64,
+                crate::pagemap::PM_PRESENT,
+            )?;
 
-            for &(block_addr, block_len, buf_off) in &valid_blocks {
-                let block_data = &chunk_buf[buf_off..buf_off + block_len];
+            for (start_addr, end_addr) in present_ranges {
+                let range_len = (end_addr - start_addr) as usize;
+                if range_len < min_step {
+                    continue;
+                }
 
-                for (vt, target_bytes) in &valid_targets {
-                    let step = vt.size();
-                    if block_len < step {
-                        continue;
-                    }
+                if chunk_buf.len() < range_len {
+                    chunk_buf.resize(range_len, 0);
+                }
 
-                    if operator == ScanOperator::Unknown {
-                        let mut off = 0;
-                        while off + step <= block_len {
-                            let match_addr = block_addr + off as u64;
-                            let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
-                            matches.push(CompactMatch {
-                                address: match_addr,
-                                raw_value: raw_val,
-                                region_idx: region_idx as u32,
-                                value_type: *vt,
-                            });
-                            off += step;
+                if crate::kpm::read_memory(pid, start_addr, &mut chunk_buf[..range_len]).is_ok() {
+                    let block_data = &chunk_buf[..range_len];
+
+                    for (vt, target_bytes) in &valid_targets {
+                        let step = vt.size();
+                        if range_len < step {
+                            continue;
                         }
-                    } else {
-                        offsets_buf.clear();
-                        scan_buffer_to(block_data, target_bytes, *vt, operator, &mut offsets_buf);
-                        for &off in &offsets_buf {
-                            let match_addr = block_addr + off as u64;
-                            let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
-                            matches.push(CompactMatch {
-                                address: match_addr,
-                                raw_value: raw_val,
-                                region_idx: region_idx as u32,
-                                value_type: *vt,
-                            });
+
+                        if operator == ScanOperator::Unknown {
+                            let mut off = 0;
+                            while off + step <= range_len {
+                                let match_addr = start_addr + off as u64;
+                                let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
+                                matches.push(CompactMatch {
+                                    address: match_addr,
+                                    raw_value: raw_val,
+                                    region_idx: region_idx as u32,
+                                    value_type: *vt,
+                                });
+                                off += step;
+                            }
+                        } else {
+                            offsets_buf.clear();
+                            scan_buffer_to(block_data, target_bytes, *vt, operator, &mut offsets_buf);
+                            for &off in &offsets_buf {
+                                let match_addr = start_addr + off as u64;
+                                let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
+                                matches.push(CompactMatch {
+                                    address: match_addr,
+                                    raw_value: raw_val,
+                                    region_idx: region_idx as u32,
+                                    value_type: *vt,
+                                });
+                            }
                         }
                     }
                 }
             }
 
-            addr += chunk_len as u64;
+            let overlap = if addr + (chunk_len as u64) < region.end {
+                max_step.saturating_sub(1)
+            } else {
+                0
+            };
+            addr += (chunk_len.saturating_sub(overlap).max(1)) as u64;
         }
     }
 
@@ -166,6 +156,7 @@ pub fn scan_regions(
             .cmp(&b.address)
             .then_with(|| a.value_type.size().cmp(&b.value_type.size()))
     });
+    matches.dedup_by(|a, b| a.address == b.address && a.value_type == b.value_type);
 
     Ok(ScanSession {
         regions: regions.to_vec(),
@@ -271,9 +262,18 @@ pub fn scan_buffer_to(
                 }
             }
             ValueType::Double => {
-                if op == ScanOperator::Equal {
-                    let v = f64::from_le_bytes(target[..8].try_into().unwrap());
-                    scan_buffer_f64_eq_neon(data, v, results);
+                let v = f64::from_le_bytes(target[..8].try_into().unwrap());
+                let neon_op = match op {
+                    ScanOperator::Equal => Some(NeonOp::Eq),
+                    ScanOperator::NotEqual => Some(NeonOp::Ne),
+                    ScanOperator::Greater => Some(NeonOp::Gt),
+                    ScanOperator::Less => Some(NeonOp::Lt),
+                    ScanOperator::GreaterEqual => Some(NeonOp::Ge),
+                    ScanOperator::LessEqual => Some(NeonOp::Le),
+                    _ => None,
+                };
+                if let Some(nop) = neon_op {
+                    scan_buffer_f64_neon(data, v, nop, results);
                     return;
                 }
             }
@@ -571,7 +571,7 @@ fn scan_buffer_f32_neon(data: &[u8], target_val: f32, op: NeonOp, results: &mut 
 }
 
 #[cfg(target_arch = "aarch64")]
-fn scan_buffer_f64_eq_neon(data: &[u8], target_val: f64, results: &mut Vec<usize>) {
+fn scan_buffer_f64_neon(data: &[u8], target_val: f64, op: NeonOp, results: &mut Vec<usize>) {
     use std::arch::aarch64::*;
     const STEP: usize = 8;
     let len = data.len();
@@ -583,8 +583,21 @@ fn scan_buffer_f64_eq_neon(data: &[u8], target_val: f64, results: &mut Vec<usize
         while offset + 16 <= len {
             let ptr = data.as_ptr().add(offset) as *const f64;
             let chunk = vld1q_f64(ptr);
-            let diff = vabdq_f64(chunk, target_vec);
-            let mask = vcltq_f64(diff, eps_vec);
+            let mask = match op {
+                NeonOp::Eq => {
+                    let diff = vabdq_f64(chunk, target_vec);
+                    vcltq_f64(diff, eps_vec)
+                }
+                NeonOp::Ne => {
+                    let diff = vabdq_f64(chunk, target_vec);
+                    vcgeq_f64(diff, eps_vec)
+                }
+                NeonOp::Gt => vcgtq_f64(chunk, target_vec),
+                NeonOp::Lt => vcltq_f64(chunk, target_vec),
+                NeonOp::Ge => vcgeq_f64(chunk, target_vec),
+                NeonOp::Le => vcleq_f64(chunk, target_vec),
+            };
+
             let mask_u32 = vreinterpretq_u32_u64(mask);
             if vmaxvq_u32(mask_u32) != 0 {
                 let mut mask_arr = [0u64; 2];
@@ -600,7 +613,15 @@ fn scan_buffer_f64_eq_neon(data: &[u8], target_val: f64, results: &mut Vec<usize
 
         while offset + STEP <= len {
             let val = f64::from_le_bytes(data[offset..offset + STEP].try_into().unwrap());
-            if (val - target_val).abs() < 1e-9 {
+            let hit = match op {
+                NeonOp::Eq => (val - target_val).abs() < 1e-9,
+                NeonOp::Ne => (val - target_val).abs() >= 1e-9,
+                NeonOp::Gt => val > target_val,
+                NeonOp::Lt => val < target_val,
+                NeonOp::Ge => val >= target_val,
+                NeonOp::Le => val <= target_val,
+            };
+            if hit {
                 results.push(offset);
             }
             offset += STEP;
@@ -622,21 +643,40 @@ pub fn scan_buffer_obscured32(data: &[u8], target_bits: u32, results: &mut Vec<u
     unsafe {
         use std::arch::aarch64::*;
         let target_vec = vdupq_n_u32(target_bits);
-        while offset + 32 <= len {
+        // Requires 36 bytes (8 u32 pairs starting at offset, plus 1 u32 offset for the odd pass)
+        while offset + 36 <= len {
             let ptr = data.as_ptr().add(offset) as *const u32;
-            let pairs = vld2q_u32(ptr);
-            let xored = veorq_u32(pairs.0, pairs.1);
-            let mask = vceqq_u32(xored, target_vec);
 
-            if vmaxvq_u32(mask) != 0 {
+            // Pass 1: Even offsets (offset + 0, 8, 16, 24)
+            let pairs_even = vld2q_u32(ptr);
+            let xored_even = veorq_u32(pairs_even.0, pairs_even.1);
+            let mask_even = vceqq_u32(xored_even, target_vec);
+
+            if vmaxvq_u32(mask_even) != 0 {
                 let mut mask_arr = [0u32; 4];
-                vst1q_u32(mask_arr.as_mut_ptr(), mask);
+                vst1q_u32(mask_arr.as_mut_ptr(), mask_even);
                 for (i, &m) in mask_arr.iter().enumerate() {
                     if m != 0 {
                         results.push(offset + i * 8);
                     }
                 }
             }
+
+            // Pass 2: Odd offsets (offset + 4, 12, 20, 28)
+            let pairs_odd = vld2q_u32(ptr.add(1));
+            let xored_odd = veorq_u32(pairs_odd.0, pairs_odd.1);
+            let mask_odd = vceqq_u32(xored_odd, target_vec);
+
+            if vmaxvq_u32(mask_odd) != 0 {
+                let mut mask_arr = [0u32; 4];
+                vst1q_u32(mask_arr.as_mut_ptr(), mask_odd);
+                for (i, &m) in mask_arr.iter().enumerate() {
+                    if m != 0 {
+                        results.push(offset + 4 + i * 8);
+                    }
+                }
+            }
+
             offset += 32;
         }
     }
@@ -661,21 +701,40 @@ pub fn scan_buffer_obscured64(data: &[u8], target_bits: u64, results: &mut Vec<u
     unsafe {
         use std::arch::aarch64::*;
         let target_vec = vdupq_n_u64(target_bits);
-        while offset + 32 <= len {
+        // Requires 40 bytes (4 u64 pairs starting at offset, plus 1 u64 offset for the odd pass)
+        while offset + 40 <= len {
             let ptr = data.as_ptr().add(offset) as *const u64;
-            let pairs = vld2q_u64(ptr);
-            let xored = veorq_u64(pairs.0, pairs.1);
-            let mask = vceqq_u64(xored, target_vec);
 
-            if vmaxvq_u32(vreinterpretq_u32_u64(mask)) != 0 {
+            // Pass 1: Even offsets (offset + 0, 16)
+            let pairs_even = vld2q_u64(ptr);
+            let xored_even = veorq_u64(pairs_even.0, pairs_even.1);
+            let mask_even = vceqq_u64(xored_even, target_vec);
+
+            if vmaxvq_u32(vreinterpretq_u32_u64(mask_even)) != 0 {
                 let mut mask_arr = [0u64; 2];
-                vst1q_u64(mask_arr.as_mut_ptr(), mask);
+                vst1q_u64(mask_arr.as_mut_ptr(), mask_even);
                 for (i, &m) in mask_arr.iter().enumerate() {
                     if m != 0 {
                         results.push(offset + i * 16);
                     }
                 }
             }
+
+            // Pass 2: Odd offsets (offset + 8, 24)
+            let pairs_odd = vld2q_u64(ptr.add(1));
+            let xored_odd = veorq_u64(pairs_odd.0, pairs_odd.1);
+            let mask_odd = vceqq_u64(xored_odd, target_vec);
+
+            if vmaxvq_u32(vreinterpretq_u32_u64(mask_odd)) != 0 {
+                let mut mask_arr = [0u64; 2];
+                vst1q_u64(mask_arr.as_mut_ptr(), mask_odd);
+                for (i, &m) in mask_arr.iter().enumerate() {
+                    if m != 0 {
+                        results.push(offset + 8 + i * 16);
+                    }
+                }
+            }
+
             offset += 32;
         }
     }
@@ -728,7 +787,8 @@ pub fn scan_obscured(
     let mut matches = Vec::with_capacity(estimated.min(131_072));
     let mut offsets_buf = Vec::new();
     let mut chunk_buf: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
-    let mut valid_blocks: Vec<(u64, usize, usize)> = Vec::new();
+    let mut pagemap = crate::pagemap::PagemapReader::new(pid)
+        .map_err(|e| format!("Failed to initialize pagemap reader for PID {pid}: {e}"))?;
 
     let target_vtype = match obscured_type {
         ObscuredType::ObscuredInt => ValueType::Int,
@@ -745,43 +805,61 @@ pub fn scan_obscured(
                 break;
             }
 
-            read_region_chunk_robust(pid, addr, chunk_len, &mut chunk_buf, &mut valid_blocks);
+            let present_ranges = pagemap.get_present_ranges(
+                addr,
+                addr + chunk_len as u64,
+                crate::pagemap::PM_PRESENT,
+            )?;
 
-            for &(block_addr, block_len, buf_off) in &valid_blocks {
-                let block_data = &chunk_buf[buf_off..buf_off + block_len];
-                if block_len < step {
+            for (start_addr, end_addr) in present_ranges {
+                let range_len = (end_addr - start_addr) as usize;
+                if range_len < step {
                     continue;
                 }
 
-                offsets_buf.clear();
-                if let Some(t32) = target_bits32 {
-                    scan_buffer_obscured32(block_data, t32, &mut offsets_buf);
-                } else if let Some(t64) = target_bits64 {
-                    scan_buffer_obscured64(block_data, t64, &mut offsets_buf);
+                if chunk_buf.len() < range_len {
+                    chunk_buf.resize(range_len, 0);
                 }
 
-                for &off in &offsets_buf {
-                    let match_addr = block_addr + off as u64;
-                    let raw_val = if let Some(t32) = target_bits32 {
-                        t32 as u64
-                    } else {
-                        target_bits64.unwrap_or(0)
-                    };
+                if crate::kpm::read_memory(pid, start_addr, &mut chunk_buf[..range_len]).is_ok() {
+                    let block_data = &chunk_buf[..range_len];
 
-                    matches.push(CompactMatch {
-                        address: match_addr,
-                        raw_value: raw_val,
-                        region_idx: region_idx as u32,
-                        value_type: target_vtype,
-                    });
+                    offsets_buf.clear();
+                    if let Some(t32) = target_bits32 {
+                        scan_buffer_obscured32(block_data, t32, &mut offsets_buf);
+                    } else if let Some(t64) = target_bits64 {
+                        scan_buffer_obscured64(block_data, t64, &mut offsets_buf);
+                    }
+
+                    for &off in &offsets_buf {
+                        let match_addr = start_addr + off as u64;
+                        let raw_val = if let Some(t32) = target_bits32 {
+                            t32 as u64
+                        } else {
+                            target_bits64.unwrap_or(0)
+                        };
+
+                        matches.push(CompactMatch {
+                            address: match_addr,
+                            raw_value: raw_val,
+                            region_idx: region_idx as u32,
+                            value_type: target_vtype,
+                        });
+                    }
                 }
             }
 
-            addr += chunk_len as u64;
+            let overlap = if addr + (chunk_len as u64) < region.end {
+                step.saturating_sub(1)
+            } else {
+                0
+            };
+            addr += (chunk_len.saturating_sub(overlap).max(1)) as u64;
         }
     }
 
     matches.sort_by_key(|m| m.address);
+    matches.dedup_by(|a, b| a.address == b.address && a.value_type == b.value_type);
 
     Ok(ScanSession {
         regions: regions.to_vec(),
@@ -840,7 +918,8 @@ pub fn scan_big_double(
     let mut matches = Vec::with_capacity(estimated.min(131_072));
     let mut offsets_buf = Vec::new();
     let mut chunk_buf: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
-    let mut valid_blocks: Vec<(u64, usize, usize)> = Vec::new();
+    let mut pagemap = crate::pagemap::PagemapReader::new(pid)
+        .map_err(|e| format!("Failed to initialize pagemap reader for PID {pid}: {e}"))?;
 
     for (region_idx, region) in regions.iter().enumerate() {
         let mut addr = region.start;
@@ -850,35 +929,52 @@ pub fn scan_big_double(
                 break;
             }
 
-            read_region_chunk_robust(pid, addr, chunk_len, &mut chunk_buf, &mut valid_blocks);
+            let present_ranges = pagemap.get_present_ranges(
+                addr,
+                addr + chunk_len as u64,
+                crate::pagemap::PM_PRESENT,
+            )?;
 
-            for &(block_addr, block_len, buf_off) in &valid_blocks {
-                let block_data = &chunk_buf[buf_off..buf_off + block_len];
-                if block_len < step {
+            for (start_addr, end_addr) in present_ranges {
+                let range_len = (end_addr - start_addr) as usize;
+                if range_len < step {
                     continue;
                 }
 
-                offsets_buf.clear();
-                scan_buffer_big_double_to(block_data, &target, &mut offsets_buf);
+                if chunk_buf.len() < range_len {
+                    chunk_buf.resize(range_len, 0);
+                }
 
-                for &off in &offsets_buf {
-                    let match_addr = block_addr + off as u64;
-                    let raw_val = target.mantissa.to_bits();
+                if crate::kpm::read_memory(pid, start_addr, &mut chunk_buf[..range_len]).is_ok() {
+                    let block_data = &chunk_buf[..range_len];
+                    offsets_buf.clear();
+                    scan_buffer_big_double_to(block_data, &target, &mut offsets_buf);
 
-                    matches.push(CompactMatch {
-                        address: match_addr,
-                        raw_value: raw_val,
-                        region_idx: region_idx as u32,
-                        value_type: ValueType::Double,
-                    });
+                    for &off in &offsets_buf {
+                        let match_addr = start_addr + off as u64;
+                        let raw_val = target.mantissa.to_bits();
+
+                        matches.push(CompactMatch {
+                            address: match_addr,
+                            raw_value: raw_val,
+                            region_idx: region_idx as u32,
+                            value_type: ValueType::Double,
+                        });
+                    }
                 }
             }
 
-            addr += chunk_len as u64;
+            let overlap = if addr + (chunk_len as u64) < region.end {
+                step.saturating_sub(1)
+            } else {
+                0
+            };
+            addr += (chunk_len.saturating_sub(overlap).max(1)) as u64;
         }
     }
 
     matches.sort_by_key(|m| m.address);
+    matches.dedup_by(|a, b| a.address == b.address && a.value_type == b.value_type);
 
     Ok(ScanSession {
         regions: regions.to_vec(),
@@ -926,6 +1022,11 @@ pub fn scan_range(
         .map(|(vt, _, _)| vt.size())
         .min()
         .unwrap_or(4);
+    let max_step = valid_targets
+        .iter()
+        .map(|(vt, _, _)| vt.size())
+        .max()
+        .unwrap_or(8);
     let estimated = regions
         .iter()
         .map(|r| r.end.saturating_sub(r.start))
@@ -935,7 +1036,8 @@ pub fn scan_range(
     let mut matches = Vec::with_capacity(estimated.min(131_072));
     let mut offsets_buf: Vec<usize> = Vec::new();
     let mut chunk_buf: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
-    let mut valid_blocks: Vec<(u64, usize, usize)> = Vec::new();
+    let mut pagemap = crate::pagemap::PagemapReader::new(pid)
+        .map_err(|e| format!("Failed to initialize pagemap reader for PID {pid}: {e}"))?;
 
     for (region_idx, region) in regions.iter().enumerate() {
         let mut addr = region.start;
@@ -945,34 +1047,54 @@ pub fn scan_range(
                 break;
             }
 
-            read_region_chunk_robust(pid, addr, chunk_len, &mut chunk_buf, &mut valid_blocks);
+            let present_ranges = pagemap.get_present_ranges(
+                addr,
+                addr + chunk_len as u64,
+                crate::pagemap::PM_PRESENT,
+            )?;
 
-            for &(block_addr, block_len, buf_off) in &valid_blocks {
-                let block_data = &chunk_buf[buf_off..buf_off + block_len];
+            for (start_addr, end_addr) in present_ranges {
+                let range_len = (end_addr - start_addr) as usize;
+                if range_len < min_step {
+                    continue;
+                }
 
-                for (vt, min_bytes, max_bytes) in &valid_targets {
-                    let step = vt.size();
-                    if block_len < step {
-                        continue;
-                    }
+                if chunk_buf.len() < range_len {
+                    chunk_buf.resize(range_len, 0);
+                }
 
-                    offsets_buf.clear();
-                    scan_range_buffer_to(block_data, min_bytes, max_bytes, *vt, &mut offsets_buf);
+                if crate::kpm::read_memory(pid, start_addr, &mut chunk_buf[..range_len]).is_ok() {
+                    let block_data = &chunk_buf[..range_len];
 
-                    for &off in &offsets_buf {
-                        let match_addr = block_addr + off as u64;
-                        let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
-                        matches.push(CompactMatch {
-                            address: match_addr,
-                            raw_value: raw_val,
-                            region_idx: region_idx as u32,
-                            value_type: *vt,
-                        });
+                    for (vt, min_bytes, max_bytes) in &valid_targets {
+                        let step = vt.size();
+                        if range_len < step {
+                            continue;
+                        }
+
+                        offsets_buf.clear();
+                        scan_range_buffer_to(block_data, min_bytes, max_bytes, *vt, &mut offsets_buf);
+
+                        for &off in &offsets_buf {
+                            let match_addr = start_addr + off as u64;
+                            let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
+                            matches.push(CompactMatch {
+                                address: match_addr,
+                                raw_value: raw_val,
+                                region_idx: region_idx as u32,
+                                value_type: *vt,
+                            });
+                        }
                     }
                 }
             }
 
-            addr += chunk_len as u64;
+            let overlap = if addr + (chunk_len as u64) < region.end {
+                max_step.saturating_sub(1)
+            } else {
+                0
+            };
+            addr += (chunk_len.saturating_sub(overlap).max(1)) as u64;
         }
     }
 
@@ -981,6 +1103,7 @@ pub fn scan_range(
             .cmp(&b.address)
             .then_with(|| a.value_type.size().cmp(&b.value_type.size()))
     });
+    matches.dedup_by(|a, b| a.address == b.address && a.value_type == b.value_type);
 
     Ok(ScanSession {
         regions: regions.to_vec(),
@@ -1038,7 +1161,8 @@ pub fn scan_group(
     let mut matches = Vec::with_capacity(estimated.min(131_072));
     let mut first_match_offsets = Vec::new();
     let mut chunk_buf: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
-    let mut valid_blocks: Vec<(u64, usize, usize)> = Vec::new();
+    let mut pagemap = crate::pagemap::PagemapReader::new(pid)
+        .map_err(|e| format!("Failed to initialize pagemap reader for PID {pid}: {e}"))?;
 
     for (region_idx, region) in regions.iter().enumerate() {
         let mut addr = region.start;
@@ -1050,87 +1174,106 @@ pub fn scan_group(
                 break;
             }
 
-            read_region_chunk_robust(pid, addr, chunk_len, &mut chunk_buf, &mut valid_blocks);
+            let present_ranges = pagemap.get_present_ranges(
+                addr,
+                addr + chunk_len as u64,
+                crate::pagemap::PM_PRESENT,
+            )?;
 
-            for &(block_addr, block_len, buf_off) in &valid_blocks {
-                let mut data = chunk_buf[buf_off..buf_off + block_len].to_vec();
-
-                let overlap_len = overlap_buffer.len();
-                if !overlap_buffer.is_empty() {
-                    let mut full_data = overlap_buffer.clone();
-                    full_data.extend_from_slice(&data);
-                    data = full_data;
+            for (start_addr, end_addr) in present_ranges {
+                let range_len = (end_addr - start_addr) as usize;
+                if range_len < first_step && overlap_buffer.is_empty() {
+                    continue;
                 }
 
-                let effective_start_addr = block_addr.saturating_sub(overlap_len as u64);
-                let processable_len = if addr + chunk_len as u64 == region.end {
-                    data.len()
-                } else {
-                    data.len().saturating_sub(distance + remaining_size)
-                };
+                if chunk_buf.len() < range_len {
+                    chunk_buf.resize(range_len, 0);
+                }
 
-                first_match_offsets.clear();
-                scan_buffer_to(
-                    &data[..processable_len.min(data.len())],
-                    &first_item.target_bytes,
-                    first_item.value_type,
-                    ScanOperator::Equal,
-                    &mut first_match_offsets,
-                );
+                if crate::kpm::read_memory(pid, start_addr, &mut chunk_buf[..range_len]).is_ok() {
+                    let block_slice = &chunk_buf[..range_len];
 
-                for &first_off in &first_match_offsets {
-                    let search_end = first_off
-                        .saturating_add(distance)
-                        .saturating_add(remaining_size)
-                        .min(data.len());
+                    let (data_cow, overlap_len): (std::borrow::Cow<[u8]>, usize) = if overlap_buffer.is_empty() {
+                        (std::borrow::Cow::Borrowed(block_slice), 0)
+                    } else {
+                        let mut full = overlap_buffer.clone();
+                        full.extend_from_slice(block_slice);
+                        let olen = overlap_buffer.len();
+                        (std::borrow::Cow::Owned(full), olen)
+                    };
+                    let data = &data_cow[..];
 
-                    let mut all_found = true;
-                    let mut prev_off = first_off;
+                    let effective_start_addr = start_addr.saturating_sub(overlap_len as u64);
+                    let processable_len = if addr + chunk_len as u64 == region.end {
+                        data.len()
+                    } else {
+                        data.len().saturating_sub(distance + remaining_size)
+                    };
 
-                    for rem_item in remaining_items {
-                        let mut found = false;
-                        let rem_step = rem_item.value_type.size();
-                        let mut scan_off = prev_off + first_step;
+                    first_match_offsets.clear();
+                    scan_buffer_to(
+                        &data[..processable_len.min(data.len())],
+                        &first_item.target_bytes,
+                        first_item.value_type,
+                        ScanOperator::Equal,
+                        &mut first_match_offsets,
+                    );
 
-                        while scan_off + rem_step <= search_end {
-                            if compare_values(
-                                &data[scan_off..scan_off + rem_step],
-                                &rem_item.target_bytes,
-                                rem_item.value_type,
-                                ScanOperator::Equal,
-                            ) {
-                                found = true;
-                                prev_off = scan_off;
+                    for &first_off in &first_match_offsets {
+                        let search_end = first_off
+                            .saturating_add(distance)
+                            .saturating_add(remaining_size)
+                            .min(data.len());
+
+                        let mut all_found = true;
+                        let mut prev_off = first_off;
+
+                        for rem_item in remaining_items {
+                            let mut found = false;
+                            let rem_step = rem_item.value_type.size();
+                            let mut scan_off = prev_off + first_step;
+
+                            // Step by 1 byte so heterogeneous structs with custom padding or packed layouts are never skipped
+                            while scan_off + rem_step <= search_end {
+                                if compare_values(
+                                    &data[scan_off..scan_off + rem_step],
+                                    &rem_item.target_bytes,
+                                    rem_item.value_type,
+                                    ScanOperator::Equal,
+                                ) {
+                                    found = true;
+                                    prev_off = scan_off;
+                                    break;
+                                }
+                                scan_off += 1;
+                            }
+                            if !found {
+                                all_found = false;
                                 break;
                             }
-                            scan_off += rem_step;
                         }
-                        if !found {
-                            all_found = false;
-                            break;
+
+                        if all_found {
+                            let match_addr = effective_start_addr + first_off as u64;
+                            let raw_val = bytes_to_raw_u64(
+                                &data[first_off..first_off + first_step],
+                                first_item.value_type,
+                            );
+                            matches.push(CompactMatch {
+                                address: match_addr,
+                                raw_value: raw_val,
+                                region_idx: region_idx as u32,
+                                value_type: first_item.value_type,
+                            });
                         }
                     }
 
-                    if all_found {
-                        let match_addr = effective_start_addr + first_off as u64;
-                        let raw_val = bytes_to_raw_u64(
-                            &data[first_off..first_off + first_step],
-                            first_item.value_type,
-                        );
-                        matches.push(CompactMatch {
-                            address: match_addr,
-                            raw_value: raw_val,
-                            region_idx: region_idx as u32,
-                            value_type: first_item.value_type,
-                        });
+                    if start_addr + (range_len as u64) < region.end {
+                        let overlap_start = data.len().saturating_sub(distance + remaining_size);
+                        overlap_buffer = data[overlap_start..].to_vec();
+                    } else {
+                        overlap_buffer.clear();
                     }
-                }
-
-                if block_addr + (block_len as u64) < region.end {
-                    let overlap_start = data.len().saturating_sub(distance + remaining_size);
-                    overlap_buffer = data[overlap_start..].to_vec();
-                } else {
-                    overlap_buffer.clear();
                 }
             }
 
@@ -1165,6 +1308,20 @@ pub fn filter_matches(
         .map(|t| t.size())
         .max()
         .unwrap_or(8);
+
+    // Precompute target bytes per active type once before the loop (OPT-1)
+    let mut targets_by_type: std::collections::HashMap<ValueType, Option<Vec<u8>>> =
+        std::collections::HashMap::with_capacity(session.active_types.len());
+    for &vt in &session.active_types {
+        let tb = if (operator.is_relative() && target_value_str.trim().is_empty())
+            || operator == ScanOperator::Update
+        {
+            Some(Vec::new())
+        } else {
+            value_str_to_bytes(target_value_str, vt).ok()
+        };
+        targets_by_type.insert(vt, tb);
+    }
 
     let mut i = 0;
     let mut block_buf = Vec::with_capacity(BATCH_WINDOW as usize + max_step);
@@ -1207,15 +1364,9 @@ pub fn filter_matches(
                 }
             };
 
-            let target_bytes = if (operator.is_relative() && target_value_str.trim().is_empty())
-                || operator == ScanOperator::Update
-            {
-                Vec::new()
-            } else {
-                match value_str_to_bytes(target_value_str, m.value_type) {
-                    Ok(b) => b,
-                    Err(_) => continue,
-                }
+            let target_bytes = match targets_by_type.get(&m.value_type) {
+                Some(Some(b)) => b.as_slice(),
+                _ => continue,
             };
 
             let matches_cond = if operator == ScanOperator::Update {
@@ -1224,12 +1375,12 @@ pub fn filter_matches(
                 compare_relative_values(
                     current_bytes,
                     m.raw_value,
-                    &target_bytes,
+                    target_bytes,
                     m.value_type,
                     operator,
                 )
             } else {
-                compare_values(current_bytes, &target_bytes, m.value_type, operator)
+                compare_values(current_bytes, target_bytes, m.value_type, operator)
             };
 
             if matches_cond {
@@ -1270,6 +1421,17 @@ pub fn filter_range_matches(
         .max()
         .unwrap_or(8);
 
+    type RangeBytes = Option<(Vec<u8>, Vec<u8>)>;
+    let mut ranges_by_type: std::collections::HashMap<ValueType, RangeBytes> =
+        std::collections::HashMap::with_capacity(session.active_types.len());
+    for &vt in &session.active_types {
+        let r = match (value_str_to_bytes(min_str, vt), value_str_to_bytes(max_str, vt)) {
+            (Ok(mn), Ok(mx)) => Some((mn, mx)),
+            _ => None,
+        };
+        ranges_by_type.insert(vt, r);
+    }
+
     let mut i = 0;
     let mut block_buf = Vec::with_capacity(BATCH_WINDOW as usize + max_step);
 
@@ -1311,16 +1473,12 @@ pub fn filter_range_matches(
                 }
             };
 
-            let min_bytes = match value_str_to_bytes(min_str, m.value_type) {
-                Ok(b) => b,
-                Err(_) => continue,
-            };
-            let max_bytes = match value_str_to_bytes(max_str, m.value_type) {
-                Ok(b) => b,
-                Err(_) => continue,
+            let (min_bytes, max_bytes) = match ranges_by_type.get(&m.value_type) {
+                Some(Some((mn, mx))) => (mn.as_slice(), mx.as_slice()),
+                _ => continue,
             };
 
-            if value_in_range(current_bytes, &min_bytes, &max_bytes, m.value_type) {
+            if value_in_range(current_bytes, min_bytes, max_bytes, m.value_type) {
                 let new_raw = bytes_to_raw_u64(current_bytes, m.value_type);
                 updated_matches.push(CompactMatch {
                     address: m.address,
@@ -1612,13 +1770,36 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_group_heterogeneous() {
-        let mut data = [0u8; 128];
-        // Insert f64 1.5 at 16, i64 6 at 24
-        data[16..24].copy_from_slice(&1.5f64.to_le_bytes());
-        data[24..32].copy_from_slice(&6i64.to_le_bytes());
+    fn test_scan_buffer_obscured_odd_offsets() {
+        let mut data = vec![0u8; 64];
+        let real_val = 123456i32;
+        let key = 0x55AA55AAu32;
+        let hidden = (real_val as u32) ^ key;
 
-        let (items, dist) = parse_group_spec("f64:1.5; i64:6 : 16", ValueType::Int).unwrap();
+        // Place at odd-4 offset 4 (key at 4..8, hidden at 8..12)
+        data[4..8].copy_from_slice(&key.to_le_bytes());
+        data[8..12].copy_from_slice(&hidden.to_le_bytes());
+
+        // Place at odd-4 offset 20 (key at 20..24, hidden at 24..28)
+        let key2 = 0x12344321u32;
+        let hidden2 = (real_val as u32) ^ key2;
+        data[20..24].copy_from_slice(&key2.to_le_bytes());
+        data[24..28].copy_from_slice(&hidden2.to_le_bytes());
+
+        let mut results = Vec::new();
+        scan_buffer_obscured32(&data, real_val as u32, &mut results);
+        assert!(results.contains(&4));
+        assert!(results.contains(&20));
+    }
+
+    #[test]
+    fn test_scan_group_heterogeneous_unaligned_step() {
+        let mut data = [0u8; 128];
+        // Insert Byte: 1 at 0, Int: 500 at 4
+        data[0] = 1;
+        data[4..8].copy_from_slice(&500i32.to_le_bytes());
+
+        let (items, dist) = parse_group_spec("byte:1; int:500 : 16", ValueType::Int).unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(dist, 16);
     }

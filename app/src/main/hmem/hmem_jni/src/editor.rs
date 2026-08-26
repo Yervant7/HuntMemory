@@ -26,6 +26,29 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::kpm;
 use crate::types::*;
 
+/// Writes raw bytes into target process memory, validating that the page(s)
+/// containing the address range are present in physical RAM via pagemap before writing.
+pub fn write_raw_bytes(pid: u32, address: u64, bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+
+    if !crate::pagemap::is_page_present(pid, address, crate::pagemap::PM_PRESENT)? {
+        return Err(format!("Write aborted: Page not resident at 0x{address:x}"));
+    }
+
+    let page_size = crate::pagemap::system_page_size();
+    let end_addr = address.saturating_add(bytes.len() as u64 - 1);
+    if end_addr / page_size != address / page_size
+        && !crate::pagemap::is_page_present(pid, end_addr, crate::pagemap::PM_PRESENT)?
+    {
+        return Err(format!("Write aborted: End page not resident at 0x{end_addr:x}"));
+    }
+
+    kpm::write_memory(pid, address, bytes)
+        .map_err(|e| format!("KPM write failed for 0x{address:x}: {e}"))
+}
+
 /// Writes a typed value into a virtual memory address of the target process via KPM.
 pub fn write_value(
     pid: u32,
@@ -34,8 +57,7 @@ pub fn write_value(
     value_type: ValueType,
 ) -> Result<(), String> {
     let bytes = value_str_to_bytes(value, value_type)?;
-    kpm::write_memory(pid, address, &bytes)
-        .map_err(|e| format!("KPM write failed for 0x{address:x}: {e}"))
+    write_raw_bytes(pid, address, &bytes)
 }
 
 /// Helper to generate a pseudorandom 32-bit key
@@ -63,15 +85,16 @@ pub fn write_obscured(
     value_str: &str,
     obscured_type: ObscuredType,
 ) -> Result<(), String> {
+    if !crate::pagemap::is_page_present(pid, address, crate::pagemap::PM_PRESENT)? {
+        return Err(format!("Write obscured aborted: Page not resident at 0x{address:x}"));
+    }
+
     let s = value_str.trim();
     match obscured_type {
         ObscuredType::ObscuredInt => {
-            let target: i32 =
-                if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-                    i32::from_str_radix(hex, 16).map_err(|e| format!("Invalid hex: {e}"))?
-                } else {
-                    s.parse().map_err(|e| format!("Invalid int: {e}"))?
-                };
+            let target: i32 = parse_int_flexible::<i32>(s)
+                .or_else(|_| parse_int_flexible::<u32>(s).map(|u| u as i32))
+                .map_err(|e| format!("Invalid int '{s}': {e}"))?;
 
             // Attempt to preserve existing cryptoKey if readable, or generate a fresh key
             let mut buf = [0u8; 8];
@@ -86,11 +109,11 @@ pub fn write_obscured(
             out[..4].copy_from_slice(&key.to_le_bytes());
             out[4..8].copy_from_slice(&hidden.to_le_bytes());
 
-            kpm::write_memory(pid, address, &out)
+            write_raw_bytes(pid, address, &out)
                 .map_err(|e| format!("Write ObscuredInt failed at 0x{address:x}: {e}"))
         }
         ObscuredType::ObscuredFloat => {
-            let target: f32 = s.parse().map_err(|e| format!("Invalid float: {e}"))?;
+            let target: f32 = s.parse().map_err(|e| format!("Invalid float '{s}': {e}"))?;
             let mut buf = [0u8; 8];
             let key = if kpm::read_memory(pid, address, &mut buf).is_ok() {
                 u32::from_le_bytes(buf[..4].try_into().unwrap())
@@ -103,11 +126,11 @@ pub fn write_obscured(
             out[..4].copy_from_slice(&key.to_le_bytes());
             out[4..8].copy_from_slice(&hidden.to_le_bytes());
 
-            kpm::write_memory(pid, address, &out)
+            write_raw_bytes(pid, address, &out)
                 .map_err(|e| format!("Write ObscuredFloat failed at 0x{address:x}: {e}"))
         }
         ObscuredType::ObscuredDouble => {
-            let target: f64 = s.parse().map_err(|e| format!("Invalid double: {e}"))?;
+            let target: f64 = s.parse().map_err(|e| format!("Invalid double '{s}': {e}"))?;
             let mut buf = [0u8; 16];
             let key = if kpm::read_memory(pid, address, &mut buf).is_ok() {
                 u64::from_le_bytes(buf[..8].try_into().unwrap())
@@ -120,16 +143,13 @@ pub fn write_obscured(
             out[..8].copy_from_slice(&key.to_le_bytes());
             out[8..16].copy_from_slice(&hidden.to_le_bytes());
 
-            kpm::write_memory(pid, address, &out)
+            write_raw_bytes(pid, address, &out)
                 .map_err(|e| format!("Write ObscuredDouble failed at 0x{address:x}: {e}"))
         }
         ObscuredType::ObscuredLong => {
-            let target: i64 =
-                if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-                    i64::from_str_radix(hex, 16).map_err(|e| format!("Invalid hex: {e}"))?
-                } else {
-                    s.parse().map_err(|e| format!("Invalid long: {e}"))?
-                };
+            let target: i64 = parse_int_flexible::<i64>(s)
+                .or_else(|_| parse_int_flexible::<u64>(s).map(|u| u as i64))
+                .map_err(|e| format!("Invalid long '{s}': {e}"))?;
 
             let mut buf = [0u8; 16];
             let key = if kpm::read_memory(pid, address, &mut buf).is_ok() {
@@ -143,7 +163,7 @@ pub fn write_obscured(
             out[..8].copy_from_slice(&key.to_le_bytes());
             out[8..16].copy_from_slice(&hidden.to_le_bytes());
 
-            kpm::write_memory(pid, address, &out)
+            write_raw_bytes(pid, address, &out)
                 .map_err(|e| format!("Write ObscuredLong failed at 0x{address:x}: {e}"))
         }
     }
@@ -151,13 +171,20 @@ pub fn write_obscured(
 
 /// Writes a BigDouble scientific structure (mantissa & exponent) to memory
 pub fn write_big_double(pid: u32, address: u64, value_str: &str) -> Result<(), String> {
+    if !crate::pagemap::is_page_present(pid, address, crate::pagemap::PM_PRESENT)? {
+        return Err(format!("Write BigDouble aborted: Page not resident at 0x{address:x}"));
+    }
+
     let target = BigDouble::parse(value_str)?;
 
     let mut buf = [0u8; 16];
     let is_exp32 = if kpm::read_memory(pid, address, &mut buf).is_ok() {
-        let exp64 = i64::from_le_bytes(buf[8..16].try_into().unwrap());
-        let exp32 = i32::from_le_bytes(buf[8..12].try_into().unwrap()) as i64;
-        exp64 == 0 && exp32 != 0
+        // Detect 12-byte layout { f64 mantissa, i32 exponent }:
+        // If upper 4 bytes of the exponent region are zero but lower 4 bytes are non-zero,
+        // the struct likely uses a 32-bit exponent.
+        let exp32 = i32::from_le_bytes(buf[8..12].try_into().unwrap());
+        let upper = u32::from_le_bytes(buf[12..16].try_into().unwrap());
+        upper == 0 && exp32 != 0
     } else {
         false
     };
@@ -166,13 +193,13 @@ pub fn write_big_double(pid: u32, address: u64, value_str: &str) -> Result<(), S
         let mut out = [0u8; 12];
         out[..8].copy_from_slice(&target.mantissa.to_le_bytes());
         out[8..12].copy_from_slice(&(target.exponent as i32).to_le_bytes());
-        kpm::write_memory(pid, address, &out)
+        write_raw_bytes(pid, address, &out)
             .map_err(|e| format!("Write BigDouble (32-bit exp) failed at 0x{address:x}: {e}"))
     } else {
         let mut out = [0u8; 16];
         out[..8].copy_from_slice(&target.mantissa.to_le_bytes());
         out[8..16].copy_from_slice(&target.exponent.to_le_bytes());
-        kpm::write_memory(pid, address, &out)
+        write_raw_bytes(pid, address, &out)
             .map_err(|e| format!("Write BigDouble failed at 0x{address:x}: {e}"))
     }
 }
@@ -185,7 +212,9 @@ pub fn batch_write(pid: u32, writes: &[(u64, String, ValueType)]) -> Result<u32,
 
     let mut payloads = Vec::with_capacity(writes.len());
     for (addr, val_str, vtype) in writes {
-        if let Ok(bytes) = value_str_to_bytes(val_str, *vtype) {
+        if crate::pagemap::is_page_present(pid, *addr, crate::pagemap::PM_PRESENT).unwrap_or(false)
+            && let Ok(bytes) = value_str_to_bytes(val_str, *vtype)
+        {
             payloads.push((*addr, bytes));
         }
     }
@@ -205,7 +234,7 @@ pub fn batch_write(pid: u32, writes: &[(u64, String, ValueType)]) -> Result<u32,
             // Fallback to individual writes if batch fails
             let mut success_count = 0u32;
             for (addr, bytes) in &payloads {
-                if kpm::write_memory(pid, *addr, bytes).is_ok() {
+                if write_raw_bytes(pid, *addr, bytes).is_ok() {
                     success_count += 1;
                 }
             }
@@ -222,7 +251,7 @@ struct FreezeItem {
 }
 
 struct FreezeState {
-    items: HashMap<u64, FreezeItem>,
+    items: HashMap<(u32, u64), FreezeItem>,
     running: bool,
     interval_ms: u64,
 }
@@ -296,6 +325,10 @@ impl FreezeEngine {
             if !s.running {
                 break;
             }
+            // If new items were added while unlocked, loop immediately without waiting
+            if s.items.len() > items_to_write.len() {
+                continue;
+            }
             let (guard, _) = cvar
                 .wait_timeout(s, Duration::from_millis(interval))
                 .unwrap();
@@ -313,13 +346,12 @@ impl FreezeEngine {
         value_type: ValueType,
     ) -> Result<(), String> {
         let bytes = value_str_to_bytes(value, value_type)?;
-        kpm::write_memory(pid, address, &bytes)
-            .map_err(|e| format!("KPM write failed for 0x{address:x}: {e}"))?;
+        write_raw_bytes(pid, address, &bytes)?;
 
         let (lock, cvar) = &*self.state;
         let mut s = lock.lock().unwrap();
         s.items.insert(
-            address,
+            (pid, address),
             FreezeItem {
                 pid,
                 address,
@@ -330,10 +362,10 @@ impl FreezeEngine {
         Ok(())
     }
 
-    pub fn unfreeze(&self, address: u64) -> bool {
+    pub fn unfreeze(&self, pid: u32, address: u64) -> bool {
         let (lock, _) = &*self.state;
         let mut s = lock.lock().unwrap();
-        s.items.remove(&address).is_some()
+        s.items.remove(&(pid, address)).is_some()
     }
 
     pub fn unfreeze_all(&self) -> usize {
@@ -344,10 +376,10 @@ impl FreezeEngine {
         count
     }
 
-    pub fn is_frozen(&self, address: u64) -> bool {
+    pub fn is_frozen(&self, pid: u32, address: u64) -> bool {
         let (lock, _) = &*self.state;
         let s = lock.lock().unwrap();
-        s.items.contains_key(&address)
+        s.items.contains_key(&(pid, address))
     }
 }
 
@@ -379,6 +411,12 @@ pub fn resolve_pointer_chain(pid: u32, base_addr: u64, offsets: &[i64]) -> Resul
         if current_addr < 0x1000 {
             return Err(format!(
                 "Null or invalid pointer at level {idx} (address: 0x{current_addr:x})"
+            ));
+        }
+
+        if !crate::pagemap::is_page_present(pid, current_addr, crate::pagemap::PM_PRESENT)? {
+            return Err(format!(
+                "Page not resident at level {idx} (address: 0x{current_addr:x})"
             ));
         }
 
@@ -420,6 +458,9 @@ pub fn read_pointer_value(
     vtype: ValueType,
 ) -> Result<String, String> {
     let target_addr = resolve_pointer_chain(pid, base_addr, offsets)?;
+    if !crate::pagemap::is_page_present(pid, target_addr, crate::pagemap::PM_PRESENT)? {
+        return Err(format!("Page not resident at 0x{target_addr:x}"));
+    }
     let mut buf = vec![0u8; vtype.size()];
     kpm::read_memory(pid, target_addr, &mut buf)
         .map_err(|e| format!("Read pointer target at 0x{target_addr:x} failed: {e}"))?;
@@ -445,6 +486,9 @@ pub fn read_xor_value(
     xor_key: u64,
     vtype: ValueType,
 ) -> Result<String, String> {
+    if !crate::pagemap::is_page_present(pid, address, crate::pagemap::PM_PRESENT)? {
+        return Err(format!("Page not resident at 0x{address:x}"));
+    }
     let mut buf = vec![0u8; vtype.size()];
     kpm::read_memory(pid, address, &mut buf)
         .map_err(|e| format!("Read XOR memory at 0x{address:x} failed: {e}"))?;
@@ -471,6 +515,5 @@ pub fn write_xor_value(
         *b ^= key_bytes[i % key_bytes.len()];
     }
 
-    kpm::write_memory(pid, address, &bytes)
-        .map_err(|e| format!("Write XOR memory at 0x{address:x} failed: {e}"))
+    write_raw_bytes(pid, address, &bytes)
 }
