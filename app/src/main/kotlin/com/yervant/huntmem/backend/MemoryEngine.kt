@@ -74,7 +74,8 @@ object MemoryEngine {
         JAVA_HEAP("JH", "Java Heap"),
         STACK("S", "Stack"),
         ASHMEM("AS", "Ashmem"),
-        LIBS("XA", "Code App (Libraries)"),
+        NATIVE_LIBS("NL", "Native Libraries"),
+        FILES("F", "Files"),
         CUSTOM("CUSTOM", "Custom Filter")
     }
 
