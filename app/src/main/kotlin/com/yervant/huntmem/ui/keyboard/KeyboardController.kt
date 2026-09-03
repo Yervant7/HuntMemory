@@ -20,6 +20,7 @@
 
 package com.yervant.huntmem.ui.keyboard
 
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -28,6 +29,7 @@ enum class KeyboardType {
     QWERTY, NUMERIC, HEXADECIMAL
 }
 
+@Stable
 class KeyboardController {
     val isVisible = mutableStateOf(false)
     val currentText = mutableStateOf("")

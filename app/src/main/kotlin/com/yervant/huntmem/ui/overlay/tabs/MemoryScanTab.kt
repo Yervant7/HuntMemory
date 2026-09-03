@@ -84,6 +84,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -116,9 +117,11 @@ import com.yervant.huntmem.ui.theme.ComponentStyles
 import com.yervant.huntmem.ui.theme.MonospaceAddressStyle
 import com.yervant.huntmem.ui.theme.MonospaceValueStyle
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -193,6 +196,7 @@ private val valueTypes: List<String> = listOf("byte", "short", "float16", "int",
  * @property permissions Region protection string (e.g. "rw-p", "r-xp").
  */
 @Keep
+@Immutable
 data class MatchInfo(
     val id: String,
     val pid: Int,
@@ -334,19 +338,22 @@ suspend fun refreshValues(
     if (snapshot.isEmpty()) return
 
     isRefreshOnGoing.value = true
-
-    val mem = MemoryScanManager()
-    val updatedMatches = mem.updateMatchValues(tabState.id.toString())
-
-    if (updatedMatches.isNotEmpty()) {
-        synchronized(tabState.matches) {
-            tabState.matches.clear()
-            tabState.matches.addAll(updatedMatches)
+    try {
+        val updatedMatches = withContext(Dispatchers.IO) {
+            val mem = MemoryScanManager()
+            mem.updateMatchValues(tabState.id.toString())
         }
-        updateMatches(context, tabState)
-    }
 
-    isRefreshOnGoing.value = false
+        if (updatedMatches.isNotEmpty()) {
+            synchronized(tabState.matches) {
+                tabState.matches.clear()
+                tabState.matches.addAll(updatedMatches)
+            }
+            updateMatches(context, tabState)
+        }
+    } finally {
+        isRefreshOnGoing.value = false
+    }
 }
 
 /**

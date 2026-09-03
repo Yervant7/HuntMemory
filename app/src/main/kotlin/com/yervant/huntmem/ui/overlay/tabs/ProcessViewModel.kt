@@ -22,6 +22,8 @@ package com.yervant.huntmem.ui.overlay.tabs
 
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.graphics.drawable.Drawable
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yervant.huntmem.backend.AttachedProcessRepository
@@ -37,12 +39,20 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.seconds
 
 enum class ProcessFilterType {
     ALL, USER, SYSTEM
 }
 
+private data class CachedAppMetadata(
+    val label: String,
+    val icon: Drawable?,
+    val isSystemApp: Boolean
+)
+
+@Immutable
 data class ProcessItemData(
     val info: ProcessInfo,
     val appLabel: String = "",
@@ -52,6 +62,7 @@ data class ProcessItemData(
 class ProcessViewModel(private val packageManager: PackageManager) : ViewModel() {
 
     private val processBackend = ShellProcessProvider()
+    private val appMetadataCache = ConcurrentHashMap<String, CachedAppMetadata>()
     private var refreshJob: Job? = null
 
     private val _allProcesses = MutableStateFlow<List<ProcessItemData>>(emptyList())
@@ -139,21 +150,28 @@ class ProcessViewModel(private val packageManager: PackageManager) : ViewModel()
             val rawProcesses = processBackend.getRunningProcesses()
 
             val items = rawProcesses.map { proc ->
-                try {
-                    val appInfo = packageManager.getApplicationInfo(proc.packageName, 0)
-                    val label = packageManager.getApplicationLabel(appInfo).toString()
-                    val icon = packageManager.getApplicationIcon(appInfo)
-                    val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                val cached = appMetadataCache[proc.packageName]
+                if (cached != null) {
                     ProcessItemData(
-                        info = proc.copy(icon = icon),
-                        appLabel = label,
-                        isSystemApp = isSystem
+                        info = proc.copy(icon = cached.icon),
+                        appLabel = cached.label,
+                        isSystemApp = cached.isSystemApp
                     )
-                } catch (_: PackageManager.NameNotFoundException) {
+                } else {
+                    val metadata = try {
+                        val appInfo = packageManager.getApplicationInfo(proc.packageName, 0)
+                        val label = packageManager.getApplicationLabel(appInfo).toString()
+                        val icon = packageManager.getApplicationIcon(appInfo)
+                        val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                        CachedAppMetadata(label, icon, isSystem)
+                    } catch (_: PackageManager.NameNotFoundException) {
+                        CachedAppMetadata(proc.packageName.substringAfterLast('.'), null, false)
+                    }
+                    appMetadataCache[proc.packageName] = metadata
                     ProcessItemData(
-                        info = proc,
-                        appLabel = proc.packageName.substringAfterLast('.'),
-                        isSystemApp = false
+                        info = proc.copy(icon = metadata.icon),
+                        appLabel = metadata.label,
+                        isSystemApp = metadata.isSystemApp
                     )
                 }
             }

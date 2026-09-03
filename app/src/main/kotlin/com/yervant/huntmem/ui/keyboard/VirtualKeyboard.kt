@@ -68,8 +68,12 @@ import androidx.compose.ui.unit.sp
 import com.yervant.huntmem.R
 import com.yervant.huntmem.ui.theme.MonospaceValueStyle
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+
+private val LocalIsCompactKeyboard = compositionLocalOf { false }
 
 @Composable
 fun VirtualKeyboard(controller: KeyboardController) {
@@ -78,38 +82,44 @@ fun VirtualKeyboard(controller: KeyboardController) {
         enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
         exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
     ) {
+        val windowInfo = LocalWindowInfo.current
+        val density = LocalDensity.current
+        val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
+        val isCompactHeight = windowHeightDp < 500.dp
         val type = controller.keyboardType.value
 
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .widthIn(max = 560.dp)
-                .wrapContentHeight(),
-            shape = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
-        ) {
-            Column(
+        CompositionLocalProvider(LocalIsCompactKeyboard provides isCompactHeight) {
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .widthIn(max = 560.dp)
+                    .wrapContentHeight(),
+                shape = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
             ) {
-                // Top control & cursor preview bar
-                KeyboardPreviewHeader(controller)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Top control & cursor preview bar
+                    KeyboardPreviewHeader(controller)
 
-                HorizontalDivider(
-                    modifier = Modifier.padding(bottom = 4.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                )
+                    HorizontalDivider(
+                        modifier = Modifier.padding(bottom = 4.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                    )
 
-                when (type) {
-                    KeyboardType.QWERTY -> QwertyLayout(controller)
-                    KeyboardType.NUMERIC -> NumericLayout(controller)
-                    KeyboardType.HEXADECIMAL -> HexadecimalLayout(controller)
+                    when (type) {
+                        KeyboardType.QWERTY -> QwertyLayout(controller)
+                        KeyboardType.NUMERIC -> NumericLayout(controller)
+                        KeyboardType.HEXADECIMAL -> HexadecimalLayout(controller)
+                    }
                 }
             }
         }
@@ -519,10 +529,7 @@ private fun KeyButton(
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
     onClick: () -> Unit
 ) {
-    val windowInfo = LocalWindowInfo.current
-    val density = LocalDensity.current
-    val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
-    val isCompactHeight = windowHeightDp < 500.dp
+    val isCompactHeight = LocalIsCompactKeyboard.current
     val keyHeight = if (isCompactHeight) 28.dp else 36.dp
     val fontSize = if (isCompactHeight) 12.sp else 14.sp
 
@@ -555,10 +562,7 @@ private fun ActionKey(
     icon: ImageVector? = null,
     onClick: () -> Unit
 ) {
-    val windowInfo = LocalWindowInfo.current
-    val density = LocalDensity.current
-    val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
-    val isCompactHeight = windowHeightDp < 500.dp
+    val isCompactHeight = LocalIsCompactKeyboard.current
     val keyHeight = if (isCompactHeight) 28.dp else 36.dp
     val fontSize = if (isCompactHeight) 9.5.sp else 11.sp
     val iconSize = if (isCompactHeight) 14.dp else 16.dp

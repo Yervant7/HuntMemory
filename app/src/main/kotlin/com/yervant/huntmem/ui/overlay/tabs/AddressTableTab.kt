@@ -56,6 +56,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -89,7 +90,8 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.time.Duration.Companion.milliseconds
 
-class AddressInfo(
+@Stable
+data class AddressInfo(
     val matchInfo: MatchInfo,
     val numType: String,
     var isFrozen: Boolean = false,
@@ -171,7 +173,10 @@ fun AddressTableTab(context: Context?, dialogCallback: DialogCallback) {
                             .padding(horizontal = 4.dp, vertical = 2.dp),
                         verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
-                        itemsIndexed(savedAddressList) { index, item ->
+                        itemsIndexed(
+                            items = savedAddressList,
+                            key = { _, item -> item.matchInfo.address }
+                        ) { index, item ->
                             AddressTableRow(
                                 item = item,
                                 onDeleteClick = {
@@ -567,7 +572,11 @@ private suspend fun refreshValue(context: Context, dialogCallback: DialogCallbac
         return
     }
 
-    if (!ShellProcessProvider().isProcessRunning(pid.toString())) {
+    val isRunning = withContext(Dispatchers.IO) {
+        ShellProcessProvider().isProcessRunning(pid.toString())
+    }
+
+    if (!isRunning) {
         val pnr = context.getString(R.string.address_table_process_not_running_error)
         dialogCallback.showInfoDialog(
             title = err,
@@ -575,9 +584,7 @@ private suspend fun refreshValue(context: Context, dialogCallback: DialogCallbac
             onConfirm = {},
             onDismiss = {}
         )
-        withContext(Dispatchers.Main) {
-            savedAddressList.clear()
-        }
+        savedAddressList.clear()
         return
     }
 
@@ -590,15 +597,17 @@ private suspend fun refreshValue(context: Context, dialogCallback: DialogCallbac
             onConfirm = {},
             onDismiss = {}
         )
-        withContext(Dispatchers.Main) {
-            savedAddressList.clear()
-        }
+        savedAddressList.clear()
         return
     }
 
-    withContext(Dispatchers.IO) {
-        val newList = mutableListOf<AddressInfo>()
-        savedAddressList.forEach { addrInfo ->
+    val snapshot = savedAddressList.toList()
+    if (snapshot.isEmpty()) return
+
+    val failedAddresses = mutableListOf<AddressInfo>()
+    val newList = withContext(Dispatchers.IO) {
+        val updated = mutableListOf<AddressInfo>()
+        snapshot.forEach { addrInfo ->
             try {
                 val currentValue = mem.readMemory(
                     pid,
@@ -609,23 +618,30 @@ private suspend fun refreshValue(context: Context, dialogCallback: DialogCallbac
                     val newAddressInfo = addrInfo.copy(
                         matchInfo = addrInfo.matchInfo.copy(prevValue = currentValue)
                     )
-                    newList.add(newAddressInfo)
+                    updated.add(newAddressInfo)
                 }
             } catch (_: Exception) {
-                withContext(Dispatchers.Main) {
-                    MemoryEditor().unfreezeAddress(addrInfo)
-                    addrInfo.isFrozen = false
-                }
+                failedAddresses.add(addrInfo)
             }
         }
+        updated
+    }
 
-        withContext(Dispatchers.Main) {
-            savedAddressList.clear()
-            savedAddressList.addAll(newList)
+    if (failedAddresses.isNotEmpty()) {
+        val editor = MemoryEditor()
+        failedAddresses.forEach { addrInfo ->
+            editor.unfreezeAddress(addrInfo)
+            addrInfo.isFrozen = false
         }
     }
-}
 
-fun AddressInfo.copy(matchInfo: MatchInfo = this.matchInfo, isFrozen: Boolean = this.isFrozen): AddressInfo {
-    return AddressInfo(matchInfo, this.numType, isFrozen)
+    val updatedMap = newList.associateBy { it.matchInfo.address }
+    savedAddressList.removeAll { it.matchInfo.address !in updatedMap }
+    for (i in savedAddressList.indices) {
+        val currentItem = savedAddressList[i]
+        val updatedItem = updatedMap[currentItem.matchInfo.address]
+        if (updatedItem != null && (currentItem.matchInfo.prevValue != updatedItem.matchInfo.prevValue || currentItem.isFrozen != updatedItem.isFrozen)) {
+            savedAddressList[i] = updatedItem
+        }
+    }
 }

@@ -21,8 +21,10 @@
 package com.yervant.huntmem.backend
 
 import android.graphics.drawable.Drawable
+import androidx.compose.runtime.Immutable
 import com.topjohnwu.superuser.Shell
 
+@Immutable
 data class ProcessInfo(
     val pid: String,
     val uid: Int,

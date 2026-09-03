@@ -32,11 +32,12 @@ import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.unit.IntOffset
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.ViewModel
@@ -62,10 +63,10 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 data class OverlayUiState(
     val isMenuVisible: Boolean = false,
-    val iconPosition: IntOffset = IntOffset(0, 100),
     val selectedTab: Int = 0,
     val dialogState: DialogState = DialogState.Hidden,
 )
@@ -108,6 +109,7 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
 
     private var screenWidth: Int = 0
     private var screenHeight: Int = 0
+    private var cachedIconSize: Int = 0
 
     override val viewModelStore = ViewModelStore()
     private lateinit var savedStateRegistryController: SavedStateRegistryController
@@ -153,6 +155,7 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
     }
 
     private fun setupViews() {
+        cachedIconSize = (54 * resources.displayMetrics.density).toInt()
         val layoutFlag = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
 
         iconParams = WindowManager.LayoutParams(
@@ -160,12 +163,13 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
             layoutFlag,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = _uiState.value.iconPosition.x
-            y = _uiState.value.iconPosition.y
+            gravity = Gravity.TOP or Gravity.LEFT
+            x = 0
+            y = 100
         }
 
         menuParams = WindowManager.LayoutParams(
@@ -173,46 +177,50 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
             layoutFlag,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START }
+        ).apply { gravity = Gravity.TOP or Gravity.LEFT }
 
         val canvasFlag = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
 
         canvasParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             layoutFlag,
             canvasFlag,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START }
+        ).apply { gravity = Gravity.TOP or Gravity.LEFT }
 
         canvasView = createComposeView {
             LuaCanvasOverlay()
+        }.apply {
+            visibility = View.GONE
         }
 
         iconView = createComposeView {
             HuntMemTheme(darkTheme = true) {
-                FloatingIcon(
-                    onToggleMenu = ::toggleMenu,
-                    onUpdatePosition = ::updateIconPositionBy,
-                    onDragEnd = {}
-                )
+                FloatingIcon()
             }
+        }.apply {
+            setupFloatingIconTouchListener(this)
         }
 
         menuView = createComposeView {
             val currentUiState by uiState.collectAsState()
-            MenuOverlayContent(
-                uiState = currentUiState,
-                viewModel = processViewModel,
-                context = applicationContext,
-                dialogCallback = this@OverlayService,
-                onToggleMenu = ::toggleMenu,
-                onTabSelected = { tabIndex -> _uiState.update { it.copy(selectedTab = tabIndex) } },
-            )
+            if (currentUiState.isMenuVisible) {
+                MenuOverlayContent(
+                    uiState = currentUiState,
+                    viewModel = processViewModel,
+                    context = applicationContext,
+                    dialogCallback = this@OverlayService,
+                    onToggleMenu = ::toggleMenu,
+                    onTabSelected = { tabIndex -> _uiState.update { it.copy(selectedTab = tabIndex) } },
+                )
+            }
         }.apply {
             visibility = View.GONE
         }
@@ -239,26 +247,111 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
                 }
             }
         }
+        lifecycleScope.launch {
+            LuaUiBridge.isCanvasVisible.collect { isCanvasVisible ->
+                canvasView.visibility = if (isCanvasVisible) View.VISIBLE else View.GONE
+            }
+        }
     }
 
-    private fun updateIconPositionBy(dragAmount: IntOffset) {
-        val estimatedIconSize = (54 * resources.displayMetrics.density).toInt()
-        val iconW = if (iconView.width > 0) iconView.width else estimatedIconSize
-        val iconH = if (iconView.height > 0) iconView.height else estimatedIconSize
+    private fun setupFloatingIconTouchListener(view: View) {
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        val touchSlopSquare = touchSlop * touchSlop
+
+        var initialWindowX = 0
+        var initialWindowY = 0
+        var touchDownRawX = 0f
+        var touchDownRawY = 0f
+        var isDragging = false
+
+        view.setOnTouchListener { v, event ->
+            // Prevent multi-touch gesture confusion or coordinate jumping
+            if (event.pointerCount > 1 && !isDragging) {
+                return@setOnTouchListener false
+            }
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialWindowX = iconParams.x
+                    initialWindowY = iconParams.y
+                    touchDownRawX = event.rawX
+                    touchDownRawY = event.rawY
+                    isDragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (event.pointerCount > 1) {
+                        // Ignore multi-touch move events to prevent teleporting
+                        return@setOnTouchListener true
+                    }
+
+                    val deltaX = event.rawX - touchDownRawX
+                    val deltaY = event.rawY - touchDownRawY
+
+                    if (!isDragging && (deltaX * deltaX + deltaY * deltaY > touchSlopSquare)) {
+                        isDragging = true
+                    }
+
+                    if (isDragging) {
+                        if (cachedIconSize == 0) {
+                            cachedIconSize = (54 * resources.displayMetrics.density).toInt()
+                        }
+                        val iconW = if (iconView.width > 0) iconView.width else cachedIconSize
+                        val iconH = if (iconView.height > 0) iconView.height else cachedIconSize
+
+                        val maxX = (screenWidth - iconW).coerceAtLeast(0)
+                        val maxY = (screenHeight - iconH).coerceAtLeast(0)
+
+                        val targetX = (initialWindowX + deltaX.roundToInt()).coerceIn(0, maxX)
+                        val targetY = (initialWindowY + deltaY.roundToInt()).coerceIn(0, maxY)
+
+                        if (targetX != iconParams.x || targetY != iconParams.y) {
+                            iconParams.x = targetX
+                            iconParams.y = targetY
+                            if (iconView.isAttachedToWindow) {
+                                runCatching { windowManager.updateViewLayout(iconView, iconParams) }
+                            }
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!isDragging) {
+                        v.performClick()
+                        toggleMenu()
+                    }
+                    isDragging = false
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    isDragging = false
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun clampIconPosition() {
+        if (cachedIconSize == 0) {
+            cachedIconSize = (54 * resources.displayMetrics.density).toInt()
+        }
+        val iconW = if (iconView.width > 0) iconView.width else cachedIconSize
+        val iconH = if (iconView.height > 0) iconView.height else cachedIconSize
 
         val maxX = (screenWidth - iconW).coerceAtLeast(0)
         val maxY = (screenHeight - iconH).coerceAtLeast(0)
 
-        val newX = (iconParams.x + dragAmount.x).coerceIn(0, maxX)
-        val newY = (iconParams.y + dragAmount.y).coerceIn(0, maxY)
+        val newX = iconParams.x.coerceIn(0, maxX)
+        val newY = iconParams.y.coerceIn(0, maxY)
 
-        iconParams.x = newX
-        iconParams.y = newY
-        if (iconView.isAttachedToWindow) {
-            windowManager.updateViewLayout(iconView, iconParams)
+        if (newX != iconParams.x || newY != iconParams.y) {
+            iconParams.x = newX
+            iconParams.y = newY
+            if (iconView.isAttachedToWindow) {
+                runCatching { windowManager.updateViewLayout(iconView, iconParams) }
+            }
         }
-
-        _uiState.update { it.copy(iconPosition = IntOffset(newX, newY)) }
     }
 
     private fun toggleMenu() {
@@ -267,8 +360,9 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        cachedIconSize = (54 * resources.displayMetrics.density).toInt()
         updateScreenDimensions()
-        updateIconPositionBy(IntOffset.Zero)
+        clampIconPosition()
     }
 
     private fun updateScreenDimensions() {

@@ -30,11 +30,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
-import androidx.compose.foundation.gestures.drag
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -94,7 +89,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -103,7 +97,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yervant.huntmem.R
@@ -124,55 +117,22 @@ import com.yervant.huntmem.ui.overlay.tabs.ProcessViewModel
 import com.yervant.huntmem.ui.theme.ComponentStyles
 import com.yervant.huntmem.ui.theme.HuntMemTheme
 import com.yervant.huntmem.ui.theme.SuccessEmerald
-import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
 val LocalOverlayOpacity = androidx.compose.runtime.compositionLocalOf { 0.92f }
 
 @Composable
 fun FloatingIcon(
-    onToggleMenu: () -> Unit,
-    onUpdatePosition: (IntOffset) -> Unit,
-    onDragEnd: () -> Unit = {}
+    modifier: Modifier = Modifier
 ) {
     val attachedPid by AttachedProcessRepository.attachedProcessPid.collectAsState()
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(54.dp)
             .shadow(8.dp, CircleShape)
             .clip(CircleShape)
             .background(Color.Transparent)
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    var isDrag = false
-                    val dragChange = awaitTouchSlopOrCancellation(down.id) { change, overSlop ->
-                        change.consume()
-                        isDrag = true
-                        onUpdatePosition(
-                            IntOffset(overSlop.x.roundToInt(), overSlop.y.roundToInt())
-                        )
-                    }
-
-                    if (dragChange != null && isDrag) {
-                        val successful = drag(dragChange.id) { change ->
-                            val changeOffset = change.positionChange()
-                            change.consume()
-                            onUpdatePosition(
-                                IntOffset(changeOffset.x.roundToInt(), changeOffset.y.roundToInt())
-                            )
-                        }
-                        if (successful) {
-                            onDragEnd()
-                        }
-                    } else if (!isDrag) {
-                        // User tapped/clicked the floating icon without dragging past touch slop
-                        down.consume()
-                        onToggleMenu()
-                    }
-                }
-            }
     ) {
         Image(
             painter = painterResource(id = R.drawable.overlay_icon),
@@ -282,13 +242,15 @@ fun MenuContent(
     dialogCallback: DialogCallback,
     onClose: () -> Unit
 ) {
-    val tabs = listOf(
-        TabItemData(R.string.overlay_ui_processes_tab, Icons.Default.Apps),
-        TabItemData(R.string.overlay_ui_memory_tab, Icons.Default.Memory),
-        TabItemData(R.string.overlay_ui_editor_tab, Icons.Default.EditNote),
-        TabItemData(R.string.overlay_ui_scripts_tab, Icons.Default.Terminal),
-        TabItemData(R.string.overlay_ui_settings_tab_and_title, Icons.Default.Settings)
-    )
+    val tabs = remember {
+        listOf(
+            TabItemData(R.string.overlay_ui_processes_tab, Icons.Default.Apps),
+            TabItemData(R.string.overlay_ui_memory_tab, Icons.Default.Memory),
+            TabItemData(R.string.overlay_ui_editor_tab, Icons.Default.EditNote),
+            TabItemData(R.string.overlay_ui_scripts_tab, Icons.Default.Terminal),
+            TabItemData(R.string.overlay_ui_settings_tab_and_title, Icons.Default.Settings)
+        )
+    }
 
     val attachedPid by AttachedProcessRepository.attachedProcessPid.collectAsState()
     var currentOpacity by remember { mutableFloatStateOf(0.92f) }

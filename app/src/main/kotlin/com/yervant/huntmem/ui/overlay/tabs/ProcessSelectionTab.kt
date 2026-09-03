@@ -349,16 +349,25 @@ private fun ProcessListItem(
         "%.1f MB".format(item.info.memory.toLongOrNull()?.div(1024.0) ?: 0.0)
     }
 
-    val cardBorder = if (isAttached) {
-        BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-    } else {
-        BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val outlineVariantColor = MaterialTheme.colorScheme.outlineVariant
+    val primaryContainerColor = MaterialTheme.colorScheme.primaryContainer
+    val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+
+    val cardBorder = remember(isAttached, primaryColor, outlineVariantColor) {
+        if (isAttached) {
+            BorderStroke(1.dp, primaryColor)
+        } else {
+            BorderStroke(0.5.dp, outlineVariantColor.copy(alpha = 0.4f))
+        }
     }
 
-    val containerColor = if (isAttached) {
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    val containerColor = remember(isAttached, primaryContainerColor, surfaceVariantColor) {
+        if (isAttached) {
+            primaryContainerColor.copy(alpha = 0.35f)
+        } else {
+            surfaceVariantColor.copy(alpha = 0.45f)
+        }
     }
 
     Card(

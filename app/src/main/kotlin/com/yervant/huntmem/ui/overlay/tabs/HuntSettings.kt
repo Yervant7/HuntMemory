@@ -82,6 +82,8 @@ import com.yervant.huntmem.backend.ShellProcessProvider
 import com.yervant.huntmem.ui.keyboard.KeyboardType
 import com.yervant.huntmem.ui.keyboard.VirtualTextField
 import com.yervant.huntmem.ui.theme.MonospaceAddressStyle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private var regionsSelected: List<MemoryEngine.MemoryRegionType> = emptyList()
 private var customRegionFilter: String? = null
@@ -125,14 +127,22 @@ fun HuntSettings(context: Context) {
     val refreshTrigger = remember { mutableIntStateOf(0) }
 
     LaunchedEffect(key1 = pid, key2 = refreshTrigger.intValue) {
-        if (pid != null && ShellProcessProvider().isProcessRunning(pid.toString())) {
-            val allMemoryMaps = MemoryEngine.getMemoryMaps(pid, emptyList(), null)
-            val details = mutableMapOf<MemoryEngine.MemoryRegionType, List<MemoryEngine.MemoryMapEntry>>()
-            allRegions.forEach { region ->
-                details[region] = allMemoryMaps.filter { entry -> MemoryEngine.determineRegionType(entry.path) == region.name }
+        if (pid != null) {
+            val details = withContext(Dispatchers.IO) {
+                if (!ShellProcessProvider().isProcessRunning(pid.toString())) {
+                    return@withContext null
+                }
+                val allMemoryMaps = MemoryEngine.getMemoryMaps(pid, emptyList(), null)
+                val mappedDetails = mutableMapOf<MemoryEngine.MemoryRegionType, List<MemoryEngine.MemoryMapEntry>>()
+                allRegions.forEach { region ->
+                    mappedDetails[region] = allMemoryMaps.filter { entry -> MemoryEngine.determineRegionType(entry.path) == region.name }
+                }
+                mappedDetails
             }
-            memoryDetailsMap.clear()
-            memoryDetailsMap.putAll(details)
+            if (details != null) {
+                memoryDetailsMap.clear()
+                memoryDetailsMap.putAll(details)
+            }
         }
     }
 
