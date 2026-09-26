@@ -28,9 +28,9 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![allow(clippy::missing_safety_doc)]
 
-use jni::objects::{JClass, JObject, JString};
+use jni::objects::{JByteArray, JClass, JObject, JString};
 use jni::refs::Global;
-use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jint, jlong, jstring};
+use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jstring};
 use jni::{AttachGuard, Env, EnvUnowned};
 use jni::{jni_sig, jni_str};
 use std::panic::catch_unwind;
@@ -39,10 +39,10 @@ mod editor;
 mod kpm;
 mod logger;
 mod maps;
-mod pagemap;
 mod scanner;
 mod script;
 mod types;
+mod v2p;
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -76,6 +76,36 @@ fn store_and_format_results(session_id: &str, session: ScanSession) -> String {
         count,
     };
     serde_json::to_string(&res).unwrap_or_else(|_| "{\"matches\":[],\"count\":0}".to_string())
+}
+
+fn store_session(session_id: &str, session: ScanSession) -> usize {
+    let count = session.matches.len();
+    if let Ok(mut map) = get_sessions().lock() {
+        map.insert(session_id.to_string(), session);
+    }
+    count
+}
+
+fn to_jbyte_array(env: &mut Env, bytes: &[u8]) -> jbyteArray {
+    match env.byte_array_from_slice(bytes) {
+        Ok(arr) => arr.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+fn get_target_regions(
+    pid: u32,
+    filter_types_str: &str,
+    custom: Option<String>,
+) -> Result<Vec<MemoryRegion>, String> {
+    let maps_opt = maps::MapsOptions::default();
+    let maps = maps::parse_maps(pid, &maps_opt)?;
+    let types_vec: Vec<String> = if filter_types_str.is_empty() {
+        Vec::new()
+    } else {
+        filter_types_str.split(',').map(|s| s.to_string()).collect()
+    };
+    Ok(maps::filter_regions(&maps, &types_vec, custom))
 }
 
 /// Helper to safely extract a Rust String from a JString reference.
@@ -120,6 +150,103 @@ pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeIsH
             JNI_FALSE
         }
     }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeGetHmkpmVersionInfo(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+) -> jstring {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let res = catch_unwind(std::panic::AssertUnwindSafe(|| {
+        match kpm::probe_version() {
+            Ok(info) => serde_json::json!({
+                "available": true,
+                "version": info.version_string(),
+                "version_code": info.version_code,
+                "version_major": info.version_major,
+                "version_minor": info.version_minor,
+                "version_patch": info.version_patch,
+                "is_lockless": info.is_lockless_mode(),
+                "mmap_lock_offset": info.mmap_lock_offset,
+                "features": info.features,
+                "supports_read": (info.features & kpm::HMKPM_FEATURE_READ) != 0,
+                "supports_write": (info.features & kpm::HMKPM_FEATURE_WRITE) != 0,
+                "supports_read_batch": (info.features & kpm::HMKPM_FEATURE_READ_BATCH) != 0,
+                "supports_write_batch": (info.features & kpm::HMKPM_FEATURE_WRITE_BATCH) != 0,
+                "supports_v2p_batch": (info.features & kpm::HMKPM_FEATURE_V2P_BATCH) != 0,
+                "supports_kernel_scan": (info.features & kpm::HMKPM_FEATURE_SCAN_KERNEL) != 0,
+                "supports_lockless": (info.features & kpm::HMKPM_FEATURE_LOCKLESS) != 0,
+            })
+            .to_string(),
+            Err(e) => serde_json::json!({
+                "available": false,
+                "error": e,
+            })
+            .to_string(),
+        }
+    }));
+
+    let json_str = res.unwrap_or_else(|_| "{\"available\":false,\"error\":\"panic\"}".to_string());
+    to_jstring(env, &json_str)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeTranslateV2P(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    addresses: jni::objects::JLongArray,
+) -> jni::sys::jlongArray {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let len = match addresses.len(env) {
+        Ok(l) => l,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    if len == 0 || pid <= 0 {
+        return match env.new_long_array(0) {
+            Ok(arr) => arr.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        };
+    }
+
+    let mut vas = vec![0i64; len];
+    if addresses.get_region(env, 0, &mut vas).is_err() {
+        return std::ptr::null_mut();
+    }
+
+    let res = catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut entries: Vec<kpm::HmkpmV2pEntry> = vas
+            .iter()
+            .map(|&va| kpm::HmkpmV2pEntry {
+                va: va as u64,
+                pa: 0,
+                flags: 0,
+                page_size: 0,
+            })
+            .collect();
+
+        if kpm::v2p_batch(pid as u32, &mut entries).is_ok() {
+            let pas: Vec<i64> = entries.iter().map(|e| e.pa as i64).collect();
+            Some(pas)
+        } else {
+            None
+        }
+    }));
+
+    if let Ok(Some(pas)) = res
+        && let Ok(jarr) = env.new_long_array(pas.len())
+        && jarr.set_region(env, 0, &pas).is_ok()
+    {
+        return jarr.into_raw();
+    }
+
+    std::ptr::null_mut()
 }
 
 // ============================================================
@@ -1204,6 +1331,44 @@ pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeBat
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeBatchWriteBinary(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    payload: JByteArray,
+) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    if payload.is_null() {
+        return 0;
+    }
+
+    let byte_vec = match env.convert_byte_array(&payload) {
+        Ok(v) => v,
+        Err(e) => {
+            logger::error(
+                "HMemJni",
+                &format!("nativeBatchWriteBinary array error: {e}"),
+            );
+            return -1;
+        }
+    };
+
+    let res = catch_unwind(move || -> jint {
+        match editor::batch_write_binary(pid as u32, &byte_vec) {
+            Ok(count) => count as jint,
+            Err(e) => {
+                logger::error("HMemJni", &format!("nativeBatchWriteBinary error: {e}"));
+                -1
+            }
+        }
+    });
+
+    res.unwrap_or(-1)
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeFreezeAddress(
     unowned_env: EnvUnowned,
     _class: JClass,
@@ -1595,4 +1760,587 @@ pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeCan
     let _ = catch_unwind(|| {
         script::cancel_script();
     });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeGetMemoryMapsBinary(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    require_read: jboolean,
+    require_write: jboolean,
+    include_swapped: jboolean,
+    min_size: jlong,
+    filter_types: JString,
+    custom: JString,
+) -> jbyteArray {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let filter_types_str = match get_jni_string(env, &filter_types) {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let custom_str = get_optional_jstring(env, &custom);
+
+    let maps_opt = maps::MapsOptions {
+        require_read,
+        require_write,
+        include_swapped,
+        min_size: min_size as u64,
+        merge_adjacent: true,
+    };
+
+    let res = catch_unwind(move || match maps::parse_maps(pid as u32, &maps_opt) {
+        Ok(maps) => {
+            let types_vec: Vec<String> = if filter_types_str.is_empty() {
+                Vec::new()
+            } else {
+                filter_types_str.split(',').map(|s| s.to_string()).collect()
+            };
+            let regions = maps::filter_regions(&maps, &types_vec, custom_str);
+            encode_regions_binary(&regions)
+        }
+        Err(e) => {
+            logger::error("HMemJni", &format!("nativeGetMemoryMapsBinary error: {e}"));
+            Vec::new()
+        }
+    });
+
+    let bytes = res.unwrap_or_default();
+    to_jbyte_array(env, &bytes)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeGetResultsCount(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    session_id: JString,
+) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let sid_str = match get_jni_string(env, &session_id) {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+
+    let res = catch_unwind(move || {
+        if let Ok(map) = get_sessions().lock()
+            && let Some(session) = map.get(&sid_str)
+        {
+            return session.matches.len() as jint;
+        }
+        0
+    });
+
+    res.unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeGetResultsPage(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    session_id: JString,
+    offset: jint,
+    limit: jint,
+) -> jbyteArray {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let sid_str = match get_jni_string(env, &session_id) {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let off = (offset.max(0)) as usize;
+    let lim = limit.clamp(1, 2000) as usize;
+
+    let res = catch_unwind(move || {
+        if let Ok(map) = get_sessions().lock()
+            && let Some(session) = map.get(&sid_str)
+        {
+            let total = session.matches.len();
+            let page_matches = session.get_page(off, lim);
+            return encode_matches_page_binary(total, off, &page_matches);
+        }
+        Vec::new()
+    });
+
+    let bytes = res.unwrap_or_default();
+    to_jbyte_array(env, &bytes)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeScanMemoryFast(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    session_id: JString,
+    value: JString,
+    value_type: JString,
+    filter_types: JString,
+    custom: JString,
+    operator: JString,
+) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let sid_str = match get_jni_string(env, &session_id) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let val_str = match get_jni_string(env, &value) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let vtype_str = match get_jni_string(env, &value_type) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let filter_str = get_jni_string(env, &filter_types).unwrap_or_default();
+    let custom_str = get_optional_jstring(env, &custom);
+    let op_str = match get_jni_string(env, &operator) {
+        Ok(s) => s,
+        Err(_) => "equal".to_string(),
+    };
+
+    let res = catch_unwind(move || -> jint {
+        let vtypes = match ValueType::from_multi_str(&vtype_str) {
+            Ok(v) => v,
+            Err(e) => {
+                logger::error(
+                    "HMemJni",
+                    &format!("nativeScanMemoryFast invalid value type: {e}"),
+                );
+                return -1;
+            }
+        };
+        let op = ScanOperator::from_str(&op_str).unwrap_or(ScanOperator::Equal);
+        let regions = match get_target_regions(pid as u32, &filter_str, custom_str) {
+            Ok(r) => r,
+            Err(e) => {
+                logger::error(
+                    "HMemJni",
+                    &format!("nativeScanMemoryFast get_target_regions error: {e}"),
+                );
+                return -1;
+            }
+        };
+        if let Err(e) = ensure_kpm() {
+            logger::error(
+                "HMemJni",
+                &format!("nativeScanMemoryFast ensure_kpm error: {e}"),
+            );
+            return -1;
+        }
+        match scanner::scan_regions(pid as u32, &regions, &val_str, &vtypes, op) {
+            Ok(session) => store_session(&sid_str, session) as jint,
+            Err(e) => {
+                logger::error(
+                    "HMemJni",
+                    &format!("nativeScanMemoryFast scan_regions error: {e}"),
+                );
+                -1
+            }
+        }
+    });
+
+    res.unwrap_or(-1)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeScanRangeFast(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    session_id: JString,
+    min_value: JString,
+    max_value: JString,
+    value_type: JString,
+    filter_types: JString,
+    custom: JString,
+) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let sid_str = match get_jni_string(env, &session_id) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let min_str = match get_jni_string(env, &min_value) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let max_str = match get_jni_string(env, &max_value) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let vtype_str = match get_jni_string(env, &value_type) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let filter_str = get_jni_string(env, &filter_types).unwrap_or_default();
+    let custom_str = get_optional_jstring(env, &custom);
+
+    let res = catch_unwind(move || -> jint {
+        let vtypes = match ValueType::from_multi_str(&vtype_str) {
+            Ok(v) => v,
+            Err(_) => return -1,
+        };
+        let regions = match get_target_regions(pid as u32, &filter_str, custom_str) {
+            Ok(r) => r,
+            Err(_) => return -1,
+        };
+        if ensure_kpm().is_err() {
+            return -1;
+        }
+        match scanner::scan_range(pid as u32, &regions, &min_str, &max_str, &vtypes) {
+            Ok(session) => store_session(&sid_str, session) as jint,
+            Err(_) => -1,
+        }
+    });
+
+    res.unwrap_or(-1)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeScanGroupFast(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    session_id: JString,
+    group_spec: JString,
+    value_type: JString,
+    filter_types: JString,
+    custom: JString,
+) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let sid_str = match get_jni_string(env, &session_id) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let gspec_str = match get_jni_string(env, &group_spec) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let vtype_str = match get_jni_string(env, &value_type) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let filter_str = get_jni_string(env, &filter_types).unwrap_or_default();
+    let custom_str = get_optional_jstring(env, &custom);
+
+    let res = catch_unwind(move || -> jint {
+        let vtype = match ValueType::from_str(&vtype_str) {
+            Ok(v) => v,
+            Err(_) => return -1,
+        };
+        let regions = match get_target_regions(pid as u32, &filter_str, custom_str) {
+            Ok(r) => r,
+            Err(_) => return -1,
+        };
+        if ensure_kpm().is_err() {
+            return -1;
+        }
+        match scanner::scan_group(pid as u32, &regions, &gspec_str, vtype) {
+            Ok(session) => store_session(&sid_str, session) as jint,
+            Err(_) => -1,
+        }
+    });
+
+    res.unwrap_or(-1)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeScanObscuredFast(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    session_id: JString,
+    value: JString,
+    obscured_type: JString,
+    filter_types: JString,
+    custom: JString,
+) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let sid_str = match get_jni_string(env, &session_id) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let val_str = match get_jni_string(env, &value) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let otype_str = match get_jni_string(env, &obscured_type) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let filter_str = get_jni_string(env, &filter_types).unwrap_or_default();
+    let custom_str = get_optional_jstring(env, &custom);
+
+    let res = catch_unwind(move || -> jint {
+        let otype = match ObscuredType::from_str(&otype_str) {
+            Ok(o) => o,
+            Err(_) => return -1,
+        };
+        let regions = match get_target_regions(pid as u32, &filter_str, custom_str) {
+            Ok(r) => r,
+            Err(_) => return -1,
+        };
+        if ensure_kpm().is_err() {
+            return -1;
+        }
+        match scanner::scan_obscured(pid as u32, &regions, &val_str, otype) {
+            Ok(session) => store_session(&sid_str, session) as jint,
+            Err(_) => -1,
+        }
+    });
+
+    res.unwrap_or(-1)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeScanBigDoubleFast(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    session_id: JString,
+    value: JString,
+    filter_types: JString,
+    custom: JString,
+) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let sid_str = match get_jni_string(env, &session_id) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let val_str = match get_jni_string(env, &value) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let filter_str = get_jni_string(env, &filter_types).unwrap_or_default();
+    let custom_str = get_optional_jstring(env, &custom);
+
+    let res = catch_unwind(move || -> jint {
+        let regions = match get_target_regions(pid as u32, &filter_str, custom_str) {
+            Ok(r) => r,
+            Err(_) => return -1,
+        };
+        if ensure_kpm().is_err() {
+            return -1;
+        }
+        match scanner::scan_big_double(pid as u32, &regions, &val_str) {
+            Ok(session) => store_session(&sid_str, session) as jint,
+            Err(_) => -1,
+        }
+    });
+
+    res.unwrap_or(-1)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeFilterMatchesFast(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    session_id: JString,
+    target_value: JString,
+    operator: JString,
+) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let sid_str = match get_jni_string(env, &session_id) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let val_str = match get_jni_string(env, &target_value) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let op_str = match get_jni_string(env, &operator) {
+        Ok(s) => s,
+        Err(_) => "equal".to_string(),
+    };
+
+    let res = catch_unwind(move || -> jint {
+        let session = match get_sessions().lock().unwrap().get(&sid_str) {
+            Some(s) => s.clone(),
+            None => return 0,
+        };
+        if session.matches.is_empty() {
+            return 0;
+        }
+        let op = ScanOperator::from_str(&op_str).unwrap_or(ScanOperator::Equal);
+        if ensure_kpm().is_err() {
+            return -1;
+        }
+        match scanner::filter_matches(pid as u32, &session, &val_str, op) {
+            Ok(filtered) => store_session(&sid_str, filtered) as jint,
+            Err(_) => -1,
+        }
+    });
+
+    res.unwrap_or(-1)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeFilterRangeMatchesFast(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    session_id: JString,
+    min_value: JString,
+    max_value: JString,
+) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let sid_str = match get_jni_string(env, &session_id) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let min_str = match get_jni_string(env, &min_value) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let max_str = match get_jni_string(env, &max_value) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    let res = catch_unwind(move || -> jint {
+        let session = match get_sessions().lock().unwrap().get(&sid_str) {
+            Some(s) => s.clone(),
+            None => return 0,
+        };
+        if session.matches.is_empty() {
+            return 0;
+        }
+        if ensure_kpm().is_err() {
+            return -1;
+        }
+        match scanner::filter_range_matches(pid as u32, &session, &min_str, &max_str) {
+            Ok(filtered) => store_session(&sid_str, filtered) as jint,
+            Err(_) => -1,
+        }
+    });
+
+    res.unwrap_or(-1)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeFilterObscuredMatchesFast(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    session_id: JString,
+    target_value: JString,
+    obscured_type: JString,
+) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let sid_str = match get_jni_string(env, &session_id) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let val_str = match get_jni_string(env, &target_value) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let otype_str = match get_jni_string(env, &obscured_type) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    let res = catch_unwind(move || -> jint {
+        let session = match get_sessions().lock().unwrap().get(&sid_str) {
+            Some(s) => s.clone(),
+            None => return 0,
+        };
+        if session.matches.is_empty() {
+            return 0;
+        }
+        let otype = match ObscuredType::from_str(&otype_str) {
+            Ok(o) => o,
+            Err(_) => return -1,
+        };
+        if ensure_kpm().is_err() {
+            return -1;
+        }
+        match scanner::filter_obscured_matches(pid as u32, &session, &val_str, otype) {
+            Ok(filtered) => store_session(&sid_str, filtered) as jint,
+            Err(_) => -1,
+        }
+    });
+
+    res.unwrap_or(-1)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeFilterBigDoubleMatchesFast(
+    unowned_env: EnvUnowned,
+    _class: JClass,
+    pid: jint,
+    session_id: JString,
+    target_value: JString,
+) -> jint {
+    let mut guard = unsafe { AttachGuard::from_unowned(unowned_env.as_raw()) };
+    let env = guard.borrow_env_mut();
+
+    let sid_str = match get_jni_string(env, &session_id) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let val_str = match get_jni_string(env, &target_value) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    let res = catch_unwind(move || -> jint {
+        let session = match get_sessions().lock().unwrap().get(&sid_str) {
+            Some(s) => s.clone(),
+            None => return 0,
+        };
+        if session.matches.is_empty() {
+            return 0;
+        }
+        if ensure_kpm().is_err() {
+            return -1;
+        }
+        match scanner::filter_big_double_matches(pid as u32, &session, &val_str) {
+            Ok(filtered) => store_session(&sid_str, filtered) as jint,
+            Err(_) => -1,
+        }
+    });
+
+    res.unwrap_or(-1)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeSetScanEngineMode(
+    _env: EnvUnowned,
+    _class: JClass,
+    mode: jint,
+) {
+    let res = catch_unwind(move || {
+        scanner::set_scan_engine_mode(mode as u8);
+    });
+    let _ = res;
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_com_yervant_huntmem_backend_NativeBridge_nativeGetScanEngineMode(
+    _env: EnvUnowned,
+    _class: JClass,
+) -> jint {
+    let res = catch_unwind(move || -> jint { scanner::get_scan_engine_mode() as jint });
+    res.unwrap_or(0)
 }

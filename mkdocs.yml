@@ -35,10 +35,14 @@ theme:
     - navigation.sections
     - navigation.expand
     - navigation.top
+    - navigation.path
+    - navigation.prune
     - search.suggest
     - search.highlight
+    - search.share
     - content.code.copy
     - content.code.annotate
+    - content.tooltips
   icon:
     repo: fontawesome/brands/github
 
@@ -71,6 +75,9 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
+
+extra_css:
+  - stylesheets/extra.css
 
 extra_javascript:
   - javascripts/mathjax.js

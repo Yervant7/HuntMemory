@@ -92,6 +92,13 @@
         <item quantity="many">… и еще %d записей</item>
         <item quantity="other">… и еще %d записей</item>
     </plurals>
+    <string name="hunt_settings_scan_engine_title">Движок Сканирования</string>
+    <string name="hunt_settings_engine_rust_neon">Rust NEON SIMD (Рекомендуется)</string>
+    <string name="hunt_settings_engine_kernel">Прямой доступ через ядро (HMKPM)</string>
+    <string name="hunt_settings_engine_auto">Автоматически (Ядро + Резерв NEON)</string>
+    <string name="hunt_settings_engine_rust_neon_desc">Высокопроизводительная 128-битная векторизация и многопоточное сканирование памяти</string>
+    <string name="hunt_settings_engine_kernel_desc">Прямой обход таблиц страниц MMU в ядре через модуль HMKPM</string>
+    <string name="hunt_settings_engine_auto_desc">Сначала пытается сканировать через ядро, при ошибке переключается на Rust NEON SIMD</string>
 
     <!-- Memory Menu -->
     <string name="memory_menu_default_tab_title">Поиск %1$d</string>
@@ -236,4 +243,60 @@
     <string name="search_help_cat_group_desc">Ищет несколько разнородных типов данных, расположенных в пределах заданного диапазона байтов.</string>
     <string name="search_help_cat_goto_title">Прямой адрес и модуль библиотеки</string>
     <string name="search_help_cat_goto_desc">Прямой переход к адресу виртуальной памяти или смещению внутри библиотеки (.so).</string>
+
+    <!-- HMKPM Lockless Mode & Explanation Dialog -->
+    <string name="main_screen_hmkpm_lockless">Lockless (Чтение)</string>
+    <string name="main_screen_hmkpm_lockless_tag">Lockless</string>
+    <string name="hmkpm_dialog_title">Модуль ядра HMKPM</string>
+    <string name="hmkpm_dialog_version_label">Версия модуля</string>
+    <string name="hmkpm_dialog_mode_title">Режим работы</string>
+    <string name="hmkpm_dialog_mode_full">Полный доступ (Чтение и запись)</string>
+    <string name="hmkpm_dialog_mode_full_desc">Смещение mmap_lock ядра успешно разрешено. Прямое чтение MMU, запись, пакетные операции и заморозка памяти полностью активны.</string>
+    <string name="hmkpm_dialog_mode_lockless">Режим Lockless (Только чтение)</string>
+    <string name="hmkpm_dialog_mode_lockless_desc">Работа без mmap_lock ядра. Прямой обход таблиц страниц MMU и сканирование памяти работают на 100% максимальной скорости. Запись и заморозка памяти безопасно заблокированы модулем ядра для защиты стабильности системы.</string>
+    <string name="hmkpm_dialog_why_lockless_title">Почему запись запрещена?</string>
+    <string name="hmkpm_dialog_why_lockless_desc">В Linux запись в память процесса без захвата mmap_lock может привести к повреждению таблиц страниц или Use-After-Free при параллельном освобождении памяти. Если смещение mmap_lock не определено, HMKPM переходит в режим Lockless для гарантии безопасности ядра, сохраняя полный доступ к чтению и сканированию.</string>
+    <string name="hmkpm_dialog_features_title">Функции ядра</string>
+    <string name="hmkpm_dialog_feature_read">Прямое чтение памяти</string>
+    <string name="hmkpm_dialog_feature_write">Прямая запись в память</string>
+    <string name="hmkpm_dialog_feature_v2p">Трансляция адресов V2P</string>
+    <string name="hmkpm_dialog_feature_kernel_scan">Сканирование MMU в ядре</string>
+    <string name="hmkpm_dialog_feature_lockless">Защита Lockless</string>
+    <string name="hmkpm_dialog_mmap_offset">Смещение mmap_lock</string>
+    <string name="hmkpm_dialog_status_enabled">Включено</string>
+    <string name="hmkpm_dialog_status_disabled">Отключено</string>
+    <string name="hmkpm_dialog_status_active">Активно</string>
+    <string name="hmkpm_dialog_status_unresolved">Не определено (-1)</string>
+    <string name="lockless_banner_title">HMKPM: Режим Lockless (Только чтение)</string>
+    <string name="lockless_banner_desc">Запись и заморозка памяти отключены протоколом безопасности ядра. Сканирование и чтение полностью работоспособны.</string>
+    <string name="lockless_mode_write_disabled_title">Запись заблокирована (Режим Lockless)</string>
+    <string name="lockless_mode_write_disabled_desc">HMKPM работает в режиме Lockless. Модуль ядра не допускает запись или заморозку памяти без mmap_lock для предотвращения сбоев системы. Поиск и чтение остаются активными на 100%.</string>
+    <string name="lockless_dialog_learn_more">Подробнее</string>
+    <string name="hmkpm_dialog_close">Закрыть</string>
+
+    <!-- OEM Compatibility & HyperOS / MIUI Optimization -->
+    <string name="main_activity_permission_popup_denied">Для устройств Xiaomi / HyperOS требуется разрешение на всплывающие окна в фоне.</string>
+    <string name="main_screen_status_popup_permission_missing">Нет всплывающих окон</string>
+    <string name="oem_compat_banner_title">Оптимизация %1$s</string>
+    <string name="oem_compat_hyperos_desc">Обнаружена кастомная прошивка. Разрешите «Всплывающие окна» и «Автозапуск», чтобы оверлей не закрывался.</string>
+    <string name="oem_compat_battery_desc">Ограничения батареи могут принудительно закрыть оверлей во время игры.</string>
+    <string name="oem_compat_status_granted">Разрешено</string>
+    <string name="oem_compat_status_missing">Отсутствует</string>
+    <string name="oem_compat_status_unrestricted">Без ограничений</string>
+    <string name="oem_compat_status_restricted">Ограничено</string>
+    <string name="oem_compat_item_popup">Всплывающие окна</string>
+    <string name="oem_compat_item_autostart">Автозапуск</string>
+    <string name="oem_compat_item_battery">Экономия батареи</string>
+    <string name="oem_compat_btn_overlay">Всплыв. окна</string>
+    <string name="oem_compat_btn_autostart">Автозапуск</string>
+    <string name="oem_compat_btn_battery">Без огранич.</string>
+    <string name="oem_compat_dialog_title">Руководство по совместимости OEM</string>
+    <string name="oem_compat_dialog_desc_1">Модифицированные прошивки (Xiaomi HyperOS, MIUI, ColorOS, OriginOS, EMUI) используют агрессивные менеджеры процессов.</string>
+    <string name="oem_compat_dialog_item_overlay_title">1. Всплывающие окна и оверлей</string>
+    <string name="oem_compat_dialog_item_overlay_desc">В HyperOS/MIUI необходимо включить «Отображать всплывающие окна в фоновом режиме» в приложении Безопасность.</string>
+    <string name="oem_compat_dialog_item_autostart_title">2. Автозапуск и фоновая активность</string>
+    <string name="oem_compat_dialog_item_autostart_desc">Автозапуск предотвращает закрытие HuntMemory при нехватке оперативной памяти.</string>
+    <string name="oem_compat_dialog_item_battery_title">3. Экономия батареи без ограничений</string>
+    <string name="oem_compat_dialog_item_battery_desc">Установите режим контроля активности на «Нет ограничений» для стабильной работы.</string>
+    <string name="oem_compat_dialog_dismiss">Понятно</string>
 </resources>

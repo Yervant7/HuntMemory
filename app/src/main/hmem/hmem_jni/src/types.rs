@@ -20,7 +20,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum ValueType {
     Byte,
     Short,
@@ -501,6 +501,122 @@ impl ScanSession {
 
         result
     }
+
+    pub fn get_page(&self, offset: usize, limit: usize) -> Vec<ScanMatch> {
+        let total = self.matches.len();
+        if offset >= total {
+            return Vec::new();
+        }
+        let end = (offset + limit).min(total);
+        let mut result = Vec::with_capacity(end - offset);
+
+        for m in &self.matches[offset..end] {
+            let region = self.regions.get(m.region_idx as usize);
+            let val_bytes = m.raw_value.to_le_bytes();
+            let vtype = m.value_type;
+            let val_str = bytes_to_value_str(&val_bytes[..vtype.size()], vtype);
+
+            result.push(ScanMatch {
+                address: m.address,
+                value: val_str,
+                region_start: region.map(|r| r.start).unwrap_or(0),
+                region_end: region.map(|r| r.end).unwrap_or(0),
+                permissions: region.map(|r| r.permissions.clone()).unwrap_or_default(),
+                path: region.map(|r| r.path.clone()).unwrap_or_default(),
+                value_type: vtype.as_str().to_string(),
+            });
+        }
+
+        result
+    }
+}
+
+/// Binary serializer for MemoryRegion lists:
+/// [4 bytes: count (u32 LE)]
+/// For each region:
+///   - start: u64 LE (8 bytes)
+///   - end: u64 LE (8 bytes)
+///   - offset: u64 LE (8 bytes)
+///   - merged_count: u32 LE (4 bytes)
+///   - permissions: 4 bytes ASCII
+///   - path_len: u16 LE (2 bytes)
+///   - path: UTF-8 bytes (path_len bytes)
+pub fn encode_regions_binary(regions: &[MemoryRegion]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(4 + regions.len() * 40);
+    buf.extend_from_slice(&(regions.len() as u32).to_le_bytes());
+    for r in regions {
+        buf.extend_from_slice(&r.start.to_le_bytes());
+        buf.extend_from_slice(&r.end.to_le_bytes());
+        buf.extend_from_slice(&r.offset.to_le_bytes());
+        buf.extend_from_slice(&r.merged_count.to_le_bytes());
+        let mut perm_bytes = [b' '; 4];
+        let p_bytes = r.permissions.as_bytes();
+        let copy_len = p_bytes.len().min(4);
+        perm_bytes[..copy_len].copy_from_slice(&p_bytes[..copy_len]);
+        buf.extend_from_slice(&perm_bytes);
+        let path_bytes = r.path.as_bytes();
+        let path_len = path_bytes.len().min(u16::MAX as usize) as u16;
+        buf.extend_from_slice(&path_len.to_le_bytes());
+        buf.extend_from_slice(&path_bytes[..path_len as usize]);
+    }
+    buf
+}
+
+/// Binary serializer for a page of ScanMatches:
+/// [4 bytes: total_count_in_session (u32 LE)]
+/// [4 bytes: page_offset (u32 LE)]
+/// [4 bytes: page_items_count (u32 LE)]
+/// For each match:
+///   - address: u64 LE (8 bytes)
+///   - region_start: u64 LE (8 bytes)
+///   - region_end: u64 LE (8 bytes)
+///   - value_type: u8 (1 byte: 0=byte, 1=short, 2=int, 3=long, 4=float, 5=double, 6=float16)
+///   - permissions: 4 bytes ASCII
+///   - value_len: u8 (1 byte)
+///   - value: UTF-8 bytes
+///   - path_len: u16 LE (2 bytes)
+///   - path: UTF-8 bytes
+pub fn encode_matches_page_binary(
+    total_count: usize,
+    offset: usize,
+    matches: &[ScanMatch],
+) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(12 + matches.len() * 48);
+    buf.extend_from_slice(&(total_count as u32).to_le_bytes());
+    buf.extend_from_slice(&(offset as u32).to_le_bytes());
+    buf.extend_from_slice(&(matches.len() as u32).to_le_bytes());
+    for m in matches {
+        buf.extend_from_slice(&m.address.to_le_bytes());
+        buf.extend_from_slice(&m.region_start.to_le_bytes());
+        buf.extend_from_slice(&m.region_end.to_le_bytes());
+        let vt_code: u8 = match m.value_type.as_str() {
+            "byte" => 0,
+            "short" => 1,
+            "int" => 2,
+            "long" => 3,
+            "float" => 4,
+            "double" => 5,
+            "float16" => 6,
+            _ => 2,
+        };
+        buf.push(vt_code);
+        let mut perm_bytes = [b' '; 4];
+        let p_bytes = m.permissions.as_bytes();
+        let copy_len = p_bytes.len().min(4);
+        perm_bytes[..copy_len].copy_from_slice(&p_bytes[..copy_len]);
+        buf.extend_from_slice(&perm_bytes);
+
+        let val_bytes = m.value.as_bytes();
+        let val_len = val_bytes.len().min(255) as u8;
+        buf.push(val_len);
+        buf.extend_from_slice(&val_bytes[..val_len as usize]);
+
+        let path_bytes = m.path.as_bytes();
+        let path_len = path_bytes.len().min(u16::MAX as usize) as u16;
+        buf.extend_from_slice(&path_len.to_le_bytes());
+        buf.extend_from_slice(&path_bytes[..path_len as usize]);
+    }
+    buf
 }
 
 #[derive(Serialize, Deserialize)]

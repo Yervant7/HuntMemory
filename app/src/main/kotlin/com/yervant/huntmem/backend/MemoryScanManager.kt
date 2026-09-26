@@ -21,7 +21,6 @@
 package com.yervant.huntmem.backend
 
 import android.util.Log
-import com.yervant.huntmem.backend.MemoryEngine.getMemoryMaps
 import com.yervant.huntmem.ui.overlay.tabs.MatchInfo
 import java.util.UUID
 
@@ -84,7 +83,8 @@ class MemoryScanManager {
         customFilter: String?
     ): Pair<Int, List<MatchInfo>> {
         val pid = AttachedProcessRepository.getAttachedPid() ?: throw Exception("pid is null")
-        val regions = getMemoryMaps(pid, selectedRegions, customFilter)
+        val filterTypesStr = selectedRegions.joinToString(",") { it.code }
+        val customStr = customFilter ?: ""
         val s = numValStr.trim()
         val vTypeLower = valueType.lowercase()
 
@@ -94,9 +94,9 @@ class MemoryScanManager {
                 .removePrefix("xor:").removePrefix("XOR:").trim()
             val oType = if (vTypeLower.startsWith("obscured")) vTypeLower else "obscured_int"
             return if (isNewScan) {
-                MemoryEngine.searchObscured(pid, sessionId, cleanedVal, oType, regions).getOrThrow()
+                MemoryEngine.searchObscuredFast(pid, sessionId, cleanedVal, oType, filterTypesStr, customStr).getOrThrow()
             } else {
-                MemoryEngine.filterObscuredAuto(pid, sessionId, "int", cleanedVal, oType).getOrThrow()
+                MemoryEngine.filterObscuredFast(pid, sessionId, cleanedVal, oType).getOrThrow()
             }
         }
 
@@ -105,9 +105,9 @@ class MemoryScanManager {
             val cleanedVal = s.removePrefix("bigdouble:").removePrefix("BIGDOUBLE:")
                 .removePrefix("mantissa:").removePrefix("MANTISSA:").trim()
             return if (isNewScan) {
-                MemoryEngine.searchBigDouble(pid, sessionId, cleanedVal, regions).getOrThrow()
+                MemoryEngine.searchBigDoubleFast(pid, sessionId, cleanedVal, filterTypesStr, customStr).getOrThrow()
             } else {
-                MemoryEngine.filterBigDoubleAuto(pid, sessionId, cleanedVal).getOrThrow()
+                MemoryEngine.filterBigDoubleFast(pid, sessionId, cleanedVal).getOrThrow()
             }
         }
 
@@ -129,9 +129,9 @@ class MemoryScanManager {
 
                 val primaryType = if (vTypeLower.contains("double")) "double" else if (vTypeLower.contains("float16")) "float16" else "float"
                 return if (isNewScan) {
-                    MemoryEngine.searchRange(pid, sessionId, minVal, maxVal, primaryType, regions).getOrThrow()
+                    MemoryEngine.searchRangeFast(pid, sessionId, minVal, maxVal, primaryType, filterTypesStr, customStr).getOrThrow()
                 } else {
-                    MemoryEngine.filterRangeAuto(pid, sessionId, primaryType, minVal, maxVal).getOrThrow()
+                    MemoryEngine.filterRangeFast(pid, sessionId, minVal, maxVal).getOrThrow()
                 }
             }
         }
@@ -145,9 +145,9 @@ class MemoryScanManager {
                 val mult = parts[1].trim().toDoubleOrNull() ?: 1.0
                 val scaledInt = (base * mult).toLong().toString()
                 return if (isNewScan) {
-                    MemoryEngine.search(pid, sessionId, scaledInt, vTypeLower, regions, operator).getOrThrow()
+                    MemoryEngine.searchFast(pid, sessionId, scaledInt, vTypeLower, filterTypesStr, customStr, operator).getOrThrow()
                 } else {
-                    MemoryEngine.filterAddressesAuto(pid, sessionId, vTypeLower, scaledInt, operator).getOrThrow()
+                    MemoryEngine.filterAddressesFast(pid, sessionId, scaledInt, operator).getOrThrow()
                 }
             }
         }
@@ -155,11 +155,12 @@ class MemoryScanManager {
         // 5. Group / Struct scanning (e.g. 100;200:512 or f64:1.5;i64:6:16)
         if (s.contains(";")) {
             if (isNewScan) {
-                return MemoryEngine.searchGroup(pid, sessionId, s, vTypeLower, regions).getOrThrow()
+                return MemoryEngine.searchGroupFast(pid, sessionId, s, vTypeLower, filterTypesStr, customStr).getOrThrow()
             } else {
                 val split = s.split(":")
                 val values = split[0].split(";")
-                return MemoryEngine.filterGroupAddressesAuto(pid, sessionId, vTypeLower, values, operator).getOrThrow()
+                val firstVal = values.firstOrNull() ?: ""
+                return MemoryEngine.filterAddressesFast(pid, sessionId, firstVal, operator).getOrThrow()
             }
         }
 
@@ -171,18 +172,18 @@ class MemoryScanManager {
                 val minStr = values[0].trim()
                 val maxStr = values[1].trim()
                 return if (isNewScan) {
-                    MemoryEngine.searchRange(pid, sessionId, minStr, maxStr, vTypeLower, regions).getOrThrow()
+                    MemoryEngine.searchRangeFast(pid, sessionId, minStr, maxStr, vTypeLower, filterTypesStr, customStr).getOrThrow()
                 } else {
-                    MemoryEngine.filterRangeAuto(pid, sessionId, vTypeLower, minStr, maxStr).getOrThrow()
+                    MemoryEngine.filterRangeFast(pid, sessionId, minStr, maxStr).getOrThrow()
                 }
             }
         }
 
         // 7. Standard typed / exact / relative scan
         return if (isNewScan) {
-            MemoryEngine.search(pid, sessionId, s, vTypeLower, regions, operator).getOrThrow()
+            MemoryEngine.searchFast(pid, sessionId, s, vTypeLower, filterTypesStr, customStr, operator).getOrThrow()
         } else {
-            MemoryEngine.filterAddressesAuto(pid, sessionId, vTypeLower, s, operator).getOrThrow()
+            MemoryEngine.filterAddressesFast(pid, sessionId, s, operator).getOrThrow()
         }
     }
 
@@ -190,7 +191,7 @@ class MemoryScanManager {
         val pid = AttachedProcessRepository.getAttachedPid() ?: return emptyList()
 
         return try {
-            val results = MemoryEngine.filterAddressesAuto(pid, sessionId, "int", "0", "update").getOrThrow()
+            val results = MemoryEngine.filterAddressesFast(pid, sessionId, "0", "update").getOrThrow()
             results.second
         } catch (e: Exception) {
             Log.e(TAG, "Failed to batch update matches: ${e.message}")

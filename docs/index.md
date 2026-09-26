@@ -127,13 +127,14 @@ graph TD
 
 - 🎯 **SIMD-Accelerated Memory Scanning**:
     - **ARM NEON Intrinsics**: Vectorized memory evaluation processing up to 16 bytes per cycle.
-    - **Multi-Type & Auto Scan**: Search across multiple integer and floating-point types simultaneously.
+    - **Multi-Type & Auto Scan**: Search across multiple integer and floating-point types (`Byte`, `Short`, `Int`, `Long`, `Float`, `Double`, `Float16`) simultaneously.
+    - **Array of Bytes (AoB) Signature Scan**: Discover complex byte sequences with wildcard masks (`?`, `??`, `*`).
     - **Range & Group Scanning**: Locate values within bounds or discover structured variables grouped closely in memory (`spec:distance`).
     - **Unknown & Differential Scans**: Track dynamic values with *Increased*, *Decreased*, *Changed*, *Unchanged*, and delta filters.
 
 - 📜 **Lua 5.4 Scripting & GameGuardian Compatibility**:
     - **Native `hmem.*` & `gg.*` Support**: Direct compatibility for running existing GameGuardian scripts.
-    - **Dynamic Overlay Menus & Dialogs**: Create custom floating cheat menus, prompts, and choice selectors in Jetpack Compose directly from Lua.
+    - **Dynamic Overlay Menus & Event Loop**: Create custom floating cheat menus, prompts, and responsive button/toggle handlers directly in Lua.
     - **On-Screen Canvas Overlay (ESP/HUD)**: Hardware-accelerated 2D lines, bounding boxes, circles, and text rendering overlaying target games.
 
 - 🔐 **Obscured & Scientific Number Support**:
@@ -142,11 +143,11 @@ graph TD
 
 - 🗺️ **Comprehensive Memory Region Filtering**:
     - Automatically classifies memory mappings: `Anonymous [A]`, `C++ Alloc [CA]`, `C++ BSS [CB]`, `C++ Data [CD]`, `C++ Heap [CH]`, `Java Heap [JH]`, `Stack [S]`, `Ashmem [AS]`, and `Libraries [XA]`.
-    - Pagemap residency verification and zram swap awareness.
+    - Pagemap residency verification (`PM_PRESENT` / `PM_SWAP`) and zram swap awareness.
 
 - ✏️ **Real-Time Memory Editing & Freeze Engine**:
-    - Single and batch memory writing.
-    - Low-overhead native background thread maintaining locked values at configurable intervals.
+    - Single and batch memory writing with physical RAM page validation.
+    - Low-overhead native background thread maintaining locked values at configurable intervals (default: 100ms).
 
 - 📱 **Modern Floating Overlay UI**:
     - Fully resizable and movable overlay built with Jetpack Compose Material 3.

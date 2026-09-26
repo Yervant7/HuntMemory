@@ -44,6 +44,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import com.yervant.huntmem.ui.theme.ComponentStyles
 
+import com.yervant.huntmem.ui.keyboard.LocalKeyboardController
+
 interface DialogCallback {
     fun showInfoDialog(title: String, message: String, onConfirm: () -> Unit, onDismiss: () -> Unit)
     fun showInputDialog(title: String, defaultValue: String, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
@@ -60,7 +62,18 @@ fun CustomDialog(
     val windowInfo = LocalWindowInfo.current
     val density = LocalDensity.current
     val screenHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
-    val maxDialogHeight = screenHeightDp * 0.90f
+    val isCompactHeight = screenHeightDp < 500.dp
+    val keyboardController = LocalKeyboardController.current
+    val isKeyboardVisible = keyboardController.isVisible.value
+
+    val alignTop = isKeyboardVisible || (isCompactHeight && isKeyboardVisible)
+    val maxDialogHeight = if (isKeyboardVisible) {
+        (screenHeightDp * 0.46f).coerceAtLeast(140.dp)
+    } else if (isCompactHeight) {
+        (screenHeightDp * 0.88f)
+    } else {
+        screenHeightDp * 0.90f
+    }
 
     Box(
         modifier = Modifier
@@ -72,7 +85,7 @@ fun CustomDialog(
             ) {
                 onDismissRequest?.invoke()
             },
-        contentAlignment = Alignment.Center
+        contentAlignment = if (alignTop) Alignment.TopCenter else Alignment.Center
     ) {
         Surface(
             modifier = Modifier
@@ -81,7 +94,7 @@ fun CustomDialog(
                 .heightIn(max = maxDialogHeight)
                 .padding(
                     horizontal = ComponentStyles.Dialog.cardPaddingHorizontal,
-                    vertical = ComponentStyles.Dialog.cardPaddingVertical
+                    vertical = if (alignTop) 6.dp else ComponentStyles.Dialog.cardPaddingVertical
                 )
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },

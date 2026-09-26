@@ -111,14 +111,14 @@ The computational engine is implemented in **Rust (Edition 2024)** and compiled 
   - Embeds Lua 5.4 through `mlua`, exposing high-level memory automation, pointer traversal, batch edits, and GameGuardian (`gg.*`) API compatibility.
   - Implements the `ScriptUiCallback` trait to bridge script execution with Android Compose UI components asynchronously.
 
-- **Memory Map Streaming Parser (`maps.rs` & `pagemap.rs`)**:
+- **Memory Map Streaming Parser (`maps.rs`) & Direct MMU V2P Resolver (`v2p.rs`)**:
   - Parses `/proc/[pid]/maps` using reusable heap buffers and zero-copy string slicing.
   - Automatically merges contiguous adjacent regions sharing identical permissions, paths, and continuous file offsets into consolidated entries with `merged_count`.
-  - Cross-references virtual memory ranges with `/proc/[pid]/pagemap` using batched `pread` to discard non-resident pages before scanning.
+  - **Zero-FD Kernel V2P Inspector (`v2p.rs`)**: Replaces legacy `/proc/[pid]/pagemap` parsing with direct MMU page table walks via HMKPM (`HMKPM_MAGIC_V2P_BATCH`), inspecting hardware `PAGE_FLAG_PRESENT` without touching procfs or leaving file descriptors.
 
 - **Freeze Engine & Memory Editor (`editor.rs`)**:
   - Runs a dedicated background worker thread synchronized via `Arc<(Mutex<FreezeState>, Condvar)>`, partitioning locked addresses by `(pid, address)` for multi-process safety.
-  - Validates physical page residency (`PM_PRESENT`) on all memory write operations (`write_raw_bytes`) before dispatching kernel operations.
+  - Validates physical page residency (`PAGE_FLAG_PRESENT`) on all memory write operations (`write_raw_bytes`) before dispatching kernel operations.
   - Re-applies desired memory values to registered addresses at configurable intervals (default: 100ms) with microsecond precision.
 
 ---

@@ -104,14 +104,14 @@ fun VirtualKeyboard(controller: KeyboardController) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                        .padding(horizontal = 6.dp, vertical = if (isCompactHeight) 2.dp else 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // Top control & cursor preview bar
                     KeyboardPreviewHeader(controller)
 
                     HorizontalDivider(
-                        modifier = Modifier.padding(bottom = 4.dp),
+                        modifier = Modifier.padding(bottom = if (isCompactHeight) 2.dp else 4.dp),
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                     )
 
@@ -530,8 +530,8 @@ private fun KeyButton(
     onClick: () -> Unit
 ) {
     val isCompactHeight = LocalIsCompactKeyboard.current
-    val keyHeight = if (isCompactHeight) 28.dp else 36.dp
-    val fontSize = if (isCompactHeight) 12.sp else 14.sp
+    val keyHeight = if (isCompactHeight) 26.dp else 36.dp
+    val fontSize = if (isCompactHeight) 11.5.sp else 14.sp
 
     Button(
         onClick = onClick,
@@ -563,9 +563,9 @@ private fun ActionKey(
     onClick: () -> Unit
 ) {
     val isCompactHeight = LocalIsCompactKeyboard.current
-    val keyHeight = if (isCompactHeight) 28.dp else 36.dp
-    val fontSize = if (isCompactHeight) 9.5.sp else 11.sp
-    val iconSize = if (isCompactHeight) 14.dp else 16.dp
+    val keyHeight = if (isCompactHeight) 26.dp else 36.dp
+    val fontSize = if (isCompactHeight) 9.sp else 11.sp
+    val iconSize = if (isCompactHeight) 13.dp else 16.dp
 
     Button(
         onClick = onClick,

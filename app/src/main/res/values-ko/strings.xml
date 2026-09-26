@@ -89,6 +89,13 @@
     <plurals name="hunt_settings_and_more_entries_label">
         <item quantity="other">… 외 %d개 항목 더 있음</item>
     </plurals>
+    <string name="hunt_settings_scan_engine_title">스캔 엔진</string>
+    <string name="hunt_settings_engine_rust_neon">Rust NEON SIMD (권장)</string>
+    <string name="hunt_settings_engine_kernel">커널 다이렉트 (HMKPM)</string>
+    <string name="hunt_settings_engine_auto">자동 (커널 + NEON 폴백)</string>
+    <string name="hunt_settings_engine_rust_neon_desc">고성능 128비트 벡터화 및 멀티스레드 메모리 스캔</string>
+    <string name="hunt_settings_engine_kernel_desc">HMKPM 모듈을 통한 커널 내 MMU 페이지 테이블 직접 탐색</string>
+    <string name="hunt_settings_engine_auto_desc">커널 스캔을 먼저 시도하고 오류 발생 시 Rust NEON SIMD로 폴백합니다</string>
 
     <!-- Memory Menu -->
     <string name="memory_menu_default_tab_title">검색 %1$d</string>
@@ -227,4 +234,60 @@
     <string name="search_help_cat_group_desc">연속된 메모리 바이트 범위 내에 위치한 여러 이종 데이터 타입을 동시에 검색합니다.</string>
     <string name="search_help_cat_goto_title">직접 주소 및 라이브러리 이동</string>
     <string name="search_help_cat_goto_desc">가상 메모리 주소 또는 동적 라이브러리(.so) 오프셋으로 직접 이동합니다.</string>
+
+    <!-- HMKPM Lockless Mode & Explanation Dialog -->
+    <string name="main_screen_hmkpm_lockless">잠금 없음 (읽기 전용)</string>
+    <string name="main_screen_hmkpm_lockless_tag">잠금 없음</string>
+    <string name="hmkpm_dialog_title">HMKPM 커널 모듈</string>
+    <string name="hmkpm_dialog_version_label">모듈 버전</string>
+    <string name="hmkpm_dialog_mode_title">작동 모드</string>
+    <string name="hmkpm_dialog_mode_full">전체 접근 모드 (읽기 및 쓰기)</string>
+    <string name="hmkpm_dialog_mode_full_desc">커널 mmap_lock이 성공적으로 확인되었습니다. 직접 MMU 읽기, 쓰기, 일괄 작업 및 메모리 고정이 완전히 활성화되었습니다.</string>
+    <string name="hmkpm_dialog_mode_lockless">잠금 없는 모드 (읽기 전용)</string>
+    <string name="hmkpm_dialog_mode_lockless_desc">커널 mmap_lock 없이 실행 중입니다. 커널 내 MMU 페이지 테이블 탐색 및 메모리 스캔은 100% 최고 속도로 작동합니다. 시스템 무결성을 보호하기 위해 커널에 의해 메모리 쓰기 및 고정이 안전하게 비활성화되었습니다.</string>
+    <string name="hmkpm_dialog_why_lockless_title">왜 쓰기가 허용되지 않나요?</string>
+    <string name="hmkpm_dialog_why_lockless_desc">Linux에서는 프로세스 mmap_lock을 획득하지 않고 메모리에 쓰면 경쟁 상태, 페이지 테이블 손상 또는 Use-After-Free 위험이 발생합니다. mmap_lock 오프셋을 확인할 수 없는 경우 HMKPM은 완전한 읽기 및 스캔 기능을 유지하면서 커널 안전을 보장하기 위해 잠금 없는 모드로 진입합니다.</string>
+    <string name="hmkpm_dialog_features_title">커널 기능</string>
+    <string name="hmkpm_dialog_feature_read">직접 메모리 읽기</string>
+    <string name="hmkpm_dialog_feature_write">직접 메모리 쓰기</string>
+    <string name="hmkpm_dialog_feature_v2p">V2P 주소 변환</string>
+    <string name="hmkpm_dialog_feature_kernel_scan">커널 내 MMU 스캔</string>
+    <string name="hmkpm_dialog_feature_lockless">잠금 없는 안전 보호</string>
+    <string name="hmkpm_dialog_mmap_offset">mmap_lock 오프셋</string>
+    <string name="hmkpm_dialog_status_enabled">활성화됨</string>
+    <string name="hmkpm_dialog_status_disabled">비활성화됨</string>
+    <string name="hmkpm_dialog_status_active">활성</string>
+    <string name="hmkpm_dialog_status_unresolved">확인 불가 (-1)</string>
+    <string name="lockless_banner_title">HMKPM: 잠금 없는 모드 (읽기 전용)</string>
+    <string name="lockless_banner_desc">커널 안전 프로토콜로 인해 메모리 쓰기 및 고정이 비활성화되었습니다. 메모리 스캔 및 읽기는 정상 작동합니다.</string>
+    <string name="lockless_mode_write_disabled_title">쓰기 차단됨 (잠금 없는 모드)</string>
+    <string name="lockless_mode_write_disabled_desc">HMKPM이 잠금 없는 모드로 실행 중입니다. 시스템 불안정을 방지하기 위해 커널 모듈은 mmap_lock 없는 메모리 쓰기나 고정을 허용하지 않습니다. 메모리 검색 및 읽기는 100% 활성 상태로 유지됩니다.</string>
+    <string name="lockless_dialog_learn_more">상세 정보</string>
+    <string name="hmkpm_dialog_close">닫기</string>
+
+    <!-- OEM Compatibility & HyperOS / MIUI Optimization -->
+    <string name="main_activity_permission_popup_denied">Xiaomi / HyperOS 기기에서는 백그라운드 팝업 권한이 필요합니다.</string>
+    <string name="main_screen_status_popup_permission_missing">팝업 권한 없음</string>
+    <string name="oem_compat_banner_title">%1$s 최적화</string>
+    <string name="oem_compat_hyperos_desc">커스텀 ROM이 감지되었습니다. 플로팅 창 강제 종료를 방지하려면 \"팝업 창 표시\" 및 \"자동 시작\"을 허용하세요.</string>
+    <string name="oem_compat_battery_desc">백그라운드 배터리 제한으로 인해 게임 도중 오버레이가 종료될 수 있습니다.</string>
+    <string name="oem_compat_status_granted">허용됨</string>
+    <string name="oem_compat_status_missing">미허용</string>
+    <string name="oem_compat_status_unrestricted">제한 없음</string>
+    <string name="oem_compat_status_restricted">제한됨</string>
+    <string name="oem_compat_item_popup">백그라운드 팝업</string>
+    <string name="oem_compat_item_autostart">자동 시작</string>
+    <string name="oem_compat_item_battery">배터리 절약</string>
+    <string name="oem_compat_btn_overlay">팝업 권한</string>
+    <string name="oem_compat_btn_autostart">자동 시작</string>
+    <string name="oem_compat_btn_battery">제한 없음</string>
+    <string name="oem_compat_dialog_title">OEM 호환성 가이드</string>
+    <string name="oem_compat_dialog_desc_1">커스텀 ROM (Xiaomi HyperOS, MIUI, ColorOS, OriginOS, EMUI)은 공격적인 백그라운드 태스크 킬러를 포함합니다.</string>
+    <string name="oem_compat_dialog_item_overlay_title">1. 팝업 및 오버레이 창</string>
+    <string name="oem_compat_dialog_item_overlay_desc">HyperOS/MIUI에서는 보안 앱에서 \"백그라운드 팝업 창 표시\"를 허용해야 합니다.</string>
+    <string name="oem_compat_dialog_item_autostart_title">2. 자동 시작 및 백그라운드 동작</string>
+    <string name="oem_compat_dialog_item_autostart_desc">자동 시작을 허용하면 메모리 부족 시 시스템이 HuntMemory를 종료하는 것을 방지합니다.</string>
+    <string name="oem_compat_dialog_item_battery_title">3. 배터리 절약 제한 없음</string>
+    <string name="oem_compat_dialog_item_battery_desc">연속적인 스캔을 위해 배터리 절약을 \"제한 없음\"으로 설정하세요.</string>
+    <string name="oem_compat_dialog_dismiss">확인</string>
 </resources>

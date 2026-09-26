@@ -30,6 +30,12 @@ interface IHMemService {
     /** true if HMKPM module responds to PROBE. */
     boolean nativeIsHmkpmAvailable();
 
+    /** Returns JSON string with HMKPM version, code, and features bitmask. */
+    String nativeGetHmkpmVersionInfo();
+
+    /** Translates virtual addresses to physical addresses in batch via kernel page table walk. */
+    long[] nativeTranslateV2P(int pid, in long[] addresses);
+
     String nativeReadMemory(int pid, long address, String valueType);
 
     int nativeWriteMemory(int pid, long address, String value, String valueType);
@@ -49,6 +55,7 @@ interface IHMemService {
     void nativeClearSession(String sessionId);
 
     int nativeBatchWrite(int pid, String writesJson);
+    int nativeBatchWriteBinary(int pid, in byte[] payload);
 
     int nativeFreezeAddress(int pid, long address, String value, String valueType);
 
@@ -77,5 +84,33 @@ interface IHMemService {
     long nativeGetModuleBase(int pid, String moduleName);
 
     long nativeResolvePointerChain(int pid, String baseExpr, String offsetsJson);
+
+    byte[] nativeGetMemoryMapsBinary(int pid, boolean require_read, boolean require_write, boolean include_swapped, long min_size, String filter_types, String custom);
+
+    int nativeGetResultsCount(String sessionId);
+
+    byte[] nativeGetResultsPage(String sessionId, int offset, int limit);
+
+    int nativeScanMemoryFast(int pid, String sessionId, String value, String valueType, String filterTypes, String customFilter, String operator);
+
+    int nativeScanRangeFast(int pid, String sessionId, String minValue, String maxValue, String valueType, String filterTypes, String customFilter);
+
+    int nativeScanGroupFast(int pid, String sessionId, String groupSpec, String valueType, String filterTypes, String customFilter);
+
+    int nativeScanObscuredFast(int pid, String sessionId, String value, String obscuredType, String filterTypes, String customFilter);
+
+    int nativeScanBigDoubleFast(int pid, String sessionId, String value, String filterTypes, String customFilter);
+
+    int nativeFilterMatchesFast(int pid, String sessionId, String targetValue, String operator);
+
+    int nativeFilterRangeMatchesFast(int pid, String sessionId, String minValue, String maxValue);
+
+    int nativeFilterObscuredMatchesFast(int pid, String sessionId, String targetValue, String obscuredType);
+
+    int nativeFilterBigDoubleMatchesFast(int pid, String sessionId, String targetValue);
+
+    void nativeSetScanEngineMode(int mode);
+
+    int nativeGetScanEngineMode();
 }
 

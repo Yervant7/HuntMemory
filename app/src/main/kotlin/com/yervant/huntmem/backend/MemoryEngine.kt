@@ -65,6 +65,30 @@ object MemoryEngine {
 
     var globalMapOptions = MemoryMapOptions()
 
+    enum class ScanEngineMode(val code: Int) {
+        RUST_NEON(0),
+        KERNEL(1),
+        AUTO(2);
+
+        companion object {
+            fun fromCode(code: Int): ScanEngineMode = when (code) {
+                1 -> KERNEL
+                2 -> AUTO
+                else -> RUST_NEON
+            }
+        }
+    }
+
+    var globalScanEngineMode: ScanEngineMode = ScanEngineMode.RUST_NEON
+        set(value) {
+            field = value
+            NativeBridge.setScanEngineMode(value.code)
+        }
+
+    fun updateScanEngineMode(mode: ScanEngineMode) {
+        globalScanEngineMode = mode
+    }
+
     enum class MemoryRegionType(val code: String, val title: String) {
         ANONYMOUS("A", "Anonymous"),
         ALLOC("CA", "C++ Alloc (malloc, scudo...)"),
@@ -87,6 +111,24 @@ object MemoryEngine {
     ): List<MemoryMapEntry> {
         return try {
             val filterTypesStr = selectedRegions.joinToString(",") { it.code }
+            val custom = customFilter ?: ""
+            val binaryBytes = NativeBridge.getMemoryMapsBinary(
+                pid = pid,
+                requireRead = options.requireRead,
+                requireWrite = options.requireWrite,
+                includeSwapped = options.includeSwapped,
+                minSize = options.minSize,
+                filterTypes = filterTypesStr,
+                custom = custom
+            )
+            if (binaryBytes != null && binaryBytes.isNotEmpty()) {
+                val decoded = NativeBridge.decodeMemoryRegions(binaryBytes)
+                if (decoded.isNotEmpty()) {
+                    return decoded
+                }
+            }
+
+            // Fallback to legacy JSON if binary not available
             val json = NativeBridge.getMemoryMaps(
                 pid = pid,
                 requireRead = options.requireRead,
@@ -94,7 +136,7 @@ object MemoryEngine {
                 includeSwapped = options.includeSwapped,
                 minSize = options.minSize,
                 filterTypes = filterTypesStr,
-                custom = customFilter ?: ""
+                custom = custom
             )
             val arr = JSONArray(json)
             (0 until arr.length()).map { i ->
@@ -136,6 +178,9 @@ object MemoryEngine {
         datatype: String,
         value: String,
     ): Result<Unit> = runCatching {
+        if (NativeBridge.getHmkpmVersionInfo().isLockless) {
+            throw IOException("Memory write blocked: HMKPM Lockless Mode is active (kernel mmap_lock unavailable)")
+        }
         val normalized = datatype.lowercase().trim()
         when {
             normalized.startsWith("obscured") || normalized.startsWith("actk") || normalized.startsWith("xor") -> {
@@ -161,6 +206,9 @@ object MemoryEngine {
         value: String,
         obscuredType: String,
     ): Result<Unit> = runCatching {
+        if (NativeBridge.getHmkpmVersionInfo().isLockless) {
+            throw IOException("Memory write blocked: HMKPM Lockless Mode is active (kernel mmap_lock unavailable)")
+        }
         withContext(Dispatchers.IO) {
             val res = NativeBridge.writeObscured(pid, address, value, obscuredType)
             if (res != 0) {
@@ -174,6 +222,9 @@ object MemoryEngine {
         address: Long,
         value: String,
     ): Result<Unit> = runCatching {
+        if (NativeBridge.getHmkpmVersionInfo().isLockless) {
+            throw IOException("Memory write blocked: HMKPM Lockless Mode is active (kernel mmap_lock unavailable)")
+        }
         withContext(Dispatchers.IO) {
             val res = NativeBridge.writeBigDouble(pid, address, value)
             if (res != 0) {
@@ -321,8 +372,174 @@ object MemoryEngine {
     ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
         withContext(Dispatchers.IO) {
             val targetVal = targetValues.firstOrNull() ?: ""
-            filterAddressesAuto(pid, sessionId, fallbackType, targetVal, operator).getOrThrow()
+            filterAddressesFast(pid, sessionId, targetVal, operator).getOrThrow()
         }
+    }
+
+    // === FAST BINARY & ZERO-JSON PAGINATED ENGINE APIS ===
+
+    suspend fun searchFast(
+        pid: Int,
+        sessionId: String,
+        value: String,
+        dataType: String,
+        filterTypes: String = "",
+        customFilter: String = "",
+        operator: String = "equal",
+        limit: Int = 100
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        withContext(Dispatchers.IO) {
+            val count = NativeBridge.scanMemoryFast(pid, sessionId, value, dataType, filterTypes, customFilter, operator)
+            if (count < 0) throw IOException("Fast memory scan failed")
+            if (count == 0) return@withContext Pair(0, emptyList())
+            val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
+            NativeBridge.decodeMatchesPage(sessionId, pageBytes, pid)
+        }
+    }
+
+    suspend fun searchRangeFast(
+        pid: Int,
+        sessionId: String,
+        valueMin: String,
+        valueMax: String,
+        dataType: String,
+        filterTypes: String = "",
+        customFilter: String = "",
+        limit: Int = 100
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        withContext(Dispatchers.IO) {
+            val count = NativeBridge.scanRangeFast(pid, sessionId, valueMin, valueMax, dataType, filterTypes, customFilter)
+            if (count < 0) throw IOException("Fast range scan failed")
+            if (count == 0) return@withContext Pair(0, emptyList())
+            val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
+            NativeBridge.decodeMatchesPage(sessionId, pageBytes, pid)
+        }
+    }
+
+    suspend fun searchGroupFast(
+        pid: Int,
+        sessionId: String,
+        value: String,
+        dataType: String,
+        filterTypes: String = "",
+        customFilter: String = "",
+        limit: Int = 100
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        withContext(Dispatchers.IO) {
+            val count = NativeBridge.scanGroupFast(pid, sessionId, value, dataType, filterTypes, customFilter)
+            if (count < 0) throw IOException("Fast group scan failed")
+            if (count == 0) return@withContext Pair(0, emptyList())
+            val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
+            NativeBridge.decodeMatchesPage(sessionId, pageBytes, pid)
+        }
+    }
+
+    suspend fun searchObscuredFast(
+        pid: Int,
+        sessionId: String,
+        value: String,
+        obscuredType: String,
+        filterTypes: String = "",
+        customFilter: String = "",
+        limit: Int = 100
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        withContext(Dispatchers.IO) {
+            val count = NativeBridge.scanObscuredFast(pid, sessionId, value, obscuredType, filterTypes, customFilter)
+            if (count < 0) throw IOException("Fast obscured scan failed")
+            if (count == 0) return@withContext Pair(0, emptyList())
+            val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
+            NativeBridge.decodeMatchesPage(sessionId, pageBytes, pid)
+        }
+    }
+
+    suspend fun searchBigDoubleFast(
+        pid: Int,
+        sessionId: String,
+        value: String,
+        filterTypes: String = "",
+        customFilter: String = "",
+        limit: Int = 100
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        withContext(Dispatchers.IO) {
+            val count = NativeBridge.scanBigDoubleFast(pid, sessionId, value, filterTypes, customFilter)
+            if (count < 0) throw IOException("Fast BigDouble scan failed")
+            if (count == 0) return@withContext Pair(0, emptyList())
+            val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
+            NativeBridge.decodeMatchesPage(sessionId, pageBytes, pid)
+        }
+    }
+
+    suspend fun filterAddressesFast(
+        pid: Int,
+        sessionId: String,
+        targetValue: String,
+        operator: String = "equal",
+        limit: Int = 100
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        withContext(Dispatchers.IO) {
+            val count = NativeBridge.filterMatchesFast(pid, sessionId, targetValue, operator)
+            if (count < 0) throw IOException("Fast filter matches failed")
+            if (count == 0) return@withContext Pair(0, emptyList())
+            val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
+            NativeBridge.decodeMatchesPage(sessionId, pageBytes, pid)
+        }
+    }
+
+    suspend fun filterRangeFast(
+        pid: Int,
+        sessionId: String,
+        minValue: String,
+        maxValue: String,
+        limit: Int = 100
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        withContext(Dispatchers.IO) {
+            val count = NativeBridge.filterRangeMatchesFast(pid, sessionId, minValue, maxValue)
+            if (count < 0) throw IOException("Fast range filter failed")
+            if (count == 0) return@withContext Pair(0, emptyList())
+            val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
+            NativeBridge.decodeMatchesPage(sessionId, pageBytes, pid)
+        }
+    }
+
+    suspend fun filterObscuredFast(
+        pid: Int,
+        sessionId: String,
+        targetValue: String,
+        obscuredType: String,
+        limit: Int = 100
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        withContext(Dispatchers.IO) {
+            val count = NativeBridge.filterObscuredMatchesFast(pid, sessionId, targetValue, obscuredType)
+            if (count < 0) throw IOException("Fast obscured filter failed")
+            if (count == 0) return@withContext Pair(0, emptyList())
+            val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
+            NativeBridge.decodeMatchesPage(sessionId, pageBytes, pid)
+        }
+    }
+
+    suspend fun filterBigDoubleFast(
+        pid: Int,
+        sessionId: String,
+        targetValue: String,
+        limit: Int = 100
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        withContext(Dispatchers.IO) {
+            val count = NativeBridge.filterBigDoubleMatchesFast(pid, sessionId, targetValue)
+            if (count < 0) throw IOException("Fast BigDouble filter failed")
+            if (count == 0) return@withContext Pair(0, emptyList())
+            val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
+            NativeBridge.decodeMatchesPage(sessionId, pageBytes, pid)
+        }
+    }
+
+    suspend fun getResultsPage(
+        pid: Int,
+        sessionId: String,
+        offset: Int,
+        limit: Int
+    ): Pair<Int, List<MatchInfo>> = withContext(Dispatchers.IO) {
+        val bytes = NativeBridge.getResultsPage(sessionId, offset, limit)
+        NativeBridge.decodeMatchesPage(sessionId, bytes, pid)
     }
 
     // === HELPER FUNCTIONS ===

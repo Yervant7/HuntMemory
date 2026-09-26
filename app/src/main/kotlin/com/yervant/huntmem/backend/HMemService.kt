@@ -51,6 +51,24 @@ class HMemService : RootService() {
                 }
             }
 
+            override fun nativeGetHmkpmVersionInfo(): String {
+                return try {
+                    NativeBridge.nativeGetHmkpmVersionInfo()
+                } catch (e: Throwable) {
+                    Log.e(TAG, "nativeGetHmkpmVersionInfo error in root process: ${e.message}", e)
+                    "{\"available\":false,\"error\":\"${e.message}\"}"
+                }
+            }
+
+            override fun nativeTranslateV2P(pid: Int, addresses: LongArray): LongArray? {
+                return try {
+                    NativeBridge.nativeTranslateV2P(pid, addresses)
+                } catch (e: Throwable) {
+                    Log.e(TAG, "nativeTranslateV2P error in root process: ${e.message}", e)
+                    null
+                }
+            }
+
             override fun nativeReadMemory(
                 pid: Int,
                 address: Long,
@@ -141,6 +159,13 @@ class HMemService : RootService() {
                 return NativeBridge.nativeBatchWrite(pid, writesJson)
             }
 
+            override fun nativeBatchWriteBinary(
+                pid: Int,
+                payload: ByteArray
+            ): Int {
+                return NativeBridge.nativeBatchWriteBinary(pid, payload)
+            }
+
             override fun nativeFreezeAddress(
                 pid: Int,
                 address: Long,
@@ -229,6 +254,125 @@ class HMemService : RootService() {
 
             override fun nativeResolvePointerChain(pid: Int, baseExpr: String, offsetsJson: String): Long {
                 return NativeBridge.nativeResolvePointerChain(pid, baseExpr, offsetsJson)
+            }
+
+            override fun nativeGetMemoryMapsBinary(
+                pid: Int,
+                require_read: Boolean,
+                require_write: Boolean,
+                include_swapped: Boolean,
+                min_size: Long,
+                filter_types: String,
+                custom: String
+            ): ByteArray? {
+                return NativeBridge.nativeGetMemoryMapsBinary(pid, require_read, require_write, include_swapped, min_size, filter_types, custom)
+            }
+
+            override fun nativeGetResultsCount(sessionId: String): Int {
+                return NativeBridge.nativeGetResultsCount(sessionId)
+            }
+
+            override fun nativeGetResultsPage(sessionId: String, offset: Int, limit: Int): ByteArray? {
+                return NativeBridge.nativeGetResultsPage(sessionId, offset, limit)
+            }
+
+            override fun nativeScanMemoryFast(
+                pid: Int,
+                sessionId: String,
+                value: String,
+                valueType: String,
+                filterTypes: String,
+                customFilter: String,
+                operator: String
+            ): Int {
+                return NativeBridge.nativeScanMemoryFast(pid, sessionId, value, valueType, filterTypes, customFilter, operator)
+            }
+
+            override fun nativeScanRangeFast(
+                pid: Int,
+                sessionId: String,
+                minValue: String,
+                maxValue: String,
+                valueType: String,
+                filterTypes: String,
+                customFilter: String
+            ): Int {
+                return NativeBridge.nativeScanRangeFast(pid, sessionId, minValue, maxValue, valueType, filterTypes, customFilter)
+            }
+
+            override fun nativeScanGroupFast(
+                pid: Int,
+                sessionId: String,
+                groupSpec: String,
+                valueType: String,
+                filterTypes: String,
+                customFilter: String
+            ): Int {
+                return NativeBridge.nativeScanGroupFast(pid, sessionId, groupSpec, valueType, filterTypes, customFilter)
+            }
+
+            override fun nativeScanObscuredFast(
+                pid: Int,
+                sessionId: String,
+                value: String,
+                obscuredType: String,
+                filterTypes: String,
+                customFilter: String
+            ): Int {
+                return NativeBridge.nativeScanObscuredFast(pid, sessionId, value, obscuredType, filterTypes, customFilter)
+            }
+
+            override fun nativeScanBigDoubleFast(
+                pid: Int,
+                sessionId: String,
+                value: String,
+                filterTypes: String,
+                customFilter: String
+            ): Int {
+                return NativeBridge.nativeScanBigDoubleFast(pid, sessionId, value, filterTypes, customFilter)
+            }
+
+            override fun nativeFilterMatchesFast(
+                pid: Int,
+                sessionId: String,
+                targetValue: String,
+                operator: String
+            ): Int {
+                return NativeBridge.nativeFilterMatchesFast(pid, sessionId, targetValue, operator)
+            }
+
+            override fun nativeFilterRangeMatchesFast(
+                pid: Int,
+                sessionId: String,
+                minValue: String,
+                maxValue: String
+            ): Int {
+                return NativeBridge.nativeFilterRangeMatchesFast(pid, sessionId, minValue, maxValue)
+            }
+
+            override fun nativeFilterObscuredMatchesFast(
+                pid: Int,
+                sessionId: String,
+                targetValue: String,
+                obscuredType: String
+            ): Int {
+                return NativeBridge.nativeFilterObscuredMatchesFast(pid, sessionId, targetValue, obscuredType)
+            }
+
+            override fun nativeFilterBigDoubleMatchesFast(
+                pid: Int,
+                sessionId: String,
+                targetValue: String
+            ): Int {
+                return NativeBridge.nativeFilterBigDoubleMatchesFast(pid, sessionId, targetValue)
+            }
+
+            override fun nativeSetScanEngineMode(mode: Int) {
+                NativeBridge.nativeSetScanEngineMode(mode)
+            }
+
+            override fun nativeGetScanEngineMode(): Int {
+                return NativeBridge.nativeGetScanEngineMode()
             }
         }
     }

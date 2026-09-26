@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayDisabled
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -58,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,12 +77,14 @@ import com.yervant.huntmem.backend.AttachedProcessRepository
 import com.yervant.huntmem.backend.MemoryEditor
 import com.yervant.huntmem.backend.MemoryEngine
 import com.yervant.huntmem.backend.MemoryScanManager
+import com.yervant.huntmem.backend.NativeBridge
 import com.yervant.huntmem.backend.ShellProcessProvider
 import com.yervant.huntmem.ui.DialogCallback
 import com.yervant.huntmem.ui.keyboard.KeyboardType
 import com.yervant.huntmem.ui.theme.FrozenIceCyan
 import com.yervant.huntmem.ui.theme.MonospaceAddressStyle
 import com.yervant.huntmem.ui.theme.MonospaceValueStyle
+import com.yervant.huntmem.ui.theme.TertiaryAmber
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -88,29 +92,62 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import java.util.UUID
 import kotlin.time.Duration.Companion.milliseconds
 
-@Stable
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class AddressInfo(
+    val id: String = UUID.randomUUID().toString(),
     val matchInfo: MatchInfo,
     val numType: String,
-    var isFrozen: Boolean = false,
+    val isFrozen: Boolean = false,
 )
 
 private val savedAddressList = mutableStateListOf<AddressInfo>()
 
 fun addAddressToTable(matchInfo: MatchInfo) {
-    savedAddressList.add(AddressInfo(matchInfo, matchInfo.valueType, false))
+    val existingIndex = savedAddressList.indexOfFirst {
+        it.matchInfo.address == matchInfo.address && it.matchInfo.valueType.equals(matchInfo.valueType, ignoreCase = true)
+    }
+    if (existingIndex != -1) {
+        val existing = savedAddressList[existingIndex]
+        savedAddressList[existingIndex] = existing.copy(
+            matchInfo = matchInfo,
+            numType = matchInfo.valueType
+        )
+    } else {
+        savedAddressList.add(
+            AddressInfo(
+                id = UUID.randomUUID().toString(),
+                matchInfo = matchInfo,
+                numType = matchInfo.valueType,
+                isFrozen = false
+            )
+        )
+    }
 }
 
 @Composable
 fun AddressTableTab(context: Context?, dialogCallback: DialogCallback) {
     val coroutineScope = rememberCoroutineScope()
+    val isLockless = remember { NativeBridge.getHmkpmVersionInfo().isLockless }
 
     LaunchedEffect(savedAddressList.isNotEmpty()) {
+        if (savedAddressList.isEmpty()) return@LaunchedEffect
         while (isActive) {
-            MemoryEditor().syncFreezeState(savedAddressList)
-            refreshValue(context!!, dialogCallback)
+            val pid = AttachedProcessRepository.getAttachedPid()
+            if (pid != null) {
+                for (i in savedAddressList.indices) {
+                    val item = savedAddressList.getOrNull(i) ?: continue
+                    val isFrozen = NativeBridge.isAddressFrozen(pid, item.matchInfo.address)
+                    if (item.isFrozen != isFrozen) {
+                        savedAddressList[i] = item.copy(isFrozen = isFrozen)
+                    }
+                }
+                refreshValue(context!!, dialogCallback, userInitiated = false)
+            }
             delay(1500L.milliseconds)
         }
     }
@@ -121,11 +158,72 @@ fun AddressTableTab(context: Context?, dialogCallback: DialogCallback) {
             .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+        // Lockless Mode Alert Banner
+        if (isLockless) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        val title = context?.getString(R.string.lockless_mode_write_disabled_title) ?: ""
+                        val desc = context?.getString(R.string.lockless_mode_write_disabled_desc) ?: ""
+                        dialogCallback.showInfoDialog(
+                            title = title,
+                            message = desc,
+                            onConfirm = {},
+                            onDismiss = {}
+                        )
+                    },
+                shape = RoundedCornerShape(6.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = TertiaryAmber.copy(alpha = 0.15f)
+                ),
+                border = BorderStroke(1.dp, TertiaryAmber.copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Shield,
+                        contentDescription = null,
+                        tint = TertiaryAmber,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.lockless_banner_title),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
+                            ),
+                            color = TertiaryAmber,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = stringResource(R.string.lockless_banner_desc),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 9.sp,
+                                lineHeight = 11.sp
+                            ),
+                            color = TertiaryAmber.copy(alpha = 0.9f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+
         // Single-Line Control Toolbar
         SingleLineControlToolbar(
             dialogCallback = dialogCallback,
             coroutineScope = coroutineScope,
-            context = context!!
+            context = context!!,
+            isLockless = isLockless
         )
 
         // Main Address Table Card
@@ -175,46 +273,70 @@ fun AddressTableTab(context: Context?, dialogCallback: DialogCallback) {
                     ) {
                         itemsIndexed(
                             items = savedAddressList,
-                            key = { _, item -> item.matchInfo.address }
-                        ) { index, item ->
+                            key = { _, item -> item.id }
+                        ) { _, item ->
                             AddressTableRow(
                                 item = item,
+                                isLockless = isLockless,
+                                context = context,
+                                dialogCallback = dialogCallback,
                                 onDeleteClick = {
                                     val da = context.getString(R.string.address_table_delete_address_dialog_title)
                                     val dtafl = context.getString(R.string.address_table_delete_address_dialog_message)
                                     dialogCallback.showInfoDialog(
                                         title = da,
                                         message = dtafl,
-                                        onConfirm = { savedAddressList.removeAt(index) },
+                                        onConfirm = {
+                                            val idx = savedAddressList.indexOfFirst { it.id == item.id }
+                                            if (idx != -1) {
+                                                savedAddressList.removeAt(idx)
+                                            }
+                                        },
                                         onDismiss = {}
                                     )
                                 },
                                 onValueClick = {
-                                    val ev = context.getString(R.string.address_table_edit_value_dialog_title)
-                                    val kbType = when (item.matchInfo.valueType.lowercase()) {
-                                        "float", "double" -> KeyboardType.NUMERIC
-                                        else -> KeyboardType.NUMERIC
-                                    }
-                                    dialogCallback.showInputDialog(
-                                        title = ev,
-                                        defaultValue = item.matchInfo.prevValue.toString(),
-                                        keyboardType = kbType,
-                                        onConfirm = { newValue ->
-                                            coroutineScope.launch {
-                                                val pid = AttachedProcessRepository.getAttachedPid()
-                                                if (pid != null) {
+                                    if (isLockless) {
+                                        dialogCallback.showInfoDialog(
+                                            title = context.getString(R.string.lockless_mode_write_disabled_title),
+                                            message = context.getString(R.string.lockless_mode_write_disabled_desc),
+                                            onConfirm = {},
+                                            onDismiss = {}
+                                        )
+                                    } else {
+                                        val pid = AttachedProcessRepository.getAttachedPid()
+                                        if (pid == null) {
+                                            dialogCallback.showInfoDialog(
+                                                title = context.getString(R.string.address_table_error_dialog_title),
+                                                message = context.getString(R.string.address_table_no_process_attached_error),
+                                                onConfirm = {},
+                                                onDismiss = {}
+                                            )
+                                            return@AddressTableRow
+                                        }
+                                        val ev = context.getString(R.string.address_table_edit_value_dialog_title)
+                                        val kbType = when (item.matchInfo.valueType.lowercase()) {
+                                            "float", "double" -> KeyboardType.NUMERIC
+                                            else -> KeyboardType.NUMERIC
+                                        }
+                                        dialogCallback.showInputDialog(
+                                            title = ev,
+                                            defaultValue = item.matchInfo.prevValue.toString(),
+                                            keyboardType = kbType,
+                                            onConfirm = { newValue ->
+                                                coroutineScope.launch {
                                                     MemoryEngine.writeMem(
                                                         pid,
                                                         item.matchInfo.address,
                                                         item.matchInfo.valueType,
                                                         newValue
                                                     )
-                                                    refreshValue(context, dialogCallback)
+                                                    refreshValue(context, dialogCallback, userInitiated = false)
                                                 }
-                                            }
-                                        },
-                                        onDismiss = {}
-                                    )
+                                            },
+                                            onDismiss = {}
+                                        )
+                                    }
                                 },
                                 coroutineScope = coroutineScope
                             )
@@ -230,7 +352,8 @@ fun AddressTableTab(context: Context?, dialogCallback: DialogCallback) {
 private fun SingleLineControlToolbar(
     dialogCallback: DialogCallback,
     coroutineScope: CoroutineScope,
-    context: Context
+    context: Context,
+    isLockless: Boolean
 ) {
     val hasItems = savedAddressList.isNotEmpty()
 
@@ -264,6 +387,27 @@ private fun SingleLineControlToolbar(
             contentColor = MaterialTheme.colorScheme.secondary,
             enabled = hasItems,
             onClick = {
+                if (isLockless) {
+                    val title = context.getString(R.string.lockless_mode_write_disabled_title)
+                    val desc = context.getString(R.string.lockless_mode_write_disabled_desc)
+                    dialogCallback.showInfoDialog(
+                        title = title,
+                        message = desc,
+                        onConfirm = {},
+                        onDismiss = {}
+                    )
+                    return@ToolbarActionButton
+                }
+                val pid = AttachedProcessRepository.getAttachedPid()
+                if (pid == null) {
+                    dialogCallback.showInfoDialog(
+                        title = context.getString(R.string.address_table_error_dialog_title),
+                        message = context.getString(R.string.address_table_no_process_attached_error),
+                        onConfirm = {},
+                        onDismiss = {}
+                    )
+                    return@ToolbarActionButton
+                }
                 val eav = context.getString(R.string.address_table_edit_all_values_dialog_title)
                 dialogCallback.showInputDialog(
                     title = eav,
@@ -289,6 +433,27 @@ private fun SingleLineControlToolbar(
             contentColor = MaterialTheme.colorScheme.primary,
             enabled = hasItems,
             onClick = {
+                if (isLockless) {
+                    val title = context.getString(R.string.lockless_mode_write_disabled_title)
+                    val desc = context.getString(R.string.lockless_mode_write_disabled_desc)
+                    dialogCallback.showInfoDialog(
+                        title = title,
+                        message = desc,
+                        onConfirm = {},
+                        onDismiss = {}
+                    )
+                    return@ToolbarActionButton
+                }
+                val pid = AttachedProcessRepository.getAttachedPid()
+                if (pid == null) {
+                    dialogCallback.showInfoDialog(
+                        title = context.getString(R.string.address_table_error_dialog_title),
+                        message = context.getString(R.string.address_table_no_process_attached_error),
+                        onConfirm = {},
+                        onDismiss = {}
+                    )
+                    return@ToolbarActionButton
+                }
                 val fav = context.getString(R.string.address_table_freeze_all_values_dialog_title)
                 dialogCallback.showInputDialog(
                     title = fav,
@@ -298,6 +463,9 @@ private fun SingleLineControlToolbar(
                         coroutineScope.launch {
                             withContext(Dispatchers.IO) {
                                 MemoryEditor().freezeAll(savedAddressList, input)
+                            }
+                            for (i in savedAddressList.indices) {
+                                savedAddressList[i] = savedAddressList[i].copy(isFrozen = true)
                             }
                         }
                     },
@@ -314,12 +482,22 @@ private fun SingleLineControlToolbar(
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             enabled = hasItems,
             onClick = {
+                val pid = AttachedProcessRepository.getAttachedPid()
+                if (pid == null) {
+                    dialogCallback.showInfoDialog(
+                        title = context.getString(R.string.address_table_error_dialog_title),
+                        message = context.getString(R.string.address_table_no_process_attached_error),
+                        onConfirm = {},
+                        onDismiss = {}
+                    )
+                    return@ToolbarActionButton
+                }
                 coroutineScope.launch {
                     withContext(Dispatchers.IO) {
                         MemoryEditor().unfreezeAll(savedAddressList)
-                        savedAddressList.forEach { addrInfo ->
-                            addrInfo.isFrozen = false
-                        }
+                    }
+                    for (i in savedAddressList.indices) {
+                        savedAddressList[i] = savedAddressList[i].copy(isFrozen = false)
                     }
                 }
             },
@@ -424,6 +602,9 @@ private fun AddressTableHeader() {
 @Composable
 private fun AddressTableRow(
     item: AddressInfo,
+    isLockless: Boolean,
+    context: Context,
+    dialogCallback: DialogCallback,
     onDeleteClick: () -> Unit,
     onValueClick: () -> Unit,
     coroutineScope: CoroutineScope
@@ -512,11 +693,43 @@ private fun AddressTableRow(
                 Switch(
                     checked = item.isFrozen,
                     onCheckedChange = { newValue ->
+                        if (isLockless && newValue) {
+                            val title = context.getString(R.string.lockless_mode_write_disabled_title)
+                            val desc = context.getString(R.string.lockless_mode_write_disabled_desc)
+                            dialogCallback.showInfoDialog(
+                                title = title,
+                                message = desc,
+                                onConfirm = {},
+                                onDismiss = {}
+                            )
+                            return@Switch
+                        }
+                        val pid = AttachedProcessRepository.getAttachedPid()
+                        if (pid == null) {
+                            dialogCallback.showInfoDialog(
+                                title = context.getString(R.string.address_table_error_dialog_title),
+                                message = context.getString(R.string.address_table_no_process_attached_error),
+                                onConfirm = {},
+                                onDismiss = {}
+                            )
+                            return@Switch
+                        }
                         coroutineScope.launch {
-                            if (newValue) {
-                                MemoryEditor().freezeAddress(item)
+                            val success = if (newValue) {
+                                withContext(Dispatchers.IO) {
+                                    MemoryEditor().freezeAddress(item)
+                                }
                             } else {
-                                MemoryEditor().unfreezeAddress(item)
+                                withContext(Dispatchers.IO) {
+                                    MemoryEditor().unfreezeAddress(item)
+                                }
+                                true
+                            }
+                            if (success) {
+                                val idx = savedAddressList.indexOfFirst { it.id == item.id }
+                                if (idx != -1) {
+                                    savedAddressList[idx] = savedAddressList[idx].copy(isFrozen = newValue)
+                                }
                             }
                         }
                     },
@@ -556,19 +769,25 @@ private fun RowScope.TableCell(
     }
 }
 
-private suspend fun refreshValue(context: Context, dialogCallback: DialogCallback) {
+private suspend fun refreshValue(
+    context: Context,
+    dialogCallback: DialogCallback,
+    userInitiated: Boolean = false
+) {
     val mem = MemoryScanManager()
     val pid = AttachedProcessRepository.getAttachedPid()
 
     val err = context.getString(R.string.address_table_error_dialog_title)
     if (pid == null) {
-        val npa = context.getString(R.string.address_table_no_process_attached_error)
-        dialogCallback.showInfoDialog(
-            title = err,
-            message = npa,
-            onConfirm = {},
-            onDismiss = {}
-        )
+        if (userInitiated) {
+            val npa = context.getString(R.string.address_table_no_process_attached_error)
+            dialogCallback.showInfoDialog(
+                title = err,
+                message = npa,
+                onConfirm = {},
+                onDismiss = {}
+            )
+        }
         return
     }
 
@@ -577,13 +796,15 @@ private suspend fun refreshValue(context: Context, dialogCallback: DialogCallbac
     }
 
     if (!isRunning) {
-        val pnr = context.getString(R.string.address_table_process_not_running_error)
-        dialogCallback.showInfoDialog(
-            title = err,
-            message = pnr,
-            onConfirm = {},
-            onDismiss = {}
-        )
+        if (userInitiated) {
+            val pnr = context.getString(R.string.address_table_process_not_running_error)
+            dialogCallback.showInfoDialog(
+                title = err,
+                message = pnr,
+                onConfirm = {},
+                onDismiss = {}
+            )
+        }
         savedAddressList.clear()
         return
     }
@@ -631,15 +852,14 @@ private suspend fun refreshValue(context: Context, dialogCallback: DialogCallbac
         val editor = MemoryEditor()
         failedAddresses.forEach { addrInfo ->
             editor.unfreezeAddress(addrInfo)
-            addrInfo.isFrozen = false
         }
     }
 
-    val updatedMap = newList.associateBy { it.matchInfo.address }
-    savedAddressList.removeAll { it.matchInfo.address !in updatedMap }
+    val updatedMap = newList.associateBy { it.id }
+    savedAddressList.removeAll { it.id !in updatedMap }
     for (i in savedAddressList.indices) {
         val currentItem = savedAddressList[i]
-        val updatedItem = updatedMap[currentItem.matchInfo.address]
+        val updatedItem = updatedMap[currentItem.id]
         if (updatedItem != null && (currentItem.matchInfo.prevValue != updatedItem.matchInfo.prevValue || currentItem.isFrozen != updatedItem.isFrozen)) {
             savedAddressList[i] = updatedItem
         }

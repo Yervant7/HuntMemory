@@ -93,7 +93,13 @@ Locates grouped variables and struct fields situated close to each other in memo
 - **Homogeneous format**: `100;200;300:16` (finds 100, 200, and 300 within 16 bytes distance).
 - **Heterogeneous format**: `f64:100.5; i64:5000 : 32` (finds typed variables with distinct sizes).
 
-### 5. Unknown & Relative Scans
+### 5. Array of Bytes (AoB) & Signature Scanning
+Searches for byte sequences with wildcard mask support:
+- **Pattern Format**: Space-separated hex bytes with `?`, `??`, or `*` wildcards (e.g. `00 20 40 ? ? 90 00`).
+- **Bitwise Evaluation**: Matches exact bytes through `(byte & mask) == target`, ensuring wildcard bytes (`mask = 0x00`) match any byte in RAM.
+- **Chunk Window Overlap**: When scanning across multi-megabyte memory chunks, an overlap rewind window of `pattern_length - 1` prevents signatures spanning block boundaries from being split or omitted.
+
+### 6. Unknown & Relative Scans
 Supports initial scans without known values, followed by differential refinement passes:
 - **`▲ Increased`**: Value has increased compared to the previous pass.
 - **`▼ Decreased`**: Value has decreased compared to the previous pass.
@@ -104,7 +110,24 @@ Supports initial scans without known values, followed by differential refinement
 
 ---
 
-## 🔐 5. Obscured Types & Scientific Notations
+## 🔬 5. Half-Precision Float (`Float16`) Processing
+
+HuntMemory provides full native support for **IEEE 754 16-bit half-precision floating-point numbers (`Float16` / `f16`)**:
+- **Layout**: 1 sign bit, 5 exponent bits, and 10 fraction bits.
+- **Subnormal & Denormal Handling**: Normalized using branchless leading-zero computation (`CLZ` on ARM64) to maintain precision without scalar exceptions.
+- **Conversion Pipelines**: Direct bitwise conversion functions (`f16_to_f32` and `f32_to_f16`) allow seamless filtering, range evaluation, and memory editing of mobile shaders and compact float arrays.
+
+---
+
+## ⚡ 6. High-Throughput Binary Serialization
+
+To eliminate JSON serialization and garbage collection pauses across the JNI bridge when dealing with millions of scan matches:
+- **`encode_regions_binary`**: Serializes `/proc/[pid]/maps` region structures into a dense binary byte array with 8-byte aligned addresses and 4-byte ASCII permissions.
+- **`encode_matches_page_binary`**: Streams paginated scan results to the Android UI using compact fixed-width structures (8 bytes address, 8 bytes start/end, 1 byte type code, 4 bytes permissions, length-prefixed value strings).
+
+---
+
+## 🔐 7. Obscured Types & Scientific Notations
 
 ### Obscured XOR Keypairs (Anti-Cheat Toolkit / ACTk)
 Many games store sensitive variables (e.g., gold, health) as XOR-encrypted pairs:
@@ -124,8 +147,9 @@ Format parsing supports scientific notation directly (e.g., `1.5e12` or `1.5,12`
 
 ---
 
-## ❄️ 6. Memory Freeze Engine
+## ❄️ 8. Memory Freeze Engine
 
-- Managed via a dedicated native worker thread in `editor.rs`.
-- Target addresses are registered with their desired replacement values and locked atomically using `Arc<(Mutex<FreezeState>, Condvar)>`.
-- Operates at configurable tick intervals (default: **100ms**) using batch kernel writes to minimize CPU overhead.
+- **Native Background Worker**: Managed via a dedicated thread in `editor.rs` synchronized with `Arc<(Mutex<FreezeState>, Condvar)>`.
+- **Atomic Registration**: Addresses are registered with their target value and partitioned by `(pid, address)`.
+- **Physical Page Validation**: Verifies `PM_PRESENT` on each target page prior to writing.
+- **Configurable Tick Rate**: Operates at configurable tick intervals (default: **100ms**) using batched kernel writes to minimize CPU wakeups.

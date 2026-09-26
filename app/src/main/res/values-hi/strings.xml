@@ -90,6 +90,13 @@
         <item quantity="one">… और %d और प्रविष्टि</item>
         <item quantity="other">… और %d अन्य प्रविष्टियाँ</item>
     </plurals>
+    <string name="hunt_settings_scan_engine_title">स्कैन इंजन</string>
+    <string name="hunt_settings_engine_rust_neon">Rust NEON SIMD (अनुशंसित)</string>
+    <string name="hunt_settings_engine_kernel">कर्नेल डायरेक्ट (HMKPM)</string>
+    <string name="hunt_settings_engine_auto">स्वचालित (कर्नेल + NEON फ़ॉलबैक)</string>
+    <string name="hunt_settings_engine_rust_neon_desc">उच्च-थ्रूपुट 128-बिट वेक्टराइजेशन और मल्टी-थ्रेडेड मेमोरी स्कैनिंग</string>
+    <string name="hunt_settings_engine_kernel_desc">HMKPM मॉड्यूल के माध्यम से कर्नेल में सीधे MMU पेज टेबल वॉक</string>
+    <string name="hunt_settings_engine_auto_desc">पहले कर्नेल स्कैन का प्रयास करता है और त्रुटि होने पर Rust NEON SIMD पर स्विच करता है</string>
 
     <!-- Memory Menu -->
     <string name="memory_menu_default_tab_title">खोज %1$d</string>
@@ -230,4 +237,60 @@
     <string name="search_help_cat_group_desc">मेमोरी बाइट रेंज के भीतर स्थित कई अलग-अलग डेटा प्रकारों का मिलान करता है।</string>
     <string name="search_help_cat_goto_title">सीधा पता और लाइब्रेरी</string>
     <string name="search_help_cat_goto_desc">सीधे वर्चुअल मेमोरी पते या गतिशील लाइब्रेरी ऑफ़सेट पर जाएँ।</string>
+
+    <!-- HMKPM Lockless Mode & Explanation Dialog -->
+    <string name="main_screen_hmkpm_lockless">लॉकलेस (केवल पढ़ें)</string>
+    <string name="main_screen_hmkpm_lockless_tag">लॉकलेस</string>
+    <string name="hmkpm_dialog_title">HMKPM कर्नेल मॉड्यूल</string>
+    <string name="hmkpm_dialog_version_label">मॉड्यूल संस्करण</string>
+    <string name="hmkpm_dialog_mode_title">ऑपरेटिंग मोड</string>
+    <string name="hmkpm_dialog_mode_full">पूर्ण पहुंच मोड (पढ़ें और लिखें)</string>
+    <string name="hmkpm_dialog_mode_full_desc">कर्नेल mmap_lock सफलतापूर्वक हल हो गया। प्रत्यक्ष MMU पठन, लेखन, बैच संचालन और मेमोरी फ्रीजिंग पूरी तरह से सक्षम हैं।</string>
+    <string name="hmkpm_dialog_mode_lockless">लॉकलेस मोड (केवल पढ़ने योग्य)</string>
+    <string name="hmkpm_dialog_mode_lockless_desc">कर्नेल mmap_lock के बिना चल रहा है। इन-कर्नेल MMU पेज टेबल स्कैन और मेमोरी रीडिंग 100% गति से काम करते हैं। सिस्टम अखंडता की सुरक्षा के लिए कर्नेल द्वारा मेमोरी राइटिंग और फ्रीजिंग को सुरक्षित रूप से अक्षम कर दिया गया है।</string>
+    <string name="hmkpm_dialog_why_lockless_title">लेखन की अनुमति क्यों नहीं है?</string>
+    <string name="hmkpm_dialog_why_lockless_desc">लिनक्स में, प्रोसेस mmap_lock प्राप्त किए बिना मेमोरी में लिखने से पेज टेबल करप्शन या Use-After-Free का जोखिम होता है। जब mmap_lock ऑफ़सेट हल नहीं होता है, तो HMKPM पूर्ण पठन और स्कैन क्षमताओं को बनाए रखते हुए कर्नेल सुरक्षा सुनिश्चित करने के लिए लॉकलेस मोड में प्रवेश करता है।</string>
+    <string name="hmkpm_dialog_features_title">कर्नेल सुविधाएँ</string>
+    <string name="hmkpm_dialog_feature_read">प्रत्यक्ष मेमोरी पठन</string>
+    <string name="hmkpm_dialog_feature_write">प्रत्यक्ष मेमोरी लेखन</string>
+    <string name="hmkpm_dialog_feature_v2p">V2P पता अनुवाद</string>
+    <string name="hmkpm_dialog_feature_kernel_scan">इन-कर्नेल MMU स्कैन</string>
+    <string name="hmkpm_dialog_feature_lockless">लॉकलेस सुरक्षा गार्ड</string>
+    <string name="hmkpm_dialog_mmap_offset">mmap_lock ऑफ़सेट</string>
+    <string name="hmkpm_dialog_status_enabled">सक्षम</string>
+    <string name="hmkpm_dialog_status_disabled">अक्षम</string>
+    <string name="hmkpm_dialog_status_active">सक्रिय</string>
+    <string name="hmkpm_dialog_status_unresolved">अनसुलझा (-1)</string>
+    <string name="lockless_banner_title">HMKPM: लॉकलेस मोड (केवल पढ़ें)</string>
+    <string name="lockless_banner_desc">कर्नेल सुरक्षा प्रोटोकॉल द्वारा मेमोरी राइटिंग और फ्रीजिंग अक्षम हैं। मेमोरी स्कैनिंग और रीडिंग पूरी तरह से चालू हैं।</string>
+    <string name="lockless_mode_write_disabled_title">लेखन अवरुद्ध (लॉकलेस मोड)</string>
+    <string name="lockless_mode_write_disabled_desc">HMKPM लॉकलेस मोड में चल रहा है। सिस्टम अस्थिरता को रोकने के लिए कर्नेल मॉड्यूल mmap_lock के बिना मेमोरी राइट्स या फ्रीजिंग की अनुमति नहीं देता है। मेमोरी सर्च और रीडिंग 100% सक्रिय हैं।</string>
+    <string name="lockless_dialog_learn_more">विवरण</string>
+    <string name="hmkpm_dialog_close">बंद करें</string>
+
+    <!-- OEM Compatibility & HyperOS / MIUI Optimization -->
+    <string name="main_activity_permission_popup_denied">Xiaomi / HyperOS उपकरणों पर बैकग्राउंड पॉप-अप अनुमति आवश्यक है।</string>
+    <string name="main_screen_status_popup_permission_missing">पॉप-अप अनुपलब्ध</string>
+    <string name="oem_compat_banner_title">%1$s अनुकूलन</string>
+    <string name="oem_compat_hyperos_desc">कस्टम ROM का पता चला। ओवरले बंद होने से रोकने के लिए \"पॉप-अप विंडो दिखाएं\" और \"ऑटो-स्टार्ट\" की अनुमति दें।</string>
+    <string name="oem_compat_battery_desc">बैकग्राउंड बैटरी प्रतिबंध गेमप्ले के दौरान ओवरले को बंद कर सकते हैं।</string>
+    <string name="oem_compat_status_granted">अनुमति प्राप्त</string>
+    <string name="oem_compat_status_missing">अनुपलब्ध</string>
+    <string name="oem_compat_status_unrestricted">अप्रतिबंधित</string>
+    <string name="oem_compat_status_restricted">प्रतिबंधित</string>
+    <string name="oem_compat_item_popup">बैकग्राउंड पॉप-अप</string>
+    <string name="oem_compat_item_autostart">ऑटो-स्टार्ट</string>
+    <string name="oem_compat_item_battery">बैटरी सेवर</string>
+    <string name="oem_compat_btn_overlay">पॉप-अप अनुमति</string>
+    <string name="oem_compat_btn_autostart">ऑटो-स्टार्ट</string>
+    <string name="oem_compat_btn_battery">कोई प्रतिबंध नहीं</string>
+    <string name="oem_compat_dialog_title">OEM अनुकूलता गाइड</string>
+    <string name="oem_compat_dialog_desc_1">कस्टम ROM (Xiaomi HyperOS, MIUI, ColorOS, OriginOS, EMUI) में सख्त बैकग्राउंड टास्क किलर होते हैं।</string>
+    <string name="oem_compat_dialog_item_overlay_title">1. पॉप-अप और ओवरले विंडो</string>
+    <string name="oem_compat_dialog_item_overlay_desc">HyperOS/MIUI पर, सुरक्षा ऐप में \"बैकग्राउंड में पॉप-अप विंडो दिखाएं\" की अनुमति दें।</string>
+    <string name="oem_compat_dialog_item_autostart_title">2. ऑटो-स्टार्ट और बैकग्राउंड गतिविधि</string>
+    <string name="oem_compat_dialog_item_autostart_desc">ऑटो-स्टार्ट सक्षम करने से भारी गेमिंग के दौरान ऐप बंद नहीं होता।</string>
+    <string name="oem_compat_dialog_item_battery_title">3. अप्रतिबंधित बैटरी सेवर</string>
+    <string name="oem_compat_dialog_item_battery_desc">निरंतर स्कैनिंग के लिए बैटरी सेवर को \"कोई प्रतिबंध नहीं\" पर सेट करें।</string>
+    <string name="oem_compat_dialog_dismiss">समझ गया</string>
 </resources>

@@ -30,6 +30,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,7 +45,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -123,6 +126,7 @@ fun HuntSettings(context: Context) {
     val requireWrite = remember { mutableStateOf(MemoryEngine.globalMapOptions.requireWrite) }
     val includeSwapped = remember { mutableStateOf(MemoryEngine.globalMapOptions.includeSwapped) }
     val minSize = remember { mutableStateOf(MemoryEngine.globalMapOptions.minSize.toString()) }
+    val scanEngineMode = remember { mutableStateOf(MemoryEngine.globalScanEngineMode) }
     val showAdvancedOptions = remember { mutableStateOf(false) }
     val refreshTrigger = remember { mutableIntStateOf(0) }
 
@@ -149,16 +153,192 @@ fun HuntSettings(context: Context) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(
-            text = stringResource(R.string.hunt_settings_memory_regions_title),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        // Top Header with Quick Select (ALL/RESET) and Advanced Options Toggle
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.hunt_settings_memory_regions_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
 
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Quick ALL / RESET toggle chip
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.clickable {
+                        if (selectedRegions.size == allRegions.size) {
+                            selectedRegions.clear()
+                        } else {
+                            selectedRegions.clear()
+                            selectedRegions.addAll(allRegions)
+                        }
+                    }
+                ) {
+                    Text(
+                        text = if (selectedRegions.size == allRegions.size) "RESET" else "ALL",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        fontSize = 9.sp
+                    )
+                }
+
+                // Advanced Options Toggle Chip
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (showAdvancedOptions.value) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    border = BorderStroke(0.5.dp, if (showAdvancedOptions.value) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.clickable { showAdvancedOptions.value = !showAdvancedOptions.value }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = if (showAdvancedOptions.value) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = stringResource(R.string.hunt_settings_scan_engine_title),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            fontSize = 9.5.sp,
+                            color = if (showAdvancedOptions.value) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        // Compact Collapsible Advanced Options Panel
+        AnimatedVisibility(
+            visible = showAdvancedOptions.value,
+            enter = expandVertically(animationSpec = tween(200)),
+            exit = shrinkVertically(animationSpec = tween(200))
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // Row 1: Scan Engine 3-way Segmented Selector
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        val engineOptions = listOf(
+                            Triple(MemoryEngine.ScanEngineMode.RUST_NEON, "NEON SIMD", Icons.Default.Speed),
+                            Triple(MemoryEngine.ScanEngineMode.KERNEL, "Kernel KPM", Icons.Default.Memory),
+                            Triple(MemoryEngine.ScanEngineMode.AUTO, "Auto Engine", Icons.Default.Tune)
+                        )
+                        engineOptions.forEach { (mode, label, icon) ->
+                            val isSelected = scanEngineMode.value == mode
+                            Surface(
+                                shape = RoundedCornerShape(5.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+                                border = BorderStroke(
+                                    if (isSelected) 1.dp else 0.5.dp,
+                                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(28.dp)
+                                    .clickable {
+                                        scanEngineMode.value = mode
+                                        MemoryEngine.updateScanEngineMode(mode)
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(12.dp),
+                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(Modifier.width(3.dp))
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
+                                        fontSize = 9.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Row 2: Permissions Checkboxes + Inline Min Size Field
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Read Flag Chip
+                        CompactFilterChip(
+                            label = "Req (r)",
+                            checked = requireRead.value,
+                            onCheckedChange = { requireRead.value = it },
+                            modifier = Modifier.weight(0.9f)
+                        )
+
+                        // Write Flag Chip
+                        CompactFilterChip(
+                            label = "Req (w)",
+                            checked = requireWrite.value,
+                            onCheckedChange = { requireWrite.value = it },
+                            modifier = Modifier.weight(0.9f)
+                        )
+
+                        // Swapped Flag Chip
+                        CompactFilterChip(
+                            label = "Swapped",
+                            checked = includeSwapped.value,
+                            onCheckedChange = { includeSwapped.value = it },
+                            modifier = Modifier.weight(1.0f)
+                        )
+
+                        // Min Size TextField
+                        VirtualTextField(
+                            value = minSize.value,
+                            onValueChange = { minSize.value = it },
+                            keyboardType = KeyboardType.NUMERIC,
+                            placeholder = { Text(stringResource(R.string.hunt_settings_min_size_label), fontSize = 9.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1.1f),
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Memory Regions List
         val visibleRegions = remember {
             derivedStateOf {
                 allRegions.filter { region ->
@@ -170,7 +350,7 @@ fun HuntSettings(context: Context) {
 
         LazyColumn(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items(visibleRegions.value) { region ->
                 RegionItem(
@@ -193,133 +373,20 @@ fun HuntSettings(context: Context) {
             }
         }
 
-        OutlinedButton(
-            onClick = { showAdvancedOptions.value = !showAdvancedOptions.value },
-            modifier = Modifier.fillMaxWidth().height(40.dp),
-            shape = RoundedCornerShape(8.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Tune,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = if (showAdvancedOptions.value)
-                        stringResource(R.string.hunt_settings_hide_advanced_options)
-                    else
-                        stringResource(R.string.hunt_settings_show_advanced_options),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Icon(
-                    imageVector = if (showAdvancedOptions.value) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-
-        AnimatedVisibility(visible = showAdvancedOptions.value) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-            ) {
-                Column(
-                    modifier = Modifier.padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { requireRead.value = !requireRead.value },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = requireRead.value,
-                                onCheckedChange = { requireRead.value = it },
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = stringResource(R.string.hunt_settings_req_read),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { requireWrite.value = !requireWrite.value },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = requireWrite.value,
-                                onCheckedChange = { requireWrite.value = it },
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = stringResource(R.string.hunt_settings_req_write),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { includeSwapped.value = !includeSwapped.value },
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = includeSwapped.value,
-                            onCheckedChange = { includeSwapped.value = it },
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.hunt_settings_inc_swapped),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    VirtualTextField(
-                        value = minSize.value,
-                        onValueChange = { minSize.value = it },
-                        keyboardType = KeyboardType.NUMERIC,
-                        label = { Text(stringResource(R.string.hunt_settings_min_size_label)) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-        }
-
         // Custom Filter + Save Bar
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
         ) {
             VirtualTextField(
                 value = customRegion.value,
                 onValueChange = { customRegion.value = it },
                 keyboardType = KeyboardType.QWERTY,
-                label = { Text(stringResource(R.string.hunt_settings_custom_filter_label)) },
-                placeholder = { Text("libgame.so") },
-                modifier = Modifier.weight(1f)
+                placeholder = { Text(stringResource(R.string.hunt_settings_custom_filter_label), fontSize = 10.sp) },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(6.dp),
+                singleLine = true
             )
 
             Button(
@@ -330,6 +397,7 @@ fun HuntSettings(context: Context) {
                         includeSwapped = includeSwapped.value,
                         minSize = minSize.value.toLongOrNull() ?: 0L
                     )
+                    MemoryEngine.updateScanEngineMode(scanEngineMode.value)
                     refreshTrigger.intValue += 1
 
                     if (customRegion.value.isNotBlank()) {
@@ -338,8 +406,9 @@ fun HuntSettings(context: Context) {
                         setRegions(selectedRegions.toList())
                     }
                 },
-                modifier = Modifier.height(48.dp),
-                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.height(38.dp),
+                shape = RoundedCornerShape(6.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary
@@ -352,11 +421,60 @@ fun HuntSettings(context: Context) {
                     Icon(
                         imageVector = Icons.Default.Save,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(14.dp)
                     )
-                    Text(stringResource(R.string.hunt_settings_save_button), fontWeight = FontWeight.Bold)
+                    Text(
+                        text = stringResource(R.string.hunt_settings_save_button),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CompactFilterChip(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = if (checked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+        border = BorderStroke(
+            if (checked) 1.dp else 0.5.dp,
+            if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+        ),
+        modifier = modifier
+            .height(28.dp)
+            .clickable { onCheckedChange(!checked) }
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Checkbox(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                modifier = Modifier.size(16.dp),
+                colors = CheckboxDefaults.colors(
+                    checkedColor = MaterialTheme.colorScheme.primary,
+                    uncheckedColor = MaterialTheme.colorScheme.outlineVariant
+                )
+            )
+            Spacer(Modifier.width(3.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (checked) FontWeight.Bold else FontWeight.Medium),
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }
@@ -376,24 +494,24 @@ fun RegionItem(
     val containerColor = if (isSelected) {
         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
     } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
     }
 
     val border = if (isSelected) {
         BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
     } else {
-        BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
     }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(6.dp),
         color = containerColor,
         border = border,
         onClick = onClick,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -402,18 +520,20 @@ fun RegionItem(
                 Checkbox(
                     checked = isSelected,
                     onCheckedChange = { onToggleSelection() },
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(18.dp),
                     colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
                 )
 
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(6.dp))
 
                 Text(
                     text = region.title,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
 
                 Surface(
@@ -427,24 +547,25 @@ fun RegionItem(
                             fontWeight = FontWeight.Medium
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                        fontSize = 9.sp
                     )
                 }
 
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(3.dp))
 
                 Icon(
                     imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
 
             AnimatedVisibility(
                 visible = isExpanded,
-                enter = expandVertically(animationSpec = tween(250)),
-                exit = shrinkVertically(animationSpec = tween(250))
+                enter = expandVertically(animationSpec = tween(200)),
+                exit = shrinkVertically(animationSpec = tween(200))
             ) {
                 RegionDetails(details, context)
             }

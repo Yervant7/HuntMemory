@@ -70,6 +70,7 @@ local int_val    = hmem.read_int(0x7F001234)     -- i32
 local long_val   = hmem.read_long(0x7F001234)    -- i64
 local float_val  = hmem.read_float(0x7F001234)   -- f32
 local double_val = hmem.read_double(0x7F001234)  -- f64
+local f16_val    = hmem.read_float16(0x7F001234) -- f16 (returns f32)
 local bytes_tbl  = hmem.read_bytes(0x7F001234, 16) -- table of bytes
 
 -- Primitive Write Functions
@@ -79,6 +80,7 @@ hmem.write_int(0x7F001234, 999999)
 hmem.write_long(0x7F001234, 1234567890123)
 hmem.write_float(0x7F001234, 100.5)
 hmem.write_double(0x7F001234, 99999.999)
+hmem.write_float16(0x7F001234, 12.5)
 hmem.write_bytes(0x7F001234, { 0x90, 0x90, 0x00, 0x00 }) -- or hex string "90 90 00 00"
 
 -- Generic Read/Write
@@ -107,6 +109,12 @@ local res_range = hmem.search_range("session_1", "50", "100", "float")
 -- Group Search (Homogeneous & Heterogeneous)
 local res_group = hmem.search_group("session_1", "100;200;300:16", "int")
 
+-- Array of Bytes (AoB) / Signature Search with Wildcards
+local aob_matches = hmem.search_aob("session_1", "00 20 40 ? ? 90 00", 100)
+for _, addr in ipairs(aob_matches) do
+    print(string.format("AoB Match: 0x%X", addr))
+end
+
 -- Anti-Cheat Obscured Search
 local res_obs = hmem.search_obscured("session_1", "999", "obscured_int")
 
@@ -124,6 +132,32 @@ for i, item in ipairs(results.matches) do
 end
 
 hmem.clear_session("session_1")
+```
+
+---
+
+### Native Memory Freeze Engine Control
+
+```lua
+-- Add address to freeze loop
+hmem.freeze_add(0x7F001234, "9999", "int", "Player Health")
+
+-- Check active freeze status
+local is_active = hmem.freeze_is_running()
+local freeze_entries = hmem.freeze_list()
+for _, entry in ipairs(freeze_entries) do
+    print(string.format("Locked 0x%X to %s (%s)", entry.address, entry.value, entry.value_type))
+end
+
+-- Configure tick interval (in milliseconds)
+hmem.freeze_set_interval(50) -- 50ms tick rate
+local interval = hmem.freeze_get_interval()
+
+-- Start / Stop / Remove / Clear
+hmem.freeze_remove(0x7F001234)
+hmem.freeze_clear()
+hmem.freeze_stop()
+hmem.freeze_start()
 ```
 
 ---
@@ -159,6 +193,12 @@ print("Key: " .. encoded.key .. ", Hidden: " .. encoded.hidden)
 
 local decoded = hmem.decode_obscured(encoded.key, encoded.hidden, "obscured_int")
 print("Decoded: " .. decoded)
+
+-- Hex and Base64 Conversion Utilities
+local hex_str = hmem.hex_encode({ 0xDE, 0xAD, 0xBE, 0xEF }) -- "DEADBEEF"
+local raw_bytes = hmem.hex_decode("DEADBEEF")
+local b64_str = hmem.b64_encode({ 72, 101, 108, 108, 111 })
+local b64_bytes = hmem.b64_decode(b64_str)
 ```
 
 ---
@@ -194,9 +234,9 @@ if selected then
 end
 ```
 
-### Dynamic Floating Overlay Menus
+### Dynamic Floating Overlay Menus & Event Loop
 
-Create fully customizable floating menus in the Compose overlay tab:
+Create fully customizable floating menus in the Compose overlay tab and respond to user clicks and toggle state changes:
 
 ```lua
 hmem.create_menu("God Mode Hub", {
@@ -208,8 +248,21 @@ hmem.create_menu("God Mode Hub", {
     { type = "button", id = "btn_exit", label = "❌ Close Menu", color = "#F44336" }
 })
 
--- Clear dynamic menu
--- hmem.clear_menu()
+-- Interactive Event Listener Loop
+while true do
+    -- Wait for UI event (or timeout after 5000ms)
+    local evt = hmem.wait_event(5000)
+    if evt then
+        if evt.id == "btn_heal" then
+            hmem.toast("Health refilled!")
+        elseif evt.id == "tog_freeze" then
+            hmem.toast("Freeze toggle state: " .. tostring(evt.checked))
+        elseif evt.id == "btn_exit" then
+            hmem.clear_menu()
+            break
+        end
+    end
+end
 ```
 
 ---

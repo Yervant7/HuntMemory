@@ -27,20 +27,20 @@ use crate::kpm;
 use crate::types::*;
 
 /// Writes raw bytes into target process memory, validating that the page(s)
-/// containing the address range are present in physical RAM via pagemap before writing.
+/// containing the address range are present in physical RAM via V2P before writing.
 pub fn write_raw_bytes(pid: u32, address: u64, bytes: &[u8]) -> Result<(), String> {
     if bytes.is_empty() {
         return Ok(());
     }
 
-    if !crate::pagemap::is_page_present(pid, address, crate::pagemap::PM_PRESENT)? {
+    if !crate::v2p::is_page_present(pid, address, crate::v2p::PAGE_FLAG_PRESENT)? {
         return Err(format!("Write aborted: Page not resident at 0x{address:x}"));
     }
 
-    let page_size = crate::pagemap::system_page_size();
+    let page_size = crate::v2p::system_page_size();
     let end_addr = address.saturating_add(bytes.len() as u64 - 1);
     if end_addr / page_size != address / page_size
-        && !crate::pagemap::is_page_present(pid, end_addr, crate::pagemap::PM_PRESENT)?
+        && !crate::v2p::is_page_present(pid, end_addr, crate::v2p::PAGE_FLAG_PRESENT)?
     {
         return Err(format!(
             "Write aborted: End page not resident at 0x{end_addr:x}"
@@ -87,7 +87,7 @@ pub fn write_obscured(
     value_str: &str,
     obscured_type: ObscuredType,
 ) -> Result<(), String> {
-    if !crate::pagemap::is_page_present(pid, address, crate::pagemap::PM_PRESENT)? {
+    if !crate::v2p::is_page_present(pid, address, crate::v2p::PAGE_FLAG_PRESENT)? {
         return Err(format!(
             "Write obscured aborted: Page not resident at 0x{address:x}"
         ));
@@ -177,7 +177,7 @@ pub fn write_obscured(
 
 /// Writes a BigDouble scientific structure (mantissa & exponent) to memory
 pub fn write_big_double(pid: u32, address: u64, value_str: &str) -> Result<(), String> {
-    if !crate::pagemap::is_page_present(pid, address, crate::pagemap::PM_PRESENT)? {
+    if !crate::v2p::is_page_present(pid, address, crate::v2p::PAGE_FLAG_PRESENT)? {
         return Err(format!(
             "Write BigDouble aborted: Page not resident at 0x{address:x}"
         ));
@@ -220,7 +220,7 @@ pub fn batch_write(pid: u32, writes: &[(u64, String, ValueType)]) -> Result<u32,
 
     let mut payloads = Vec::with_capacity(writes.len());
     for (addr, val_str, vtype) in writes {
-        if crate::pagemap::is_page_present(pid, *addr, crate::pagemap::PM_PRESENT).unwrap_or(false)
+        if crate::v2p::is_page_present(pid, *addr, crate::v2p::PAGE_FLAG_PRESENT).unwrap_or(false)
             && let Ok(bytes) = value_str_to_bytes(val_str, *vtype)
         {
             payloads.push((*addr, bytes));
@@ -242,6 +242,68 @@ pub fn batch_write(pid: u32, writes: &[(u64, String, ValueType)]) -> Result<u32,
             // Fallback to individual writes if batch fails
             let mut success_count = 0u32;
             for (addr, bytes) in &payloads {
+                if write_raw_bytes(pid, *addr, bytes).is_ok() {
+                    success_count += 1;
+                }
+            }
+            Ok(success_count)
+        }
+    }
+}
+
+/// Writes multiple raw byte buffers from a packed binary payload.
+///
+/// Format:
+/// - `[0..4]`: u32 count (LE)
+/// - for each item:
+///   - `[0..8]`: u64 address (LE)
+///   - `[8..10]`: u16 data_len (LE)
+///   - `[10..10+data_len]`: raw bytes
+///
+/// Returns the number of successful writes.
+pub fn batch_write_binary(pid: u32, payload: &[u8]) -> Result<u32, String> {
+    if payload.len() < 4 {
+        return Ok(0);
+    }
+    let count = u32::from_le_bytes(payload[0..4].try_into().unwrap()) as usize;
+    let mut offset = 4;
+    let mut writes: Vec<(u64, &[u8])> = Vec::with_capacity(count.min(4096));
+
+    for _ in 0..count {
+        if offset + 10 > payload.len() {
+            break;
+        }
+        let addr = u64::from_le_bytes(payload[offset..offset + 8].try_into().unwrap());
+        let len = u16::from_le_bytes(payload[offset + 8..offset + 10].try_into().unwrap()) as usize;
+        offset += 10;
+        if offset + len > payload.len() {
+            break;
+        }
+        let data = &payload[offset..offset + len];
+        offset += len;
+        writes.push((addr, data));
+    }
+
+    if writes.is_empty() {
+        return Ok(0);
+    }
+
+    let resident_writes: Vec<(u64, &[u8])> = writes
+        .into_iter()
+        .filter(|(addr, _)| {
+            crate::v2p::is_page_present(pid, *addr, crate::v2p::PAGE_FLAG_PRESENT).unwrap_or(false)
+        })
+        .collect();
+
+    if resident_writes.is_empty() {
+        return Ok(0);
+    }
+
+    match kpm::write_batch(pid, &resident_writes) {
+        Ok(c) => Ok(c as u32),
+        Err(_) => {
+            let mut success_count = 0u32;
+            for (addr, bytes) in &resident_writes {
                 if write_raw_bytes(pid, *addr, bytes).is_ok() {
                     success_count += 1;
                 }
@@ -422,7 +484,7 @@ pub fn resolve_pointer_chain(pid: u32, base_addr: u64, offsets: &[i64]) -> Resul
             ));
         }
 
-        if !crate::pagemap::is_page_present(pid, current_addr, crate::pagemap::PM_PRESENT)? {
+        if !crate::v2p::is_page_present(pid, current_addr, crate::v2p::PAGE_FLAG_PRESENT)? {
             return Err(format!(
                 "Page not resident at level {idx} (address: 0x{current_addr:x})"
             ));
@@ -466,7 +528,7 @@ pub fn read_pointer_value(
     vtype: ValueType,
 ) -> Result<String, String> {
     let target_addr = resolve_pointer_chain(pid, base_addr, offsets)?;
-    if !crate::pagemap::is_page_present(pid, target_addr, crate::pagemap::PM_PRESENT)? {
+    if !crate::v2p::is_page_present(pid, target_addr, crate::v2p::PAGE_FLAG_PRESENT)? {
         return Err(format!("Page not resident at 0x{target_addr:x}"));
     }
     let mut buf = vec![0u8; vtype.size()];
@@ -494,7 +556,7 @@ pub fn read_xor_value(
     xor_key: u64,
     vtype: ValueType,
 ) -> Result<String, String> {
-    if !crate::pagemap::is_page_present(pid, address, crate::pagemap::PM_PRESENT)? {
+    if !crate::v2p::is_page_present(pid, address, crate::v2p::PAGE_FLAG_PRESENT)? {
         return Err(format!("Page not resident at 0x{address:x}"));
     }
     let mut buf = vec![0u8; vtype.size()];

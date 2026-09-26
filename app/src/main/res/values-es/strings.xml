@@ -91,6 +91,13 @@
         <item quantity="many">… y %d entradas más</item>
         <item quantity="other">… y %d entradas más</item>
     </plurals>
+    <string name="hunt_settings_scan_engine_title">Motor de Escaneo</string>
+    <string name="hunt_settings_engine_rust_neon">Rust NEON SIMD (Recomendado)</string>
+    <string name="hunt_settings_engine_kernel">Kernel Directo (HMKPM)</string>
+    <string name="hunt_settings_engine_auto">Automático (Kernel + Fallback NEON)</string>
+    <string name="hunt_settings_engine_rust_neon_desc">Vectorización de 128 bits de alto rendimiento y escaneo de memoria multihilo</string>
+    <string name="hunt_settings_engine_kernel_desc">Recorrido directo de tablas de páginas MMU en el kernel mediante módulo HMKPM</string>
+    <string name="hunt_settings_engine_auto_desc">Intenta primero el escaneo en el kernel y recurre a Rust NEON SIMD en caso de error</string>
 
     <!-- Memory Menu -->
     <string name="memory_menu_default_tab_title">Búsqueda %1$d</string>
@@ -233,4 +240,60 @@
     <string name="search_help_cat_group_desc">Encuentra múltiples tipos de datos heterogéneos situados dentro de un rango de bytes en memoria.</string>
     <string name="search_help_cat_goto_title">Dirección Directa &amp; Biblioteca</string>
     <string name="search_help_cat_goto_desc">Navegue directamente a una dirección de memoria virtual o desplazamiento de biblioteca (.so).</string>
+
+    <!-- HMKPM Lockless Mode & Explanation Dialog -->
+    <string name="main_screen_hmkpm_lockless">Lockless (Lectura)</string>
+    <string name="main_screen_hmkpm_lockless_tag">Lockless</string>
+    <string name="hmkpm_dialog_title">Módulo de Kernel HMKPM</string>
+    <string name="hmkpm_dialog_version_label">Versión del Módulo</string>
+    <string name="hmkpm_dialog_mode_title">Modo de Operación</string>
+    <string name="hmkpm_dialog_mode_full">Acceso Total (Lectura y Escritura)</string>
+    <string name="hmkpm_dialog_mode_full_desc">El mmap_lock del kernel se resolvió correctamente. La lectura directa de MMU, escritura, operaciones por lotes y congelamiento de memoria están totalmente habilitados.</string>
+    <string name="hmkpm_dialog_mode_lockless">Modo Lockless (Solo Lectura)</string>
+    <string name="hmkpm_dialog_mode_lockless_desc">Funcionando sin mmap_lock del kernel. La exploración y lectura directa en la tabla de páginas MMU funcionan al 100% de velocidad. Las modificaciones y congelamientos de memoria están deshabilitados de forma segura por el módulo del kernel para proteger la estabilidad del sistema.</string>
+    <string name="hmkpm_dialog_why_lockless_title">¿Por qué no se permite la escritura?</string>
+    <string name="hmkpm_dialog_why_lockless_desc">En Linux, escribir en la memoria del proceso sin adquirir mmap_lock puede provocar corrupción de tablas de páginas o Use-After-Free. Cuando no se resuelve el offset de mmap_lock, HMKPM entra en Modo Lockless para garantizar la seguridad del kernel manteniendo la lectura y escaneo completos.</string>
+    <string name="hmkpm_dialog_features_title">Características del Kernel</string>
+    <string name="hmkpm_dialog_feature_read">Lectura Directa de Memoria</string>
+    <string name="hmkpm_dialog_feature_write">Escritura Directa en Memoria</string>
+    <string name="hmkpm_dialog_feature_v2p">Traducción de Direcciones V2P</string>
+    <string name="hmkpm_dialog_feature_kernel_scan">Escaneo MMU en Kernel</string>
+    <string name="hmkpm_dialog_feature_lockless">Protección de Seguridad Lockless</string>
+    <string name="hmkpm_dialog_mmap_offset">Offset de mmap_lock</string>
+    <string name="hmkpm_dialog_status_enabled">Activo</string>
+    <string name="hmkpm_dialog_status_disabled">Desactivado</string>
+    <string name="hmkpm_dialog_status_active">Activo</string>
+    <string name="hmkpm_dialog_status_unresolved">No Resuelto (-1)</string>
+    <string name="lockless_banner_title">HMKPM: Modo Lockless (Solo Lectura)</string>
+    <string name="lockless_banner_desc">La escritura y el congelamiento están deshabilitados por el protocolo de seguridad del kernel. El escaneo y la lectura funcionan perfectamente.</string>
+    <string name="lockless_mode_write_disabled_title">Escritura Bloqueada (Modo Lockless)</string>
+    <string name="lockless_mode_write_disabled_desc">HMKPM está funcionando en Modo Lockless. El módulo del kernel no permite escrituras ni congelamiento sin mmap_lock para evitar inestabilidad. La búsqueda y lectura permanecen 100% activas.</string>
+    <string name="lockless_dialog_learn_more">Detalles</string>
+    <string name="hmkpm_dialog_close">Cerrar</string>
+
+    <!-- OEM Compatibility & HyperOS / MIUI Optimization -->
+    <string name="main_activity_permission_popup_denied">Se requiere el permiso de ventanas emergentes en segundo plano en dispositivos Xiaomi / HyperOS.</string>
+    <string name="main_screen_status_popup_permission_missing">Falta Pop-up</string>
+    <string name="oem_compat_banner_title">Optimización %1$s</string>
+    <string name="oem_compat_hyperos_desc">ROM personalizada detectada. Permita \"Mostrar ventanas emergentes\" e \"Inicio automático\" para evitar que la ventana flotante se cierre.</string>
+    <string name="oem_compat_battery_desc">Las restricciones de batería en segundo plano pueden cerrar la superposición durante las partidas.</string>
+    <string name="oem_compat_status_granted">Concedido</string>
+    <string name="oem_compat_status_missing">Falta</string>
+    <string name="oem_compat_status_unrestricted">Sin restricciones</string>
+    <string name="oem_compat_status_restricted">Restringido</string>
+    <string name="oem_compat_item_popup">Ventanas emergentes</string>
+    <string name="oem_compat_item_autostart">Inicio automático</string>
+    <string name="oem_compat_item_battery">Ahorro de batería</string>
+    <string name="oem_compat_btn_overlay">Ventanas Pop-up</string>
+    <string name="oem_compat_btn_autostart">Inicio Automático</string>
+    <string name="oem_compat_btn_battery">Sin Restricciones</string>
+    <string name="oem_compat_dialog_title">Guía de Compatibilidad OEM</string>
+    <string name="oem_compat_dialog_desc_1">Sistemas modificados (Xiaomi HyperOS, MIUI, ColorOS, OriginOS, EMUI) poseen administradores de batería agresivos que pueden cerrar la superposición en segundo plano.</string>
+    <string name="oem_compat_dialog_item_overlay_title">1. Ventanas emergentes / Superposición</string>
+    <string name="oem_compat_dialog_item_overlay_desc">En HyperOS/MIUI, debe permitir \"Mostrar ventanas emergentes en segundo plano\" en la app Seguridad.</string>
+    <string name="oem_compat_dialog_item_autostart_title">2. Inicio automático en segundo plano</string>
+    <string name="oem_compat_dialog_item_autostart_desc">Permitir el inicio automático evita que el limpiador de memoria cierre HuntMemory durante juegos pesados.</string>
+    <string name="oem_compat_dialog_item_battery_title">3. Ahorro de batería sin restricciones</string>
+    <string name="oem_compat_dialog_item_battery_desc">Configure el ahorro de batería en \"Sin restricciones\" para escaneos continuos.</string>
+    <string name="oem_compat_dialog_dismiss">Entendido</string>
 </resources>

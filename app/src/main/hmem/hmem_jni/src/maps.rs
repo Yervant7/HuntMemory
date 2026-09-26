@@ -18,8 +18,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-use crate::pagemap::{PM_PRESENT, PM_SWAP, PagemapReader};
 use crate::types::MemoryRegion;
+use crate::v2p::{PAGE_FLAG_PRESENT, V2pReader};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -55,15 +55,19 @@ impl Default for MapsOptions {
 /// Configurable streaming parser for `/proc/<pid>/maps`.
 /// Implemented with minimal heap allocations per line and resilient lossy UTF-8 decoding.
 pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, String> {
+    if pid == 0 {
+        return Err("PID cannot be 0".to_string());
+    }
+
     let maps_path = format!("/proc/{pid}/maps");
     let file = File::open(&maps_path).map_err(|e| format!("Cannot read {maps_path}: {e}"))?;
     let mut reader = BufReader::with_capacity(64 * 1024, file);
 
     let mut regions = Vec::with_capacity(1024);
 
-    // Open pagemap once and reuse buffer and descriptor
-    let mut scanner =
-        PagemapReader::new(pid).map_err(|e| format!("Cannot open pagemap for PID {pid}: {e}"))?;
+    // Initialize V2P reader to filter non-resident pages via direct kernel MMU translation.
+    // Graceful fallback if V2P is not supported or fails to initialize.
+    let mut scanner = V2pReader::new(pid).ok();
     let mut raw_line = Vec::with_capacity(512);
 
     loop {
@@ -136,19 +140,18 @@ pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, Str
             continue;
         }
 
-        let pagemap_mask = if is_file_backed(&path) {
-            0
-        } else if opts.include_swapped && region_supports_swap(&path) {
-            PM_PRESENT | PM_SWAP
-        } else {
-            PM_PRESENT
-        };
+        // V2P check: apply to non-file-backed regions when swap is not preserved for this region
+        let is_file = is_file_backed(&path);
+        let is_swappable = region_supports_swap(&path);
 
-        // Pagemap check: apply to all regions except file-backed regions.
-        let should_check = pagemap_mask != 0 && !is_file_backed(&path);
-
-        if should_check && !scanner.has_candidate_pages(start, end, pagemap_mask)? {
-            continue;
+        if !is_file {
+            let can_be_swapped = opts.include_swapped && is_swappable;
+            if !can_be_swapped
+                && let Some(ref mut scan) = scanner
+                && let Ok(false) = scan.has_candidate_pages(start, end, PAGE_FLAG_PRESENT)
+            {
+                continue;
+            }
         }
 
         regions.push(MemoryRegion {
@@ -321,10 +324,10 @@ fn is_excluded_region(path: &str) -> bool {
         return false;
     }
 
-    // Special kernel pages.
+    // Special kernel pages (including ARM64 sigpage).
     if matches!(
         p,
-        "[vvar]" | "[vdso]" | "[vectors]" | "[vsyscall]" | "[uprobes]"
+        "[vvar]" | "[vdso]" | "[vectors]" | "[vsyscall]" | "[uprobes]" | "[sigpage]"
     ) {
         return true;
     }
@@ -357,8 +360,8 @@ fn is_excluded_region(path: &str) -> bool {
 /// Checks whether a mapped region corresponds to a filesystem file (file-backed).
 ///
 /// File-backed regions (e.g., `.apk`, `.so`, `.dex`, `.odex`, `.art`, regular filesystem files)
-/// are excluded from pagemap resident page checks by default, whereas non-file regions
-/// (anonymous memory, heap, stack, ashmem, memfd) are checked against pagemap.
+/// are excluded from V2P resident page checks by default, whereas non-file regions
+/// (anonymous memory, heap, stack, ashmem, memfd) are checked against V2P.
 pub fn is_file_backed(path: &str) -> bool {
     let p = path.trim();
     if p.is_empty() || p.starts_with('[') {
@@ -377,6 +380,10 @@ pub fn get_module_base(pid: u32, module_name: &str) -> Result<u64, String> {
 
 /// Searches for a module base address in streaming mode from `/proc/<pid>/maps`.
 pub fn get_module_base_opt(pid: u32, module_name: &str) -> Result<Option<u64>, String> {
+    if pid == 0 {
+        return Err("PID cannot be 0".to_string());
+    }
+
     let module_name = module_name.trim();
     if module_name.is_empty() {
         return Ok(None);
@@ -427,15 +434,24 @@ pub fn get_module_base_opt(pid: u32, module_name: &str) -> Result<Option<u64>, S
 
         let raw_path = extract_maps_path(trimmed);
         if path_matches_module(raw_path, module_name) {
+            let calculated_base = start.saturating_sub(offset);
             if offset == 0 {
                 return Ok(Some(start));
             } else if fallback_base.is_none() {
-                fallback_base = Some(start);
+                fallback_base = Some(calculated_base);
             }
         }
     }
 
     Ok(fallback_base)
+}
+
+#[inline]
+fn ends_with_ignore_ascii_case(s: &str, suffix: &str) -> bool {
+    if s.len() < suffix.len() {
+        return false;
+    }
+    s[s.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
 }
 
 pub fn path_matches_module(path: &str, module_name: &str) -> bool {
@@ -447,24 +463,27 @@ pub fn path_matches_module(path: &str, module_name: &str) -> bool {
     let p = path.trim();
     let p = p.strip_suffix(" (deleted)").unwrap_or(p).trim();
 
-    // Complete or partial path match
+    // Complete or partial path match without allocating strings
     if mod_clean.contains('/') {
-        return p.ends_with(mod_clean) || p.to_lowercase().ends_with(&mod_clean.to_lowercase());
+        return p.ends_with(mod_clean) || ends_with_ignore_ascii_case(p, mod_clean);
     }
 
-    // Basename comparison
-    let basename = p.rsplit('/').next().unwrap_or("");
+    // Basename comparison handling '/' and Android APK split separator '!'
+    let basename = p.rsplit(['/', '!']).next().unwrap_or("");
     let basename = basename.strip_prefix("memfd:").unwrap_or(basename);
 
     if basename.eq_ignore_ascii_case(mod_clean) {
         return true;
     }
 
-    // Optional match without .so suffix (e.g. "libil2cpp" matches "libil2cpp.so")
-    if !mod_clean.ends_with(".so")
-        && basename
-            .strip_suffix(".so")
-            .is_some_and(|without_ext| without_ext.eq_ignore_ascii_case(mod_clean))
+    // Match with or without .so suffix in either direction
+    if let Some(without_ext) = basename.strip_suffix(".so")
+        && without_ext.eq_ignore_ascii_case(mod_clean)
+    {
+        return true;
+    }
+    if let Some(without_ext) = mod_clean.strip_suffix(".so")
+        && basename.eq_ignore_ascii_case(without_ext)
     {
         return true;
     }
@@ -494,16 +513,22 @@ pub fn filter_regions(
         };
     }
 
-    let types: Vec<&str> = filter_types.iter().map(|s| s.trim()).collect();
+    // Pre-uppercase filter types once to eliminate allocations in the inner loop
+    let upper_types: Vec<String> = filter_types
+        .iter()
+        .map(|s| s.trim().to_ascii_uppercase())
+        .collect();
 
-    let has_custom_type = types.iter().any(|t| t.eq_ignore_ascii_case("CUSTOM"));
+    let has_custom_type = upper_types.iter().any(|t| t == "CUSTOM");
 
     regions
         .iter()
         .filter(|r| {
             let path = r.path.as_str();
 
-            let type_ok = types.iter().any(|t| match_filter_type(t, path, custom));
+            let type_ok = upper_types
+                .iter()
+                .any(|t| match_filter_type_upper(t.as_str(), path, custom));
 
             let custom_ok = match custom {
                 Some(cf) if !has_custom_type => path.contains(cf),
@@ -516,9 +541,14 @@ pub fn filter_regions(
         .collect()
 }
 
-fn match_filter_type(ft: &str, path: &str, custom: Option<&str>) -> bool {
-    let ft_upper = ft.to_ascii_uppercase();
-    match ft_upper.as_str() {
+#[allow(dead_code)]
+pub fn match_filter_type(ft: &str, path: &str, custom: Option<&str>) -> bool {
+    let ft_upper = ft.trim().to_ascii_uppercase();
+    match_filter_type_upper(&ft_upper, path, custom)
+}
+
+fn match_filter_type_upper(ft_upper: &str, path: &str, custom: Option<&str>) -> bool {
+    match ft_upper {
         "ALLOC" | "CA" => {
             path.contains("[anon:libc_malloc]")
                 || path.contains("[anon:scudo:")
@@ -605,6 +635,31 @@ mod tests {
     }
 
     #[test]
+    fn test_is_excluded_region() {
+        assert!(is_excluded_region("[vvar]"));
+        assert!(is_excluded_region("[vdso]"));
+        assert!(is_excluded_region("[sigpage]"));
+        assert!(is_excluded_region("[vectors]"));
+        assert!(is_excluded_region("/dev/null"));
+        assert!(is_excluded_region("/dev/binder"));
+        assert!(!is_excluded_region("/dev/ashmem"));
+        assert!(!is_excluded_region("[heap]"));
+        assert!(!is_excluded_region(""));
+    }
+
+    #[test]
+    fn test_region_supports_swap() {
+        assert!(region_supports_swap("[heap]"));
+        assert!(region_supports_swap("[stack]"));
+        assert!(region_supports_swap("[anon:scudo:primary]"));
+        assert!(region_supports_swap("[anon:dalvik-main space]"));
+        assert!(region_supports_swap("/dev/ashmem"));
+        assert!(region_supports_swap(""));
+        assert!(!region_supports_swap("/system/lib64/libc.so"));
+        assert!(!region_supports_swap("[vdso]"));
+    }
+
+    #[test]
     fn test_maps_options_default() {
         let opts = MapsOptions::default();
         assert!(opts.require_read);
@@ -630,6 +685,17 @@ mod tests {
             "/system/lib64/libunity_extra.so",
             "libunity"
         ));
+        // Android Split APK '!'-separated paths
+        assert!(path_matches_module(
+            "/data/app/~~pkg/base.apk!libil2cpp.so",
+            "libil2cpp.so"
+        ));
+        assert!(path_matches_module(
+            "/data/app/~~pkg/split_config.arm64_v8a.apk!/lib/arm64-v8a/libil2cpp.so",
+            "libil2cpp"
+        ));
+        // Bidirectional .so matching
+        assert!(path_matches_module("/data/app/libil2cpp", "libil2cpp.so"));
     }
 
     #[test]
@@ -760,5 +826,12 @@ mod tests {
 
         let merged = merge_adjacent_regions(regions);
         assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_maps_zero_pid() {
+        let opts = MapsOptions::default();
+        assert!(parse_maps(0, &opts).is_err());
+        assert!(get_module_base_opt(0, "libc.so").is_err());
     }
 }

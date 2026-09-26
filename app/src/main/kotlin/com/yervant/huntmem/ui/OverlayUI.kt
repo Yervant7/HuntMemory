@@ -35,15 +35,21 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -77,7 +83,6 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -119,7 +124,7 @@ import com.yervant.huntmem.ui.theme.HuntMemTheme
 import com.yervant.huntmem.ui.theme.SuccessEmerald
 import kotlin.time.Duration.Companion.milliseconds
 
-val LocalOverlayOpacity = androidx.compose.runtime.compositionLocalOf { 0.92f }
+val LocalOverlayOpacity = androidx.compose.runtime.compositionLocalOf { OverlayPreferences.DEFAULT_OVERLAY_OPACITY }
 
 @Composable
 fun FloatingIcon(
@@ -163,53 +168,28 @@ fun MenuOverlayContent(
     context: Context,
     dialogCallback: DialogCallback,
     onToggleMenu: () -> Unit,
-    onTabSelected: (Int) -> Unit
+    onTabSelected: (Int) -> Unit,
+    onOpacityChange: (Float) -> Unit = {}
 ) {
     val keyboardController = remember { KeyboardController() }
-    val windowInfo = LocalWindowInfo.current
-    val density = LocalDensity.current
-    val windowWidthDp = with(density) { windowInfo.containerSize.width.toDp() }
-    val isWideScreen = windowWidthDp >= 600.dp
+    val prefOpacity by OverlayPreferences.opacity.collectAsState()
+    val activeOpacity = if (uiState.opacity != OverlayPreferences.DEFAULT_OVERLAY_OPACITY) uiState.opacity else prefOpacity
 
     HuntMemTheme(darkTheme = true) {
         CompositionLocalProvider(LocalKeyboardController provides keyboardController) {
             Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = if (isWideScreen) Alignment.Center else Alignment.TopStart
+                modifier = Modifier.fillMaxSize()
             ) {
-                // Dimmed touch scrim on wide displays/tablets
-                if (isWideScreen) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.40f))
-                            .clickable(
-                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                indication = null
-                            ) { onToggleMenu() }
-                    )
-                }
-
-                Box(
-                    modifier = if (isWideScreen) {
-                        Modifier
-                            .widthIn(max = 680.dp)
-                            .fillMaxHeight(0.92f)
-                            .padding(12.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                    } else {
-                        Modifier.fillMaxSize()
-                    }
-                ) {
-                    MenuContent(
-                        selectedTab = uiState.selectedTab,
-                        onTabSelected = onTabSelected,
-                        viewModel = viewModel,
-                        context = context,
-                        dialogCallback = dialogCallback,
-                        onClose = onToggleMenu,
-                    )
-                }
+                MenuContent(
+                    selectedTab = uiState.selectedTab,
+                    opacity = activeOpacity,
+                    onTabSelected = onTabSelected,
+                    onOpacityChange = onOpacityChange,
+                    viewModel = viewModel,
+                    context = context,
+                    dialogCallback = dialogCallback,
+                    onClose = onToggleMenu,
+                )
 
                 DialogManager(dialogState = uiState.dialogState)
                 LuaDialogManager()
@@ -236,7 +216,9 @@ private data class TabItemData(
 @Composable
 fun MenuContent(
     selectedTab: Int,
+    opacity: Float = OverlayPreferences.DEFAULT_OVERLAY_OPACITY,
     onTabSelected: (Int) -> Unit,
+    onOpacityChange: (Float) -> Unit = {},
     viewModel: ProcessViewModel,
     context: Context,
     dialogCallback: DialogCallback,
@@ -253,21 +235,24 @@ fun MenuContent(
     }
 
     val attachedPid by AttachedProcessRepository.attachedProcessPid.collectAsState()
-    var currentOpacity by remember { mutableFloatStateOf(0.92f) }
     val windowInfo = LocalWindowInfo.current
     val density = LocalDensity.current
     val windowHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
     val isCompactHeight = windowHeightDp < 500.dp
 
-    CompositionLocalProvider(LocalOverlayOpacity provides currentOpacity) {
+    CompositionLocalProvider(LocalOverlayOpacity provides opacity) {
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = currentOpacity),
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = opacity),
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = (currentOpacity + 0.05f).coerceAtMost(1f)))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = (opacity + 0.05f).coerceAtMost(1f)))
+                        .statusBarsPadding()
                 ) {
                 // Top Header Row with Attached Process Chip, Opacity Switcher, and Window Controls
                 Row(
@@ -319,11 +304,12 @@ fun MenuContent(
                             shape = RoundedCornerShape(4.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                             modifier = Modifier.clickable {
-                                currentOpacity = when (currentOpacity) {
-                                    0.92f -> 0.75f
-                                    0.75f -> 0.55f
+                                val nextOpacity = when {
+                                    opacity >= 0.90f -> 0.75f
+                                    opacity >= 0.70f -> 0.55f
                                     else -> 0.92f
                                 }
+                                onOpacityChange(nextOpacity)
                             }
                         ) {
                             Row(
@@ -338,7 +324,7 @@ fun MenuContent(
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
-                                    text = "${(currentOpacity * 100).toInt()}%",
+                                    text = "${(opacity * 100).toInt()}%",
                                     style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
                                     fontSize = 9.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -366,28 +352,31 @@ fun MenuContent(
                     selectedTabIndex = selectedTab,
                     containerColor = Color.Transparent,
                     contentColor = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.height(if (isCompactHeight) 33.dp else 38.dp)
+                    modifier = Modifier.height(if (isCompactHeight) 30.dp else 38.dp)
                 ) {
                     tabs.forEachIndexed { index, tabItem ->
                         val isSelected = selectedTab == index
                         Tab(
                             selected = isSelected,
                             onClick = { onTabSelected(index) },
-                            icon = {
-                                Icon(
-                                    imageVector = tabItem.icon,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            },
                             text = {
-                                Text(
-                                    text = stringResource(id = tabItem.titleRes),
-                                    fontSize = 10.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(if (isCompactHeight) 3.dp else 5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = tabItem.icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(if (isCompactHeight) 14.dp else 16.dp)
+                                    )
+                                    Text(
+                                        text = stringResource(id = tabItem.titleRes),
+                                        fontSize = if (isCompactHeight) 9.5.sp else 10.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             },
                             selectedContentColor = MaterialTheme.colorScheme.primary,
                             unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -509,7 +498,8 @@ fun LuaToastOverlay() {
         exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 48.dp, start = 16.dp, end = 16.dp)
+            .statusBarsPadding()
+            .padding(top = 8.dp, start = 16.dp, end = 16.dp)
     ) {
         Box(
             modifier = Modifier.fillMaxWidth(),

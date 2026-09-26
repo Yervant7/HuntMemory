@@ -91,6 +91,14 @@
         <item quantity="one">… and %d more entry</item>
         <item quantity="other">… and %d more entries</item>
     </plurals>
+    <string name="hunt_settings_scan_engine_title">Scan Engine</string>
+    <string name="hunt_settings_engine_rust_neon">Rust NEON SIMD (Recommended)</string>
+    <string name="hunt_settings_engine_kernel">Kernel Direct (HMKPM)</string>
+    <string name="hunt_settings_engine_auto">Auto (Kernel + NEON Fallback)</string>
+    <string name="hunt_settings_engine_rust_neon_desc">High-throughput 128-bit vectorization &amp; multi-threaded memory scanning</string>
+    <string name="hunt_settings_engine_kernel_desc">Direct in-kernel MMU page table walk via HMKPM module</string>
+    <string name="hunt_settings_engine_auto_desc">Attempts in-kernel scan first and falls back to Rust NEON SIMD on error</string>
+
 
     <!-- Memory Menu -->
     <string name="memory_menu_default_tab_title">Search %1$d</string>
@@ -231,4 +239,59 @@
     <string name="search_help_cat_group_desc">Matches multiple heterogeneous data types located within a contiguous memory byte range.</string>
     <string name="search_help_cat_goto_title">Direct Address &amp; Library Go</string>
     <string name="search_help_cat_goto_desc">Jump directly to a virtual memory address or dynamic library offset (e.g. libil2cpp.so).</string>
+
+    <!-- HMKPM Lockless Mode & Explanation Dialog -->
+    <string name="main_screen_hmkpm_lockless">Lockless (RO)</string>
+    <string name="main_screen_hmkpm_lockless_tag">Lockless</string>
+    <string name="hmkpm_dialog_title">HMKPM Kernel Module</string>
+    <string name="hmkpm_dialog_version_label">Module Version</string>
+    <string name="hmkpm_dialog_mode_title">Operating Mode</string>
+    <string name="hmkpm_dialog_mode_full">Full Access Mode (Read &amp; Write)</string>
+    <string name="hmkpm_dialog_mode_full_desc">Kernel mmap_lock was resolved successfully. Direct MMU memory reading, writing, batch operations, and memory freezing are fully enabled.</string>
+    <string name="hmkpm_dialog_mode_lockless">Lockless Mode (Read-Only)</string>
+    <string name="hmkpm_dialog_mode_lockless_desc">Running without kernel mmap_lock. In-kernel MMU page table traversal and memory scans operate at 100% full speed. Memory writes and freezing are safely disabled by the kernel to protect system integrity.</string>
+    <string name="hmkpm_dialog_why_lockless_title">Why are writes disallowed?</string>
+    <string name="hmkpm_dialog_why_lockless_desc">In Linux, writing to user memory without acquiring the process mmap_lock risks race conditions, page table corruption, or Use-After-Free if memory is unmapped concurrently. When the mmap_lock offset is unresolved, HMKPM enters Lockless Mode to ensure kernel safety while preserving full read &amp; scan capabilities.</string>
+    <string name="hmkpm_dialog_features_title">Kernel Features</string>
+    <string name="hmkpm_dialog_feature_read">Direct Memory Read</string>
+    <string name="hmkpm_dialog_feature_write">Direct Memory Write</string>
+    <string name="hmkpm_dialog_feature_v2p">V2P Address Translation</string>
+    <string name="hmkpm_dialog_feature_kernel_scan">In-Kernel MMU Scan</string>
+    <string name="hmkpm_dialog_feature_lockless">Lockless Safety Guard</string>
+    <string name="hmkpm_dialog_mmap_offset">mmap_lock Offset</string>
+    <string name="hmkpm_dialog_status_enabled">Enabled</string>
+    <string name="hmkpm_dialog_status_disabled">Disabled</string>
+    <string name="hmkpm_dialog_status_active">Active</string>
+    <string name="hmkpm_dialog_status_unresolved">Unresolved (-1)</string>
+    <string name="lockless_banner_title">HMKPM: Lockless Mode (Read-Only)</string>
+    <string name="lockless_banner_desc">Memory writes and freezing are disabled by kernel safety protocol. Memory scanning and reading are fully operational.</string>
+    <string name="lockless_mode_write_disabled_title">Write Blocked (Lockless Mode)</string>
+    <string name="lockless_mode_write_disabled_desc">HMKPM is running in Lockless Mode. The kernel module does not allow memory writes or freezing without mmap_lock to prevent system instability. Memory searching and reading remain 100% active.</string>
+    <string name="lockless_dialog_learn_more">Details</string>
+    <string name="hmkpm_dialog_close">Close</string>
+
+    <string name="main_activity_permission_popup_denied">Background pop-up permission is required on Xiaomi / HyperOS devices.</string>
+    <string name="main_screen_status_popup_permission_missing">Pop-up Missing</string>
+    <string name="oem_compat_banner_title">%1$s Optimization</string>
+    <string name="oem_compat_hyperos_desc">Custom ROM detected. Allow \"Display pop-up windows\" and \"Autostart\" to prevent floating window freezes or background termination.</string>
+    <string name="oem_compat_battery_desc">Background battery restrictions can terminate memory scans and overlay views during gameplay.</string>
+    <string name="oem_compat_status_granted">Granted</string>
+    <string name="oem_compat_status_missing">Missing</string>
+    <string name="oem_compat_status_unrestricted">Unrestricted</string>
+    <string name="oem_compat_status_restricted">Restricted</string>
+    <string name="oem_compat_item_popup">Background Pop-up</string>
+    <string name="oem_compat_item_autostart">Autostart</string>
+    <string name="oem_compat_item_battery">Battery Saver</string>
+    <string name="oem_compat_btn_overlay">Pop-up Perms</string>
+    <string name="oem_compat_btn_autostart">Autostart</string>
+    <string name="oem_compat_btn_battery">No Restrictions</string>
+    <string name="oem_compat_dialog_title">OEM Compatibility Guide</string>
+    <string name="oem_compat_dialog_desc_1">Heavily modified ROMs (Xiaomi HyperOS, MIUI, ColorOS, OriginOS, EMUI) implement aggressive background task killers and proprietary permission layers that can terminate floating overlays or sever root IPC bindings during heavy gameplay.</string>
+    <string name="oem_compat_dialog_item_overlay_title">1. Pop-up &amp; Overlay Windows</string>
+    <string name="oem_compat_dialog_item_overlay_desc">On HyperOS/MIUI, \"Display pop-up windows while running in the background\" must be explicitly allowed in the Security app.</string>
+    <string name="oem_compat_dialog_item_autostart_title">2. Autostart &amp; Background Activity</string>
+    <string name="oem_compat_dialog_item_autostart_desc">Allowing Autostart prevents OEM memory clean-up services from killing HuntMemory when 3D games consume high memory.</string>
+    <string name="oem_compat_dialog_item_battery_title">3. Unrestricted Battery Saver</string>
+    <string name="oem_compat_dialog_item_battery_desc">Set app battery saver to \"No restrictions\" so memory searching, freezing, and Lua ESP scripts run uninterrupted.</string>
+    <string name="oem_compat_dialog_dismiss">Got it</string>
 </resources>

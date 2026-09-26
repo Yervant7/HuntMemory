@@ -21,69 +21,57 @@
 package com.yervant.huntmem.backend
 
 import com.yervant.huntmem.ui.overlay.tabs.AddressInfo
-import org.json.JSONArray
-import org.json.JSONObject
 
 class MemoryEditor {
 
-    fun writeAll(addrs: List<AddressInfo>, value: String) {
-        val pid = AttachedProcessRepository.getAttachedPid() ?: return
+    fun writeAll(addrs: List<AddressInfo>, value: String): Int {
+        if (NativeBridge.getHmkpmVersionInfo().isLockless) return 0
+        val pid = AttachedProcessRepository.getAttachedPid() ?: return 0
+        if (addrs.isEmpty()) return 0
 
-        val arr = JSONArray()
+        val encodedWrites = mutableListOf<Pair<Long, ByteArray>>()
         for (a in addrs) {
-            val obj = JSONObject()
-            obj.put("address", a.matchInfo.address)
-            obj.put("value", value)
-            obj.put("value_type", a.matchInfo.valueType)
-            arr.put(obj)
+            val bytes = NativeBridge.valueStringToBytes(value, a.matchInfo.valueType)
+            if (bytes != null) {
+                encodedWrites.add(Pair(a.matchInfo.address, bytes))
+            }
         }
-        NativeBridge.batchWrite(pid, arr.toString())
+        if (encodedWrites.isEmpty()) return 0
+
+        val payload = NativeBridge.encodeBatchWrites(encodedWrites)
+        return NativeBridge.batchWriteBinary(pid, payload)
     }
 
-    fun freezeAddress(addressInfo: AddressInfo) {
-        val pid = AttachedProcessRepository.getAttachedPid() ?: return
+    fun freezeAddress(addressInfo: AddressInfo): Boolean {
+        if (NativeBridge.getHmkpmVersionInfo().isLockless) return false
+        val pid = AttachedProcessRepository.getAttachedPid() ?: return false
         val res = NativeBridge.freezeAddress(
             pid = pid,
             address = addressInfo.matchInfo.address,
             value = addressInfo.matchInfo.prevValue.toString(),
             valueType = addressInfo.matchInfo.valueType
         )
-        if (res == 0) {
-            addressInfo.isFrozen = true
-        }
+        return res == 0
     }
 
-    fun unfreezeAddress(addressInfo: AddressInfo) {
-        NativeBridge.unfreezeAddress(addressInfo.matchInfo.pid, addressInfo.matchInfo.address)
-        addressInfo.isFrozen = false
+    fun unfreezeAddress(addressInfo: AddressInfo): Boolean {
+        return NativeBridge.unfreezeAddress(addressInfo.matchInfo.pid, addressInfo.matchInfo.address)
     }
 
     fun freezeAll(addressList: List<AddressInfo>, value: String) {
+        if (NativeBridge.getHmkpmVersionInfo().isLockless) return
         val pid = AttachedProcessRepository.getAttachedPid() ?: return
         addressList.forEach { addressInfo ->
-            val res = NativeBridge.freezeAddress(
+            NativeBridge.freezeAddress(
                 pid = pid,
                 address = addressInfo.matchInfo.address,
                 value = value,
                 valueType = addressInfo.matchInfo.valueType
             )
-            if (res == 0) {
-                addressInfo.isFrozen = true
-            }
         }
     }
 
     fun unfreezeAll(addressList: List<AddressInfo>) {
         NativeBridge.unfreezeAll()
-        addressList.forEach { it.isFrozen = false }
-    }
-
-    fun syncFreezeState(addressList: List<AddressInfo>) {
-        addressList.forEach { addressInfo ->
-            val isFrozen = NativeBridge.isAddressFrozen(addressInfo.matchInfo.pid, addressInfo.matchInfo.address)
-            if (addressInfo.isFrozen != isFrozen) {
-                addressInfo.isFrozen = isFrozen
-            }
-        }
     }
 }

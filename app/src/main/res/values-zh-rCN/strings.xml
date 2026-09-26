@@ -89,6 +89,13 @@
     <plurals name="hunt_settings_and_more_entries_label">
         <item quantity="other">… 以及另外 %d 个条目</item>
     </plurals>
+    <string name="hunt_settings_scan_engine_title">扫描引擎</string>
+    <string name="hunt_settings_engine_rust_neon">Rust NEON SIMD (推荐)</string>
+    <string name="hunt_settings_engine_kernel">内核直连 (HMKPM)</string>
+    <string name="hunt_settings_engine_auto">自动 (内核 + NEON 备用)</string>
+    <string name="hunt_settings_engine_rust_neon_desc">高吞吐量 128 位向量化与多线程内存扫描</string>
+    <string name="hunt_settings_engine_kernel_desc">通过 HMKPM 模块直接在内核中遍历 MMU 页表</string>
+    <string name="hunt_settings_engine_auto_desc">优先尝试内核扫描，出错时自动回退到 Rust NEON SIMD</string>
 
     <!-- Memory Menu -->
     <string name="memory_menu_default_tab_title">搜索 %1$d</string>
@@ -227,4 +234,60 @@
     <string name="search_help_cat_group_desc">在指定字节范围的连续内存区域内同时匹配多种不同数据类型的组合结构。</string>
     <string name="search_help_cat_goto_title">直接内存地址与模块跳转</string>
     <string name="search_help_cat_goto_desc">直接跳转至指定的虚拟内存绝对地址或动态库（.so）偏移量。</string>
+
+    <!-- HMKPM Lockless Mode & Explanation Dialog -->
+    <string name="main_screen_hmkpm_lockless">无锁模式 (只读)</string>
+    <string name="main_screen_hmkpm_lockless_tag">无锁</string>
+    <string name="hmkpm_dialog_title">HMKPM 内核模块</string>
+    <string name="hmkpm_dialog_version_label">模块版本</string>
+    <string name="hmkpm_dialog_mode_title">运行模式</string>
+    <string name="hmkpm_dialog_mode_full">完全访问模式 (读写)</string>
+    <string name="hmkpm_dialog_mode_full_desc">内核 mmap_lock 已成功解析。直接 MMU 读取、写入、批量操作和内存冻结均已完全启用。</string>
+    <string name="hmkpm_dialog_mode_lockless">无锁模式 (只读)</string>
+    <string name="hmkpm_dialog_mode_lockless_desc">在没有内核 mmap_lock 的情况下运行。内核内 MMU 页表遍历和内存扫描以 100% 全速运行。为了保护系统稳定性，内核模块已安全禁用了内存写入和冻结功能。</string>
+    <string name="hmkpm_dialog_why_lockless_title">为什么不允许写入？</string>
+    <string name="hmkpm_dialog_why_lockless_desc">在 Linux 中，在未获取进程 mmap_lock 的情况下写入用户内存可能会导致竞争条件、页表损坏或 Use-After-Free。当 mmap_lock 偏移量未解析时，HMKPM 进入无锁模式以确保内核安全，同时保留完整的读取和扫描能力。</string>
+    <string name="hmkpm_dialog_features_title">内核特性</string>
+    <string name="hmkpm_dialog_feature_read">直接内存读取</string>
+    <string name="hmkpm_dialog_feature_write">直接内存写入</string>
+    <string name="hmkpm_dialog_feature_v2p">V2P 地址转换</string>
+    <string name="hmkpm_dialog_feature_kernel_scan">内核内 MMU 扫描</string>
+    <string name="hmkpm_dialog_feature_lockless">无锁安全保护</string>
+    <string name="hmkpm_dialog_mmap_offset">mmap_lock 偏移量</string>
+    <string name="hmkpm_dialog_status_enabled">已启用</string>
+    <string name="hmkpm_dialog_status_disabled">已禁用</string>
+    <string name="hmkpm_dialog_status_active">已激活</string>
+    <string name="hmkpm_dialog_status_unresolved">未解析 (-1)</string>
+    <string name="lockless_banner_title">HMKPM：无锁模式 (只读)</string>
+    <string name="lockless_banner_desc">内核安全协议已禁用内存写入和冻结。内存扫描和读取完全正常运行。</string>
+    <string name="lockless_mode_write_disabled_title">写入已阻止 (无锁模式)</string>
+    <string name="lockless_mode_write_disabled_desc">HMKPM 正在无锁模式下运行。为了防止系统不稳定，内核模块不允许在没有 mmap_lock 的情况下进行内存写入或冻结。内存搜索和读取保持 100% 正常运行。</string>
+    <string name="lockless_dialog_learn_more">详情</string>
+    <string name="hmkpm_dialog_close">关闭</string>
+
+    <!-- OEM Compatibility & HyperOS / MIUI Optimization -->
+    <string name="main_activity_permission_popup_denied">小米 / HyperOS 设备需要允许后台弹出界面权限。</string>
+    <string name="main_screen_status_popup_permission_missing">缺少弹窗权限</string>
+    <string name="oem_compat_banner_title">%1$s 优化</string>
+    <string name="oem_compat_hyperos_desc">检测到定制系统。请允许“后台弹出界面”和“自启动”，以防止悬浮窗异常关闭。</string>
+    <string name="oem_compat_battery_desc">后台电池限制可能会在游戏过程中终止悬浮窗和内存扫描。</string>
+    <string name="oem_compat_status_granted">已允许</string>
+    <string name="oem_compat_status_missing">未允许</string>
+    <string name="oem_compat_status_unrestricted">无限制</string>
+    <string name="oem_compat_status_restricted">受限</string>
+    <string name="oem_compat_item_popup">后台弹出界面</string>
+    <string name="oem_compat_item_autostart">自启动</string>
+    <string name="oem_compat_item_battery">省电策略</string>
+    <string name="oem_compat_btn_overlay">弹窗权限</string>
+    <string name="oem_compat_btn_autostart">自启动</string>
+    <string name="oem_compat_btn_battery">无限制</string>
+    <string name="oem_compat_dialog_title">OEM 兼容性指南</string>
+    <string name="oem_compat_dialog_desc_1">深度定制系统 (Xiaomi HyperOS, MIUI, ColorOS, OriginOS, EMUI) 拥有严格的后台清理机制。</string>
+    <string name="oem_compat_dialog_item_overlay_title">1. 悬浮窗与后台弹窗</string>
+    <string name="oem_compat_dialog_item_overlay_desc">在 HyperOS/MIUI 上，必须在安全中心允许“后台弹出界面”。</string>
+    <string name="oem_compat_dialog_item_autostart_title">2. 自启动与后台活动</string>
+    <string name="oem_compat_dialog_item_autostart_desc">允许自启动可防止高负载游戏时 HuntMemory 被系统终止。</string>
+    <string name="oem_compat_dialog_item_battery_title">3. 省电策略无限制</string>
+    <string name="oem_compat_dialog_item_battery_desc">将省电策略设置为“无限制”以保证扫描持续运行。</string>
+    <string name="oem_compat_dialog_dismiss">知道了</string>
 </resources>

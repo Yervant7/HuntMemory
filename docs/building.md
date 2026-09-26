@@ -80,13 +80,28 @@ cargo ndk -t arm64-v8a build --release
 ```
 
 The output library is produced at:
-`app/src/main/hmem/target/aarch64-linux-android/release/libhmem_jni.so`
+- Debug: `app/src/main/hmem/target/aarch64-linux-android/debug/libhmem_jni.so`
+- Release: `app/src/main/hmem/target/aarch64-linux-android/release/libhmem_jni.so`
 
 To copy the binary into the Android project's `jniLibs` directory:
 ```bash
-# From project root:
-.\gradlew copyRustLib
+# Copy debug shared library into src/debug/jniLibs/arm64-v8a/
+.\gradlew copyRustDebug
+
+# Or copy release shared library into src/release/jniLibs/arm64-v8a/
+.\gradlew copyRustRelease
 ```
+
+### Dedicated Gradle Tasks for Rust
+
+| Gradle Task | Description |
+| :--- | :--- |
+| `.\gradlew fmtRust` | Formats the Rust codebase using `cargo fmt --all`. |
+| `.\gradlew buildRustDebug` | Builds `libhmem_jni.so` in debug mode using `cargo-ndk` for `arm64-v8a`. |
+| `.\gradlew buildRustRelease` | Builds `libhmem_jni.so` in release mode (LTO, opt-level=3, stripped debug info). |
+| `.\gradlew copyRustDebug` | Copies debug `libhmem_jni.so` to `src/debug/jniLibs/arm64-v8a/`. |
+| `.\gradlew copyRustRelease` | Copies release `libhmem_jni.so` to `src/release/jniLibs/arm64-v8a/`. |
+| `.\gradlew cleanRust` | Deletes generated JNI libraries from `jniLibs` and the Rust `target/` directory. |
 
 ---
 
@@ -164,7 +179,7 @@ Ensure `cargo` binary directory (`~/.cargo/bin` or `%USERPROFILE%\.cargo\bin`) i
 Verify that `ANDROID_NDK_HOME` or `ndk.dir` in `local.properties` points to the exact NDK version `29.0.14206865`.
 
 ### Missing `libhmem_jni.so` at Runtime
-Run `.\gradlew copyRustLib` or `.\gradlew assembleDebug` to trigger the automated build and copy step.
+Run `.\gradlew copyRustDebug`, `.\gradlew copyRustRelease`, or `.\gradlew assembleDebug` to trigger the automated build and copy step.
 
 ---
 

@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.net.toUri
 import com.yervant.huntmem.R
+import com.yervant.huntmem.ui.compat.OemCompatibilityHelper
 import com.yervant.huntmem.ui.credits.CreditsScreen
 import com.yervant.huntmem.ui.theme.HuntMemTheme
 
@@ -58,9 +59,12 @@ class MainActivity : AppCompatActivity() {
         supportActionBar?.hide()
 
         overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { _ ->
-            if (!Settings.canDrawOverlays(this)) {
+            if (!OemCompatibilityHelper.hasOverlayPermission(this)) {
                 val overl = this.getString(R.string.main_activity_permission_overlay_denied)
                 Toast.makeText(this, overl, Toast.LENGTH_SHORT).show()
+            } else if (OemCompatibilityHelper.isXiaomi() && !OemCompatibilityHelper.hasPopupPermission(this)) {
+                val popupDenied = this.getString(R.string.main_activity_permission_popup_denied)
+                Toast.makeText(this, popupDenied, Toast.LENGTH_LONG).show()
             }
         }
 
@@ -68,18 +72,8 @@ class MainActivity : AppCompatActivity() {
             requestNotificationPermission()
         }
 
-        if (!Settings.canDrawOverlays(this)) {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                "package:$packageName".toUri()
-            )
-            try {
-                overlayPermissionLauncher.launch(intent)
-            } catch (_: Exception) {
-                try {
-                    overlayPermissionLauncher.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
-                } catch (_: Exception) {}
-            }
+        if (!OemCompatibilityHelper.hasOverlayPermission(this) || (OemCompatibilityHelper.isXiaomi() && !OemCompatibilityHelper.hasPopupPermission(this))) {
+            OemCompatibilityHelper.openOverlayPermissionSettings(this)
         }
 
         showMainScreen()

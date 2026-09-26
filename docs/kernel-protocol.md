@@ -18,11 +18,13 @@ Commands are dispatched using specific 64-bit magic operation identifiers.
 
 | Identifier | Value (Hex) | Purpose |
 | :--- | :--- | :--- |
-| `HMKPM_MAGIC` | `0x0048_4D4B_504D` | Module Probe / Liveness Check |
+| `HMKPM_MAGIC` | `0x0048_4D4B_504D` | Module Probe / Version & Feature Discovery |
 | `HMKPM_MAGIC_READ` | `0x0048_4D4B_504E` | Single Virtual Address Memory Read |
 | `HMKPM_MAGIC_WRITE` | `0x0048_4D4B_504F` | Single Virtual Address Memory Write |
 | `HMKPM_MAGIC_READ_BATCH` | `0x0048_4D4B_5050` | Batch Memory Read |
 | `HMKPM_MAGIC_WRITE_BATCH` | `0x0048_4D4B_5051` | Batch Memory Write |
+| `HMKPM_MAGIC_V2P_BATCH` | `0x0048_4D4B_5052` | Batch Virtual-to-Physical & Page Flags Resolution |
+| `HMKPM_MAGIC_SCAN_KERNEL` | `0x0048_4D4B_5053` | In-Kernel Direct MMU Vectorized Memory Scan |
 
 ---
 
@@ -30,7 +32,25 @@ Commands are dispatched using specific 64-bit magic operation identifiers.
 
 All structures crossing the userspace ↔ kernel boundary are strictly aligned to 8-byte boundaries using `#[repr(C, align(8))]` to avoid unaligned access penalties on ARM64.
 
-### 1. Single Request Header (`HmkpmReq`) — 24 Bytes
+### 1. Version & Feature Info (`HmkpmVersionInfo`) — 48 Bytes
+
+```rust
+#[repr(C, align(8))]
+pub struct HmkpmVersionInfo {
+    pub magic: u64,             // Offset 0x00: HMKPM magic identifier
+    pub version_code: u32,      // Offset 0x08: Packed version code (e.g. 0x00020800)
+    pub version_major: u16,     // Offset 0x0C: Major version
+    pub version_minor: u16,     // Offset 0x0E: Minor version
+    pub version_patch: u16,     // Offset 0x10: Patch version
+    pub is_lockless: u8,        // Offset 0x12: Flag indicating lockless MMU page walk
+    pub _pad: u8,               // Offset 0x13: 1-byte padding
+    pub mmap_lock_offset: i32,  // Offset 0x14: mm_struct lock offset
+    pub features: u64,          // Offset 0x18: Bitmask of supported features
+    pub version_str: [u8; 16],  // Offset 0x20: Null-terminated version string ("2.8.0")
+}
+```
+
+### 2. Single Request Header (`HmkpmReq`) — 24 Bytes
 
 ```rust
 #[repr(C, align(8))]
@@ -42,7 +62,7 @@ pub struct HmkpmReq {
 }
 ```
 
-### 2. Batch Request Header (`HmkpmBatchHdr`) — 24 Bytes
+### 3. Batch Request Header (`HmkpmBatchHdr`) — 24 Bytes
 
 ```rust
 #[repr(C, align(8))]
@@ -54,13 +74,32 @@ pub struct HmkpmBatchHdr {
 }
 ```
 
-### 3. Batch Entry Descriptor (`HmkpmBatchEntry`) — 16 Bytes
+### 4. Batch Entry Descriptor (`HmkpmBatchEntry`) — 16 Bytes
 
 ```rust
 #[repr(C, align(8))]
 pub struct HmkpmBatchEntry {
     pub addr: u64,   // Offset 0x00: 64-bit Target virtual address
     pub size: u64,   // Offset 0x08: Requested size / actual size returned
+}
+```
+
+### 5. Virtual-to-Physical Batch Header & Entry (`HmkpmV2pHdr` & `HmkpmV2pEntry`)
+
+```rust
+#[repr(C, align(8))]
+pub struct HmkpmV2pHdr {
+    pub pid: i32,        // Offset 0x00: Target process PID
+    pub _pad: u32,       // Offset 0x04: 4-byte explicit padding
+    pub count: u64,      // Offset 0x08: Number of V2P entries to translate
+}
+
+#[repr(C, align(8))]
+pub struct HmkpmV2pEntry {
+    pub va: u64,         // Offset 0x00: Target virtual address
+    pub pa: u64,         // Offset 0x08: Resolved physical address (output)
+    pub flags: u32,      // Offset 0x10: Page flags (PAGE_FLAG_PRESENT, RO, DIRTY, BLOCK)
+    pub page_size: u32,  // Offset 0x14: Underlying hardware page size (e.g. 4096)
 }
 ```
 

@@ -25,15 +25,20 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -68,6 +73,7 @@ import kotlin.math.roundToInt
 data class OverlayUiState(
     val isMenuVisible: Boolean = false,
     val selectedTab: Int = 0,
+    val opacity: Float = OverlayPreferences.DEFAULT_OVERLAY_OPACITY,
     val dialogState: DialogState = DialogState.Hidden,
 )
 
@@ -93,6 +99,7 @@ sealed interface DialogState {
 class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegistryOwner, DialogCallback {
 
     companion object {
+        private const val TAG = "OverlayService"
         private val _isServiceRunning = MutableStateFlow(false)
         val isServiceRunning = _isServiceRunning.asStateFlow()
     }
@@ -138,20 +145,43 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
         savedStateRegistryController.performRestore(null)
         super.onCreate()
 
-        _isServiceRunning.value = true
+        val savedOpacity = OverlayPreferences.load(this)
+        _uiState.update { it.copy(opacity = savedOpacity) }
+
+        // Immediate foreground promotion to fulfill Android 14+ / HyperOS background limits
+        setupNotification()
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         updateScreenDimensions()
 
         setupViews()
 
-        windowManager.addView(canvasView, canvasParams)
-        windowManager.addView(menuView, menuParams)
-        windowManager.addView(iconView, iconParams)
+        val canvasAdded = safeAddView(canvasView, canvasParams)
+        val menuAdded = safeAddView(menuView, menuParams)
+        val iconAdded = safeAddView(iconView, iconParams)
 
+        if (!canvasAdded || !menuAdded || !iconAdded) {
+            Log.e(TAG, "Failed to attach overlay views to WindowManager. Terminating service.")
+            _isServiceRunning.value = false
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(
+                    applicationContext,
+                    getString(R.string.main_activity_permission_overlay_denied),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            stopSelf()
+            return
+        }
+
+        _isServiceRunning.value = true
         observeStateAndApplyChanges()
+    }
 
-        setupNotification()
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val savedOpacity = OverlayPreferences.load(this)
+        _uiState.update { it.copy(opacity = savedOpacity) }
+        return super.onStartCommand(intent, flags, startId)
     }
 
     private fun setupViews() {
@@ -170,6 +200,12 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
             gravity = Gravity.TOP or Gravity.LEFT
             x = 0
             y = 100
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                @Suppress("DEPRECATION")
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
         }
 
         menuParams = WindowManager.LayoutParams(
@@ -178,14 +214,24 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS or
                     WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.LEFT }
+        ).apply {
+            gravity = Gravity.TOP or Gravity.LEFT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                @Suppress("DEPRECATION")
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
 
         val canvasFlag = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS or
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
 
         canvasParams = WindowManager.LayoutParams(
@@ -193,7 +239,15 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
             layoutFlag,
             canvasFlag,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.LEFT }
+        ).apply {
+            gravity = Gravity.TOP or Gravity.LEFT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                @Suppress("DEPRECATION")
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
 
         canvasView = createComposeView {
             LuaCanvasOverlay()
@@ -219,6 +273,10 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
                     dialogCallback = this@OverlayService,
                     onToggleMenu = ::toggleMenu,
                     onTabSelected = { tabIndex -> _uiState.update { it.copy(selectedTab = tabIndex) } },
+                    onOpacityChange = { newOpacity ->
+                        _uiState.update { it.copy(opacity = newOpacity) }
+                        OverlayPreferences.setOpacity(this@OverlayService, newOpacity)
+                    }
                 )
             }
         }.apply {
@@ -363,6 +421,12 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
         cachedIconSize = (54 * resources.displayMetrics.density).toInt()
         updateScreenDimensions()
         clampIconPosition()
+        if (::menuView.isInitialized && menuView.isAttachedToWindow) {
+            runCatching { windowManager.updateViewLayout(menuView, menuParams) }
+        }
+        if (::canvasView.isInitialized && canvasView.isAttachedToWindow) {
+            runCatching { windowManager.updateViewLayout(canvasView, canvasParams) }
+        }
     }
 
     private fun updateScreenDimensions() {
@@ -398,7 +462,30 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
             .setSilent(true)
             .setOngoing(true)
             .build()
-        startForeground(1, notification)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(1, notification)
+        }
+    }
+
+    private fun safeAddView(view: View, params: WindowManager.LayoutParams): Boolean {
+        return try {
+            windowManager.addView(view, params)
+            true
+        } catch (e: Throwable) {
+            Log.e(TAG, "safeAddView failed: ${e.message}", e)
+            false
+        }
+    }
+
+    private fun safeRemoveView(view: View) {
+        if (::windowManager.isInitialized && view.isAttachedToWindow) {
+            runCatching { windowManager.removeView(view) }.onFailure { e ->
+                Log.w(TAG, "safeRemoveView failed: ${e.message}")
+            }
+        }
     }
 
     private fun hideDialog() {
@@ -454,8 +541,8 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
         super.onDestroy()
         _isServiceRunning.value = false
         viewModelStore.clear()
-        if (::iconView.isInitialized && iconView.isAttachedToWindow) runCatching { windowManager.removeView(iconView) }
-        if (::menuView.isInitialized && menuView.isAttachedToWindow) runCatching { windowManager.removeView(menuView) }
-        if (::canvasView.isInitialized && canvasView.isAttachedToWindow) runCatching { windowManager.removeView(canvasView) }
+        if (::iconView.isInitialized) safeRemoveView(iconView)
+        if (::menuView.isInitialized) safeRemoveView(menuView)
+        if (::canvasView.isInitialized) safeRemoveView(canvasView)
     }
 }
