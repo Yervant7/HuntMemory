@@ -1,7 +1,7 @@
 [versions]
 activityCompose = "1.13.0"
 agp = "9.4.1"
-annotation = "1.10.0"
+annotation = "1.11.0"
 appcompat = "1.8.0"
 coilCompose = "2.7.0"
 composeBom = "2026.09.00"
