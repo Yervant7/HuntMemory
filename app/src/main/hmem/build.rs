@@ -22,11 +22,8 @@ fn main() {
     let target = std::env::var("TARGET").unwrap_or_default();
 
     if target != "aarch64-linux-android" {
-        panic!(
-            "\n\n[Error] This project is strictly for Android ARM64.\n\
-            Target tried: '{}'\n\
-            Target expected: 'aarch64-linux-android'\n\
-            Use: cargo ndk -t arm64-v8a build --release\n\n",
+        println!(
+            "cargo:warning=Building for non-ARM64 Android target '{}'; only host unit tests and lints are supported. Production builds must use: cargo ndk -t arm64-v8a build --release",
             target
         );
     }

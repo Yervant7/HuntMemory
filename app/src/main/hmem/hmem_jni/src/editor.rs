@@ -23,7 +23,8 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::kpm;
+use crate::kpm::{self, KpmError};
+use crate::logger;
 use crate::types::*;
 
 /// Writes raw bytes into target process memory, validating that the page(s)
@@ -80,7 +81,7 @@ fn generate_random_key64() -> u64 {
     nanos ^ 0xA5A55A5A5A5AA5A5
 }
 
-/// Writes an obfuscated value (e.g. ACTk XOR-key pair) to memory
+/// Writes an XOR-encoded obscured value pair to memory
 pub fn write_obscured(
     pid: u32,
     address: u64,
@@ -218,32 +219,48 @@ pub fn batch_write(pid: u32, writes: &[(u64, String, ValueType)]) -> Result<u32,
         return Ok(0);
     }
 
-    let mut payloads = Vec::with_capacity(writes.len());
+    let mut parsed = Vec::with_capacity(writes.len());
     for (addr, val_str, vtype) in writes {
-        if crate::v2p::is_page_present(pid, *addr, crate::v2p::PAGE_FLAG_PRESENT).unwrap_or(false)
-            && let Ok(bytes) = value_str_to_bytes(val_str, *vtype)
+        if let Ok(bytes) = value_str_to_bytes(val_str, *vtype)
+            && !bytes.is_empty()
         {
-            payloads.push((*addr, bytes));
+            parsed.push((*addr, bytes));
         }
     }
 
-    if payloads.is_empty() {
+    if parsed.is_empty() {
         return Ok(0);
     }
 
-    let batch_refs: Vec<(u64, &[u8])> = payloads
+    let spans: Vec<(u64, usize)> = parsed
         .iter()
+        .map(|(addr, bytes)| (*addr, bytes.len()))
+        .collect();
+    let resident_pages =
+        crate::v2p::query_resident_pages_batch(pid, &spans, crate::v2p::PAGE_FLAG_PRESENT)?;
+
+    let batch_refs: Vec<(u64, &[u8])> = parsed
+        .iter()
+        .filter(|(addr, bytes)| crate::v2p::is_span_resident(&resident_pages, *addr, bytes.len()))
         .map(|(addr, bytes)| (*addr, bytes.as_slice()))
         .collect();
 
-    match kpm::write_batch(pid, &batch_refs) {
+    if batch_refs.is_empty() {
+        return Ok(0);
+    }
+
+    match kpm::write_batch_checked(pid, &batch_refs) {
         Ok(count) => Ok(count as u32),
-        Err(_) => {
-            // Fallback to individual writes if batch fails
+        Err(KpmError::Lockless(msg)) | Err(KpmError::ProcessDead { message: msg, .. }) => Err(msg),
+        Err(KpmError::Io(_)) => {
+            // Fallback to individual writes for already V2P-verified entries
             let mut success_count = 0u32;
-            for (addr, bytes) in &payloads {
-                if write_raw_bytes(pid, *addr, bytes).is_ok() {
-                    success_count += 1;
+            for &(addr, bytes) in &batch_refs {
+                match kpm::write_memory_checked(pid, addr, bytes) {
+                    Ok(()) => success_count += 1,
+                    Err(KpmError::Lockless(msg))
+                    | Err(KpmError::ProcessDead { message: msg, .. }) => return Err(msg),
+                    Err(KpmError::Io(_)) => {}
                 }
             }
             Ok(success_count)
@@ -251,7 +268,7 @@ pub fn batch_write(pid: u32, writes: &[(u64, String, ValueType)]) -> Result<u32,
     }
 }
 
-/// Writes multiple raw byte buffers from a packed binary payload.
+/// Writes multiple raw byte buffers from a packed binary buffer.
 ///
 /// Format:
 /// - `[0..4]`: u32 count (LE)
@@ -281,31 +298,42 @@ pub fn batch_write_binary(pid: u32, payload: &[u8]) -> Result<u32, String> {
         }
         let data = &payload[offset..offset + len];
         offset += len;
-        writes.push((addr, data));
+        if !data.is_empty() {
+            writes.push((addr, data));
+        }
     }
 
     if writes.is_empty() {
         return Ok(0);
     }
 
+    let spans: Vec<(u64, usize)> = writes
+        .iter()
+        .map(|&(addr, data)| (addr, data.len()))
+        .collect();
+    let resident_pages =
+        crate::v2p::query_resident_pages_batch(pid, &spans, crate::v2p::PAGE_FLAG_PRESENT)?;
+
     let resident_writes: Vec<(u64, &[u8])> = writes
         .into_iter()
-        .filter(|(addr, _)| {
-            crate::v2p::is_page_present(pid, *addr, crate::v2p::PAGE_FLAG_PRESENT).unwrap_or(false)
-        })
+        .filter(|&(addr, data)| crate::v2p::is_span_resident(&resident_pages, addr, data.len()))
         .collect();
 
     if resident_writes.is_empty() {
         return Ok(0);
     }
 
-    match kpm::write_batch(pid, &resident_writes) {
+    match kpm::write_batch_checked(pid, &resident_writes) {
         Ok(c) => Ok(c as u32),
-        Err(_) => {
+        Err(KpmError::Lockless(msg)) | Err(KpmError::ProcessDead { message: msg, .. }) => Err(msg),
+        Err(KpmError::Io(_)) => {
             let mut success_count = 0u32;
-            for (addr, bytes) in &resident_writes {
-                if write_raw_bytes(pid, *addr, bytes).is_ok() {
-                    success_count += 1;
+            for &(addr, bytes) in &resident_writes {
+                match kpm::write_memory_checked(pid, addr, bytes) {
+                    Ok(()) => success_count += 1,
+                    Err(KpmError::Lockless(msg))
+                    | Err(KpmError::ProcessDead { message: msg, .. }) => return Err(msg),
+                    Err(KpmError::Io(_)) => {}
                 }
             }
             Ok(success_count)
@@ -313,11 +341,16 @@ pub fn batch_write_binary(pid: u32, payload: &[u8]) -> Result<u32, String> {
     }
 }
 
+/// Number of consecutive freeze cycle failures (~5 seconds at 100 ms interval)
+/// before a permanently unmapped/unwritable entry is automatically pruned.
+const MAX_CONSECUTIVE_FREEZE_FAILURES: u32 = 50;
+
 #[derive(Clone)]
 struct FreezeItem {
     pid: u32,
     address: u64,
     bytes: Vec<u8>,
+    consecutive_failures: u32,
 }
 
 struct FreezeState {
@@ -355,9 +388,9 @@ impl FreezeEngine {
         let (lock, cvar) = &*state;
         loop {
             let (items_to_write, interval) = {
-                let mut s = lock.lock().unwrap();
+                let mut s = lock.lock().unwrap_or_else(|e| e.into_inner());
                 while s.running && s.items.is_empty() {
-                    s = cvar.wait(s).unwrap();
+                    s = cvar.wait(s).unwrap_or_else(|e| e.into_inner());
                 }
                 if !s.running {
                     break;
@@ -371,7 +404,7 @@ impl FreezeEngine {
                 continue;
             }
 
-            // Group frozen items by PID to dispatch all writes in a single batch syscall
+            // Group frozen items by PID to dispatch writes in a single batch syscall
             let mut by_pid: HashMap<u32, Vec<(u64, &[u8])>> = HashMap::new();
             for item in &items_to_write {
                 by_pid
@@ -380,28 +413,125 @@ impl FreezeEngine {
                     .push((item.address, item.bytes.as_slice()));
             }
 
-            for (pid, writes) in by_pid {
+            let mut clear_all_lockless = false;
+            let mut dead_pids: Vec<u32> = Vec::new();
+            let mut succeeded: Vec<(u32, u64)> = Vec::new();
+            let mut failed: Vec<(u32, u64)> = Vec::new();
+
+            'pid_loop: for (pid, writes) in by_pid {
                 if writes.len() == 1 {
-                    let _ = kpm::write_memory(pid, writes[0].0, writes[0].1);
-                } else if kpm::write_batch(pid, &writes).is_err() {
-                    // Fallback to individual writes if batch syscall fails
-                    for (addr, data) in writes {
-                        let _ = kpm::write_memory(pid, addr, data);
+                    let (addr, data) = writes[0];
+                    match kpm::write_memory_checked(pid, addr, data) {
+                        Ok(()) => succeeded.push((pid, addr)),
+                        Err(KpmError::Lockless(_)) => {
+                            clear_all_lockless = true;
+                            break 'pid_loop;
+                        }
+                        Err(KpmError::ProcessDead { .. }) => dead_pids.push(pid),
+                        Err(KpmError::Io(_)) => failed.push((pid, addr)),
                     }
+                    continue;
+                }
+
+                match kpm::write_batch_checked(pid, &writes) {
+                    Ok(written) if written == writes.len() => {
+                        for &(addr, _) in &writes {
+                            succeeded.push((pid, addr));
+                        }
+                    }
+                    Ok(_) | Err(KpmError::Io(_)) => {
+                        // Isolate failing addresses individually so valid ones stay active
+                        // while permanently unmapped addresses accrue failures and get pruned.
+                        for &(addr, data) in &writes {
+                            match kpm::write_memory_checked(pid, addr, data) {
+                                Ok(()) => succeeded.push((pid, addr)),
+                                Err(KpmError::Lockless(_)) => {
+                                    clear_all_lockless = true;
+                                    break 'pid_loop;
+                                }
+                                Err(KpmError::ProcessDead { .. }) => {
+                                    dead_pids.push(pid);
+                                    continue 'pid_loop;
+                                }
+                                Err(KpmError::Io(_)) => failed.push((pid, addr)),
+                            }
+                        }
+                    }
+                    Err(KpmError::Lockless(_)) => {
+                        clear_all_lockless = true;
+                        break 'pid_loop;
+                    }
+                    Err(KpmError::ProcessDead { .. }) => dead_pids.push(pid),
                 }
             }
 
-            let s = lock.lock().unwrap();
+            let mut s = lock.lock().unwrap_or_else(|e| e.into_inner());
             if !s.running {
                 break;
             }
+
+            if clear_all_lockless {
+                let cleared = s.items.len();
+                s.items.clear();
+                logger::warn(
+                    "FreezeEngine",
+                    &format!(
+                        "HMKPM Lockless Mode detected during freeze cycle; cleared {cleared} frozen item(s)"
+                    ),
+                );
+                continue;
+            }
+
+            for dead_pid in dead_pids {
+                let before = s.items.len();
+                s.items.retain(|&(p, _), _| p != dead_pid);
+                let removed = before.saturating_sub(s.items.len());
+                if removed > 0 {
+                    logger::info(
+                        "FreezeEngine",
+                        &format!(
+                            "Target process pid={dead_pid} exited; pruned {removed} frozen item(s)"
+                        ),
+                    );
+                }
+            }
+
+            for key in succeeded {
+                if let Some(item) = s.items.get_mut(&key) {
+                    item.consecutive_failures = 0;
+                }
+            }
+
+            for key in failed {
+                let should_prune = if let Some(item) = s.items.get_mut(&key) {
+                    item.consecutive_failures = item.consecutive_failures.saturating_add(1);
+                    item.consecutive_failures >= MAX_CONSECUTIVE_FREEZE_FAILURES
+                } else {
+                    false
+                };
+                if should_prune {
+                    s.items.remove(&key);
+                    logger::info(
+                        "FreezeEngine",
+                        &format!(
+                            "Pruned permanently unwritable frozen entry pid={} addr=0x{:x} after {} failures",
+                            key.0, key.1, MAX_CONSECUTIVE_FREEZE_FAILURES
+                        ),
+                    );
+                }
+            }
+
+            if s.items.is_empty() {
+                continue;
+            }
+
             // If new items were added while unlocked, loop immediately without waiting
             if s.items.len() > items_to_write.len() {
                 continue;
             }
             let (guard, _) = cvar
                 .wait_timeout(s, Duration::from_millis(interval))
-                .unwrap();
+                .unwrap_or_else(|e| e.into_inner());
             if !guard.running {
                 break;
             }
@@ -419,13 +549,14 @@ impl FreezeEngine {
         write_raw_bytes(pid, address, &bytes)?;
 
         let (lock, cvar) = &*self.state;
-        let mut s = lock.lock().unwrap();
+        let mut s = lock.lock().unwrap_or_else(|e| e.into_inner());
         s.items.insert(
             (pid, address),
             FreezeItem {
                 pid,
                 address,
                 bytes,
+                consecutive_failures: 0,
             },
         );
         cvar.notify_one();
@@ -434,13 +565,13 @@ impl FreezeEngine {
 
     pub fn unfreeze(&self, pid: u32, address: u64) -> bool {
         let (lock, _) = &*self.state;
-        let mut s = lock.lock().unwrap();
+        let mut s = lock.lock().unwrap_or_else(|e| e.into_inner());
         s.items.remove(&(pid, address)).is_some()
     }
 
     pub fn unfreeze_all(&self) -> usize {
         let (lock, _) = &*self.state;
-        let mut s = lock.lock().unwrap();
+        let mut s = lock.lock().unwrap_or_else(|e| e.into_inner());
         let count = s.items.len();
         s.items.clear();
         count
@@ -448,7 +579,7 @@ impl FreezeEngine {
 
     pub fn is_frozen(&self, pid: u32, address: u64) -> bool {
         let (lock, _) = &*self.state;
-        let s = lock.lock().unwrap();
+        let s = lock.lock().unwrap_or_else(|e| e.into_inner());
         s.items.contains_key(&(pid, address))
     }
 }
@@ -459,23 +590,78 @@ pub fn get_freeze_engine() -> &'static FreezeEngine {
     FREEZE_ENGINE.get_or_init(FreezeEngine::new)
 }
 
+/// Strips ARM64 Top-Byte Ignore (TBI / MTE) tag bits `[63:56]` from userspace
+/// virtual addresses (bit 55 == 0), leaving kernel virtual addresses unchanged.
+#[inline]
+pub(crate) fn normalize_arm64_user_va(addr: u64) -> u64 {
+    if (addr & (1u64 << 55)) == 0 {
+        addr & 0x00FF_FFFF_FFFF_FFFF
+    } else {
+        addr
+    }
+}
+
+/// Prepends a `0` offset so `HMKPM_MAGIC_READ_CHAIN` (which adds `offsets[h]` before
+/// dereferencing) matches HuntMemory's dereference-first pointer chain semantics.
+#[inline]
+pub(crate) fn build_kernel_chain_offsets(offsets: &[i64]) -> Vec<i64> {
+    let mut chain_offsets = Vec::with_capacity(offsets.len() + 1);
+    chain_offsets.push(0i64);
+    chain_offsets.extend_from_slice(offsets);
+    chain_offsets
+}
+
 /// Resolves a multi-level pointer chain in target process memory.
 ///
 /// Follows the standard multi-level pointer dereference contract:
 /// - Step 1: Read 64-bit pointer (`u64`) from `base_addr`.
-/// - Step 2: Add `offsets[0]` to get next address.
+/// - Step 2: Strip ARM64 TBI/MTE userspace tags and add `offsets[0]` to get next address.
 /// - Step 3: Repeat for each subsequent offset in `offsets[1..]`.
 /// - Returns the final resolved 64-bit virtual memory address.
+///
+/// Uses `HMKPM_MAGIC_READ_CHAIN` in a single syscall when `HMKPM_FEATURE_READ_CHAIN` is
+/// supported and `offsets.len() + 1 <= HMKPM_MAX_CHAIN_DEPTH`.
 pub fn resolve_pointer_chain(pid: u32, base_addr: u64, offsets: &[i64]) -> Result<u64, String> {
-    if base_addr == 0 {
+    let normalized_base = normalize_arm64_user_va(base_addr);
+    if normalized_base == 0 {
         return Err("Base address cannot be 0x0".to_string());
     }
 
     if offsets.is_empty() {
-        return Ok(base_addr);
+        return Ok(normalized_base);
     }
 
-    let mut current_addr = base_addr;
+    if offsets.len() < kpm::HMKPM_MAX_CHAIN_DEPTH
+        && kpm::is_feature_supported(kpm::HMKPM_FEATURE_READ_CHAIN)
+    {
+        let chain_offsets = build_kernel_chain_offsets(offsets);
+        let req = [kpm::ChainRequest {
+            base_va: normalized_base,
+            offsets: &chain_offsets,
+            read_size: 0,
+            flags: 0,
+        }];
+        let results = kpm::read_chain(pid, &req)?;
+        let res = results
+            .first()
+            .ok_or_else(|| "Empty HMKPM read_chain response".to_string())?;
+        return match res.status {
+            kpm::HMKPM_CHAIN_STATUS_OK => Ok(res.resolved_va),
+            kpm::HMKPM_CHAIN_STATUS_FAULT_HOP => Err(format!(
+                "Pointer chain fault at hop {} (address: 0x{:x})",
+                res.hops_done, res.resolved_va
+            )),
+            kpm::HMKPM_CHAIN_STATUS_BAD_REQ => {
+                Err("Invalid pointer chain request flags".to_string())
+            }
+            other => Err(format!(
+                "Pointer chain failed with status {other} at hop {} (address: 0x{:x})",
+                res.hops_done, res.resolved_va
+            )),
+        };
+    }
+
+    let mut current_addr = normalized_base;
 
     for (idx, &offset) in offsets.iter().enumerate() {
         if current_addr < 0x1000 {
@@ -495,7 +681,7 @@ pub fn resolve_pointer_chain(pid: u32, base_addr: u64, offsets: &[i64]) -> Resul
             format!("Failed to dereference pointer at 0x{current_addr:x} (level {idx}): {e}")
         })?;
 
-        let ptr = u64::from_le_bytes(buf);
+        let ptr = normalize_arm64_user_va(u64::from_le_bytes(buf));
         if ptr == 0 {
             return Err(format!(
                 "Null pointer encountered at level {idx} (0x{current_addr:x} -> 0x0)"
@@ -521,17 +707,61 @@ pub fn resolve_pointer_chain(pid: u32, base_addr: u64, offsets: &[i64]) -> Resul
 }
 
 /// Reads a typed value by dereferencing a multi-level pointer chain.
+///
+/// Uses `HMKPM_MAGIC_READ_CHAIN` to resolve all hops and read the terminal value in a single
+/// kernel syscall whenever supported.
 pub fn read_pointer_value(
     pid: u32,
     base_addr: u64,
     offsets: &[i64],
     vtype: ValueType,
 ) -> Result<String, String> {
-    let target_addr = resolve_pointer_chain(pid, base_addr, offsets)?;
+    let normalized_base = normalize_arm64_user_va(base_addr);
+    if normalized_base == 0 {
+        return Err("Base address cannot be 0x0".to_string());
+    }
+
+    let read_size = vtype.size();
+    if !offsets.is_empty()
+        && offsets.len() < kpm::HMKPM_MAX_CHAIN_DEPTH
+        && read_size <= kpm::HMKPM_MAX_CHAIN_READ_SIZE
+        && kpm::is_feature_supported(kpm::HMKPM_FEATURE_READ_CHAIN)
+    {
+        let chain_offsets = build_kernel_chain_offsets(offsets);
+        let req = [kpm::ChainRequest {
+            base_va: normalized_base,
+            offsets: &chain_offsets,
+            read_size: read_size as u32,
+            flags: 0,
+        }];
+        let results = kpm::read_chain(pid, &req)?;
+        let res = results
+            .first()
+            .ok_or_else(|| "Empty HMKPM read_chain response".to_string())?;
+        return match res.status {
+            kpm::HMKPM_CHAIN_STATUS_OK if res.data.len() == read_size => {
+                Ok(bytes_to_value_str(&res.data, vtype))
+            }
+            kpm::HMKPM_CHAIN_STATUS_FAULT_HOP => Err(format!(
+                "Pointer chain fault at hop {} (address: 0x{:x})",
+                res.hops_done, res.resolved_va
+            )),
+            kpm::HMKPM_CHAIN_STATUS_FAULT_DATA => Err(format!(
+                "Read pointer target at 0x{:x} failed (page not resident or truncated)",
+                res.resolved_va
+            )),
+            other => Err(format!(
+                "Read pointer chain failed with status {other} at 0x{:x}",
+                res.resolved_va
+            )),
+        };
+    }
+
+    let target_addr = resolve_pointer_chain(pid, normalized_base, offsets)?;
     if !crate::v2p::is_page_present(pid, target_addr, crate::v2p::PAGE_FLAG_PRESENT)? {
         return Err(format!("Page not resident at 0x{target_addr:x}"));
     }
-    let mut buf = vec![0u8; vtype.size()];
+    let mut buf = vec![0u8; read_size];
     kpm::read_memory(pid, target_addr, &mut buf)
         .map_err(|e| format!("Read pointer target at 0x{target_addr:x} failed: {e}"))?;
     Ok(bytes_to_value_str(&buf, vtype))
@@ -549,7 +779,7 @@ pub fn write_pointer_value(
     write_value(pid, target_addr, value_str, vtype)
 }
 
-/// Reads a value encrypted with a custom static XOR mask.
+/// Reads a value encoded with a custom static XOR mask.
 pub fn read_xor_value(
     pid: u32,
     address: u64,
@@ -571,7 +801,7 @@ pub fn read_xor_value(
     Ok(bytes_to_value_str(&buf, vtype))
 }
 
-/// Writes a value encrypted with a custom static XOR mask.
+/// Writes a value encoded with a custom static XOR mask.
 pub fn write_xor_value(
     pid: u32,
     address: u64,
@@ -586,4 +816,46 @@ pub fn write_xor_value(
     }
 
     write_raw_bytes(pid, address, &bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_arm64_user_va_strips_tbi_mte_tag() {
+        // Android Scudo/MTE tagged heap pointer (top byte 0xb4, bit 55 == 0)
+        assert_eq!(
+            normalize_arm64_user_va(0xb400_007a_1234_5678),
+            0x0000_007a_1234_5678
+        );
+        // Tagged null pointer becomes canonical 0
+        assert_eq!(normalize_arm64_user_va(0xb400_0000_0000_0000), 0);
+        // Already canonical userspace VA stays unchanged
+        assert_eq!(
+            normalize_arm64_user_va(0x0000_007a_1234_5678),
+            0x0000_007a_1234_5678
+        );
+        // Kernel VA (bit 55 == 1) is preserved verbatim
+        assert_eq!(
+            normalize_arm64_user_va(0xffff_8000_0000_1000),
+            0xffff_8000_0000_1000
+        );
+    }
+
+    #[test]
+    fn test_resolve_pointer_chain_empty_offsets_normalizes_base() {
+        let resolved = resolve_pointer_chain(1234, 0xb400_007a_1234_5678, &[]).unwrap();
+        assert_eq!(resolved, 0x0000_007a_1234_5678);
+        assert!(resolve_pointer_chain(1234, 0xb400_0000_0000_0000, &[]).is_err());
+    }
+
+    #[test]
+    fn test_build_kernel_chain_offsets_prepends_zero() {
+        assert_eq!(
+            build_kernel_chain_offsets(&[0x10, 0x20]),
+            vec![0, 0x10, 0x20]
+        );
+        assert_eq!(build_kernel_chain_offsets(&[-0x8]), vec![0, -0x8]);
+    }
 }

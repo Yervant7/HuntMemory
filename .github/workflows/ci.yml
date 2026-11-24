@@ -48,10 +48,10 @@ jobs:
         run: cargo fmt --manifest-path app/src/main/hmem/Cargo.toml --all -- --check
 
       - name: Run host unit tests
-        run: cargo test --manifest-path app/src/main/hmem/Cargo.toml --all-targets
+        run: cargo test --manifest-path app/src/main/hmem/Cargo.toml --target x86_64-unknown-linux-gnu --all-targets
 
-      - name: Run Clippy linter
-        run: cargo clippy --manifest-path app/src/main/hmem/Cargo.toml --all-targets -- -D warnings
+      - name: Run Clippy linter (host)
+        run: cargo clippy --manifest-path app/src/main/hmem/Cargo.toml --target x86_64-unknown-linux-gnu --all-targets -- -D warnings
 
   android-build:
     name: Android Build (arm64-v8a)
@@ -102,6 +102,10 @@ jobs:
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+
+      - name: Run Clippy linter (aarch64-linux-android)
+        working-directory: app/src/main/hmem
+        run: cargo ndk -t arm64-v8a clippy -- -D warnings
 
       - name: Setup Keystore for Release Signing
         if: env.KEYSTORE_BASE64 != ''

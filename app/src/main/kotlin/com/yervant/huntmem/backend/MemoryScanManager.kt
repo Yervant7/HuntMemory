@@ -21,8 +21,9 @@
 package com.yervant.huntmem.backend
 
 import android.util.Log
-import com.yervant.huntmem.ui.overlay.tabs.MatchInfo
+import kotlinx.coroutines.CancellationException
 import java.util.UUID
+import kotlin.math.abs
 
 class MemoryScanManager {
 
@@ -88,7 +89,7 @@ class MemoryScanManager {
         val s = numValStr.trim()
         val vTypeLower = valueType.lowercase()
 
-        // 1. Obscured (XOR key-pair) scanning (e.g. ACTk ObscuredInt, ObscuredFloat)
+        // 1. Obscured (XOR key-pair) scanning (e.g. ObscuredInt, ObscuredFloat)
         if (vTypeLower.startsWith("obscured") || s.startsWith("obscured:", ignoreCase = true) || s.startsWith("xor:", ignoreCase = true)) {
             val cleanedVal = s.removePrefix("obscured:").removePrefix("OBSCURED:")
                 .removePrefix("xor:").removePrefix("XOR:").trim()
@@ -111,7 +112,7 @@ class MemoryScanManager {
             }
         }
 
-        // 3. Tolerance / Epsilon / Fuzzy floating point scanning (e.g. 100 +- 0.5 or 100 +- 2%)
+        // 3. Tolerance / Epsilon / Fuzzy floating point scanning (e.g. 100 +- 0.5 or -100 +- 5%)
         if (s.contains("+-") || s.contains("±")) {
             val delimiter = if (s.contains("+-")) "+-" else "±"
             val parts = s.split(delimiter)
@@ -119,12 +120,16 @@ class MemoryScanManager {
                 val center = parts[0].trim().toDoubleOrNull() ?: 0.0
                 val tolStr = parts[1].trim()
                 val (minVal, maxVal) = if (tolStr.endsWith("%")) {
-                    val pct = (tolStr.removeSuffix("%").trim().toDoubleOrNull() ?: 0.0) / 100.0
-                    val delta = (center.coerceAtLeast(0.0) * pct).coerceAtLeast(0.0001)
-                    Pair((center - delta).toString(), (center + delta).toString())
+                    val pct = abs(tolStr.removeSuffix("%").trim().toDoubleOrNull() ?: 0.0) / 100.0
+                    val delta = (abs(center) * pct).coerceAtLeast(0.0001)
+                    val lo = minOf(center - delta, center + delta)
+                    val hi = maxOf(center - delta, center + delta)
+                    Pair(lo.toString(), hi.toString())
                 } else {
-                    val tol = tolStr.toDoubleOrNull() ?: 0.0
-                    Pair((center - tol).toString(), (center + tol).toString())
+                    val tol = abs(tolStr.toDoubleOrNull() ?: 0.0)
+                    val lo = minOf(center - tol, center + tol)
+                    val hi = maxOf(center - tol, center + tol)
+                    Pair(lo.toString(), hi.toString())
                 }
 
                 val primaryType = if (vTypeLower.contains("double")) "double" else if (vTypeLower.contains("float16")) "float16" else "float"
@@ -157,9 +162,7 @@ class MemoryScanManager {
             if (isNewScan) {
                 return MemoryEngine.searchGroupFast(pid, sessionId, s, vTypeLower, filterTypesStr, customStr).getOrThrow()
             } else {
-                val split = s.split(":")
-                val values = split[0].split(";")
-                val firstVal = values.firstOrNull() ?: ""
+                val firstVal = extractFirstGroupTargetValue(s)
                 return MemoryEngine.filterAddressesFast(pid, sessionId, firstVal, operator).getOrThrow()
             }
         }
@@ -187,12 +190,25 @@ class MemoryScanManager {
         }
     }
 
-    suspend fun updateMatchValues(sessionId: String): List<MatchInfo> {
+    private fun extractFirstGroupTargetValue(groupSpec: String): String {
+        val firstItem = groupSpec.split(";").firstOrNull()?.trim().orEmpty()
+        if (firstItem.contains(":")) {
+            val itemParts = firstItem.split(":", limit = 2)
+            if (itemParts.size == 2) {
+                return itemParts[1].trim()
+            }
+        }
+        return firstItem
+    }
+
+    suspend fun updateMatchValues(sessionId: String, limit: Int = 100): List<MatchInfo> {
         val pid = AttachedProcessRepository.getAttachedPid() ?: return emptyList()
 
         return try {
-            val results = MemoryEngine.filterAddressesFast(pid, sessionId, "0", "update").getOrThrow()
+            val results = MemoryEngine.refreshResultsPage(pid, sessionId, offset = 0, limit = limit)
             results.second
+        } catch (ce: CancellationException) {
+            throw ce
         } catch (e: Exception) {
             Log.e(TAG, "Failed to batch update matches: ${e.message}")
             emptyList()

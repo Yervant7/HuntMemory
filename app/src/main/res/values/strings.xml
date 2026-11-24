@@ -132,7 +132,7 @@
     <string name="memory_menu_preset_reset">RESET</string>
     <string name="memory_menu_syntax_help_title">Search Techniques &amp; Syntax Help</string>
     <string name="memory_menu_syntax_help_button_cd">Search syntax help</string>
-    <string name="memory_menu_syntax_help_text"><b>1. Mantissa / Exponent (Scientific / BigDouble):</b>\n• <i>1.5e6</i> or <i>1.5,6</i> or <i>1.5:6</i>\n• Type: Select BigDouble or type <i>bigdouble:1.5,6</i>\n\n<b>2. Obscured / Encrypted (Anti-Cheat XOR):</b>\n• Select Obscured Int or Obscured Float\n• Or use prefix: <i>xor:1000</i> or <i>obscured:1000</i>\n\n<b>3. Float Tolerance / Epsilon:</b>\n• Absolute margin: <i>100.0 +- 0.5</i>\n• Percentage margin: <i>100 +- 2%</i>\n\n<b>4. Scaled Fixed-Point:</b>\n• Multiplier formula: <i>10.5 * 1000</i> (searches 10500)\n• Or prefix: <i>scaled:10.5:1000</i>\n\n<b>5. Heterogeneous Struct Group:</b>\n• Mixed types: <i>f64:1.5; i64:6 : 16</i>\n• Or: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_syntax_help_text"><b>1. Mantissa / Exponent (Scientific / BigDouble):</b>\n• <i>1.5e6</i> or <i>1.5,6</i> or <i>1.5:6</i>\n• Type: Select BigDouble or type <i>bigdouble:1.5,6</i>\n\n<b>2. Obscured / XOR-Encoded (XOR-Keypair):</b>\n• Select Obscured Int or Obscured Float\n• Or use prefix: <i>xor:1000</i> or <i>obscured:1000</i>\n\n<b>3. Float Tolerance / Epsilon:</b>\n• Absolute margin: <i>100.0 +- 0.5</i>\n• Percentage margin: <i>100 +- 2%</i>\n\n<b>4. Scaled Fixed-Point:</b>\n• Multiplier formula: <i>10.5 * 1000</i> (searches 10500)\n• Or prefix: <i>scaled:10.5:1000</i>\n\n<b>5. Heterogeneous Struct Group:</b>\n• Mixed types: <i>f64:1.5; i64:6 : 16</i>\n• Or: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
     <string name="memory_menu_new_scan_button">New Scan</string>
     <string name="memory_menu_new_search_button_initial">New Search</string>
     <string name="memory_menu_refine_button">Refine</string>
@@ -164,7 +164,7 @@
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">Disclaimer</string>
-    <string name="disclaimer_text">Welcome to HuntMemory.\n\nThis is a memory reading and editing tool intended for development, debugging, and learning purposes in your own applications and processes.\n\nIt is strictly forbidden to use this application for illegal activities, such as cheating in online games, unauthorized modification of other applications, or any other action that violates the terms of service of third parties or current legislation.\n\nBy continuing, you acknowledge and agree that you are solely responsible for your actions. The developers of this application are not responsible for any misuse, damage, or negative consequences resulting from the use of this tool.</string>
+    <string name="disclaimer_text">Welcome to HuntMemory.\n\nThis is a memory reading and editing tool intended for development, debugging, and learning purposes in your own applications and processes.\n\nIt is strictly forbidden to use this application for unlawful activities, unauthorized modification of third-party applications, or any action that violates third-party terms of service or applicable law.\n\nBy continuing, you acknowledge and agree that you are solely responsible for your actions. The developers of this application are not responsible for any misuse, damage, or negative consequences resulting from the use of this tool.</string>
     <string name="disclaimer_accept_button">Accept and Continue</string>
     <string name="disclaimer_scroll_down_hint">Scroll down to read more</string>
 
@@ -229,16 +229,16 @@
     <string name="search_help_try_hint">Tip: Tap any example to insert it into the search bar.</string>
     <string name="search_help_cat_basic_title">Exact &amp; Float Tolerance</string>
     <string name="search_help_cat_basic_desc">Search exact numbers or floating-point values with absolute or percentage margins.</string>
-    <string name="search_help_cat_obscured_title">Obscured &amp; Anti-Cheat (XOR)</string>
-    <string name="search_help_cat_obscured_desc">Scans encrypted variables protected by anti-cheat engines (such as ACTk) using dynamic XOR keys.</string>
+    <string name="search_help_cat_obscured_title">Obscured &amp; XOR-Keypair</string>
+    <string name="search_help_cat_obscured_desc">Scans obscured variables encoded with dynamic XOR key-value pairs.</string>
     <string name="search_help_cat_bigdouble_title">Scientific &amp; BigDouble</string>
-    <string name="search_help_cat_bigdouble_desc">Huge values stored as mantissa and exponent (widely used in incremental and idle games).</string>
+    <string name="search_help_cat_bigdouble_desc">Large values stored as mantissa and exponent (used in scientific and high-range numeric runtimes).</string>
     <string name="search_help_cat_scaled_title">Scaled Fixed-Point</string>
     <string name="search_help_cat_scaled_desc">Decimals stored internally as scaled integers (e.g. 10.5 scaled by 1000 searches 10500).</string>
     <string name="search_help_cat_group_title">Struct &amp; Group Search</string>
     <string name="search_help_cat_group_desc">Matches multiple heterogeneous data types located within a contiguous memory byte range.</string>
     <string name="search_help_cat_goto_title">Direct Address &amp; Library Go</string>
-    <string name="search_help_cat_goto_desc">Jump directly to a virtual memory address or dynamic library offset (e.g. libil2cpp.so).</string>
+    <string name="search_help_cat_goto_desc">Jump directly to a virtual memory address or dynamic library offset (e.g. libnative.so).</string>
 
     <!-- HMKPM Lockless Mode & Explanation Dialog -->
     <string name="main_screen_hmkpm_lockless">Lockless (RO)</string>
@@ -257,8 +257,17 @@
     <string name="hmkpm_dialog_feature_write">Direct Memory Write</string>
     <string name="hmkpm_dialog_feature_v2p">V2P Address Translation</string>
     <string name="hmkpm_dialog_feature_kernel_scan">In-Kernel MMU Scan</string>
+    <string name="hmkpm_dialog_feature_scan_ext">Extended Scan (Values &amp; Cursor)</string>
+    <string name="hmkpm_dialog_feature_scan_refine">In-Kernel Scan Refinement</string>
+    <string name="hmkpm_dialog_feature_read_chain">In-Kernel Pointer Chains</string>
+    <string name="hmkpm_dialog_feature_enum_regions">Hardware Region Enumeration</string>
+    <string name="hmkpm_dialog_feature_fsnotify">Procfs Fsnotify Filter</string>
     <string name="hmkpm_dialog_feature_lockless">Lockless Safety Guard</string>
     <string name="hmkpm_dialog_mmap_offset">mmap_lock Offset</string>
+    <string name="hmkpm_dialog_kernel_version">Kernel Version</string>
+    <string name="hmkpm_dialog_mmu_geometry">MMU Geometry</string>
+    <string name="hmkpm_dialog_sw_pan_mode">SW PAN Mode</string>
+    <string name="hmkpm_dialog_fsnotify_mode">Fsnotify Mode</string>
     <string name="hmkpm_dialog_status_enabled">Enabled</string>
     <string name="hmkpm_dialog_status_disabled">Disabled</string>
     <string name="hmkpm_dialog_status_active">Active</string>
@@ -274,7 +283,7 @@
     <string name="main_screen_status_popup_permission_missing">Pop-up Missing</string>
     <string name="oem_compat_banner_title">%1$s Optimization</string>
     <string name="oem_compat_hyperos_desc">Custom ROM detected. Allow \"Display pop-up windows\" and \"Autostart\" to prevent floating window freezes or background termination.</string>
-    <string name="oem_compat_battery_desc">Background battery restrictions can terminate memory scans and overlay views during gameplay.</string>
+    <string name="oem_compat_battery_desc">Background battery restrictions can terminate memory scans and overlay views during intensive foreground sessions.</string>
     <string name="oem_compat_status_granted">Granted</string>
     <string name="oem_compat_status_missing">Missing</string>
     <string name="oem_compat_status_unrestricted">Unrestricted</string>
@@ -286,12 +295,82 @@
     <string name="oem_compat_btn_autostart">Autostart</string>
     <string name="oem_compat_btn_battery">No Restrictions</string>
     <string name="oem_compat_dialog_title">OEM Compatibility Guide</string>
-    <string name="oem_compat_dialog_desc_1">Heavily modified ROMs (Xiaomi HyperOS, MIUI, ColorOS, OriginOS, EMUI) implement aggressive background task killers and proprietary permission layers that can terminate floating overlays or sever root IPC bindings during heavy gameplay.</string>
+    <string name="oem_compat_dialog_desc_1">Heavily modified ROMs (Xiaomi HyperOS, MIUI, ColorOS, OriginOS, EMUI) implement aggressive background task killers and proprietary permission layers that can terminate floating overlays or sever root IPC bindings under heavy memory load.</string>
     <string name="oem_compat_dialog_item_overlay_title">1. Pop-up &amp; Overlay Windows</string>
     <string name="oem_compat_dialog_item_overlay_desc">On HyperOS/MIUI, \"Display pop-up windows while running in the background\" must be explicitly allowed in the Security app.</string>
     <string name="oem_compat_dialog_item_autostart_title">2. Autostart &amp; Background Activity</string>
-    <string name="oem_compat_dialog_item_autostart_desc">Allowing Autostart prevents OEM memory clean-up services from killing HuntMemory when 3D games consume high memory.</string>
+    <string name="oem_compat_dialog_item_autostart_desc">Allowing Autostart prevents OEM memory clean-up services from killing HuntMemory when foreground apps consume high memory.</string>
     <string name="oem_compat_dialog_item_battery_title">3. Unrestricted Battery Saver</string>
-    <string name="oem_compat_dialog_item_battery_desc">Set app battery saver to \"No restrictions\" so memory searching, freezing, and Lua ESP scripts run uninterrupted.</string>
+    <string name="oem_compat_dialog_item_battery_desc">Set app battery saver to \"No restrictions\" so memory searching, freezing, and Lua overlay scripts run uninterrupted.</string>
     <string name="oem_compat_dialog_dismiss">Got it</string>
+
+    <!-- Guided Process Banner -->
+    <string name="no_process_banner_title">No Target Process Attached</string>
+    <string name="no_process_banner_desc">Select a running application in the Processes tab before scanning or editing memory.</string>
+    <string name="no_process_banner_action">Select Process</string>
+
+    <!-- Operator Explanations & Smart Input -->
+    <string name="memory_menu_value_not_required_placeholder">No value required for this operator</string>
+    <string name="memory_menu_op_hint_equal">Matches addresses equal to the input value</string>
+    <string name="memory_menu_op_hint_not_equal">Matches addresses different from the input value</string>
+    <string name="memory_menu_op_hint_greater">Matches addresses strictly greater than the input value</string>
+    <string name="memory_menu_op_hint_less">Matches addresses strictly less than the input value</string>
+    <string name="memory_menu_op_hint_greater_equal">Matches addresses greater than or equal to the input value</string>
+    <string name="memory_menu_op_hint_less_equal">Matches addresses less than or equal to the input value</string>
+    <string name="memory_menu_op_hint_unknown">Captures all resident addresses to compare changes in the next refinement (no value needed)</string>
+    <string name="memory_menu_op_hint_increased">Keeps addresses whose value increased since the previous scan (no value needed)</string>
+    <string name="memory_menu_op_hint_decreased">Keeps addresses whose value decreased since the previous scan (no value needed)</string>
+    <string name="memory_menu_op_hint_changed">Keeps addresses whose value changed since the previous scan (no value needed)</string>
+    <string name="memory_menu_op_hint_unchanged">Keeps addresses whose value remained identical (no value needed)</string>
+    <string name="memory_menu_op_hint_increased_by">Keeps addresses that increased by the exact delta entered</string>
+    <string name="memory_menu_op_hint_decreased_by">Keeps addresses that decreased by the exact delta entered</string>
+
+    <!-- Checkpoints, Undo, Copy to Tab, Multi-Select & Pagination -->
+    <string name="memory_menu_save_checkpoint_button">Save State</string>
+    <string name="memory_menu_checkpoint_saved_button">Saved ✓</string>
+    <string name="memory_menu_checkpoint_saved_snackbar">Search checkpoint saved. You can return to this state with Undo.</string>
+    <string name="memory_menu_undo_button">Undo</string>
+    <string name="memory_menu_undo_button_with_count">Undo (%1$d)</string>
+    <string name="memory_menu_undo_restored_snackbar">Restored previous refinement (%1$d matches)</string>
+    <string name="memory_menu_copy_to_tab_button">To Tab</string>
+    <string name="memory_menu_copy_to_tab_dialog_title">Copy Results to Search Tab</string>
+    <string name="memory_menu_copy_to_tab_dialog_desc_all">Clone all %1$d results of the current search into another search tab to test parallel refinements.</string>
+    <string name="memory_menu_copy_to_tab_dialog_desc_items">Copy %1$d selected result(s) into a new or existing search tab.</string>
+    <string name="memory_menu_copy_to_new_tab_option">+ New Search Tab</string>
+    <string name="memory_menu_copy_to_new_tab_subtitle">Creates a new independent search tab with these results</string>
+    <string name="memory_menu_copy_to_existing_tab_option">%1$s (%2$d matches)</string>
+    <string name="memory_menu_copy_to_existing_tab_subtitle">Merges into this tab without duplicating existing addresses</string>
+    <string name="memory_menu_copied_to_tab_snackbar">Copied results to %1$s</string>
+    <string name="memory_menu_copy_item_to_tab_cd">Copy result to another search tab</string>
+    <string name="memory_menu_select_mode_button">Select</string>
+    <string name="memory_menu_select_mode_cancel">Done</string>
+    <string name="memory_menu_select_all_visible">All</string>
+    <string name="memory_menu_selected_count_label">%1$d selected</string>
+    <string name="memory_menu_send_selected_to_editor">To Editor</string>
+    <string name="memory_menu_added_selected_to_address_table_snackbar">Added %1$d selected match(es) to Address Table.</string>
+    <string name="memory_menu_load_more_button">Load more (+%1$d) • Showing %2$d of %3$d</string>
+    <string name="memory_menu_step_badge">Step %1$d</string>
+    <string name="memory_menu_checkpoints_badge">%1$d saved</string>
+    <string name="memory_menu_previous_value_badge">prev: %1$s</string>
+
+    <!-- Friendly Scan Errors & Editor Ergonomics -->
+    <string name="memory_menu_friendly_error_empty_input">Please enter a search value for the selected operator, or choose a relative/unknown operator.</string>
+    <string name="memory_menu_friendly_error_invalid_number">The value \"%1$s\" is not valid for the selected data type (%2$s). Tap the (?) icon for syntax examples.</string>
+    <string name="memory_menu_friendly_error_scan_failed">Could not complete the memory scan. Verify that the target process is still running and HMKPM is active.</string>
+    <string name="memory_menu_friendly_error_no_process">No target process is attached. Select an application in the Processes tab first.</string>
+    <string name="memory_menu_friendly_error_process_stopped">The attached process is no longer running. Reattach to a running process in the Processes tab.</string>
+    <string name="memory_menu_friendly_error_hmkpm_unavailable">The HMKPM kernel module is not available or could not be reached.</string>
+    <string name="memory_menu_friendly_error_goto_failed">Could not resolve address expression \"%1$s\". Verify the hex address, module name, or pointer syntax.</string>
+    <string name="address_table_header_actions">Actions</string>
+    <string name="address_table_edit_hint">Tap row or value to edit</string>
+    <string name="address_table_delete_item_cd">Delete address</string>
+
+    <!-- Bundled HMKPM Module Export -->
+    <string name="hmkpm_export_card_title">HMKPM Module (v%1$s)</string>
+    <string name="hmkpm_export_card_missing_desc">Export the bundled v%1$s .kpm module to internal storage for installation in KernelPatch, APatch, or KPM-Manager.</string>
+    <string name="hmkpm_export_card_mismatch_desc">Pinned to HMKPM v%1$s. Export and load the bundled .kpm module to match the native engine ABI.</string>
+    <string name="hmkpm_export_card_ready_desc">Bundled HMKPM v%1$s module is ready. Export a copy to internal storage if needed for reinstallation.</string>
+    <string name="hmkpm_export_button">Export .kpm</string>
+    <string name="hmkpm_export_success">Exported %1$s to internal storage.</string>
+    <string name="hmkpm_export_error">Failed to export .kpm module: %1$s</string>
 </resources>

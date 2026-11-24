@@ -64,11 +64,11 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -112,7 +112,6 @@ import com.yervant.huntmem.R
 import com.yervant.huntmem.backend.AttachedProcessRepository
 import com.yervant.huntmem.backend.LuaScriptItem
 import com.yervant.huntmem.backend.LuaScriptRepository
-import com.yervant.huntmem.backend.MemoryEngine
 import com.yervant.huntmem.ui.CustomDialog
 import com.yervant.huntmem.ui.LuaScriptImportActivity
 import com.yervant.huntmem.ui.keyboard.KeyboardType
@@ -121,11 +120,10 @@ import com.yervant.huntmem.ui.keyboard.VirtualTextField
 import com.yervant.huntmem.ui.theme.ComponentStyles
 import com.yervant.huntmem.ui.theme.FrozenIceCyan
 import com.yervant.huntmem.ui.theme.SuccessEmerald
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Overlay tab providing a full-featured Lua 5.4 scripting environment and GameGuardian compatibility engine.
+ * Overlay tab providing a full-featured Lua 5.4 scripting environment and dynamic Compose menu bridge.
  *
  * Features:
  * - Script editor with quick syntax insertion buttons.
@@ -134,15 +132,17 @@ import kotlinx.coroutines.launch
  * - User script preset management, importing, and persistence.
  *
  * @param context Android application/service Context.
+ * @param luaScriptRunner Lifecycle-scoped script runner owned by `OverlayService`.
  * @param modifier Optional layout modifier.
  */
 @Composable
 fun LuaScriptTab(
     context: Context,
+    luaScriptRunner: LuaScriptRunner,
     modifier: Modifier = Modifier
 ) {
     var selectedSubTab by remember { mutableIntStateOf(0) }
-    var scriptCode by remember { mutableStateOf(LuaScriptRepository.PRESET_CHEAT_MENU) }
+    var scriptCode by remember { mutableStateOf("-- HuntMemory Lua Script\nlocal pid = hmem.get_pid()\nprint(\"PID: \" .. tostring(pid))\n") }
     var showScriptSelectionDialog by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var scriptToDelete by remember { mutableStateOf<LuaScriptItem?>(null) }
@@ -273,28 +273,10 @@ fun LuaScriptTab(
                     // Run / Stop Button
                     Button(
                         onClick = {
-                            val pid = attachedPid ?: 0
                             if (isRunning) {
-                                LuaUiBridge.postLog("[Script] Stopping script execution...")
-                                MemoryEngine.stopLuaScript()
-                            } else if (pid > 0) {
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    LuaUiBridge.setScriptRunning(true)
-                                    LuaUiBridge.postLog("[Script] Starting execution...")
-                                    val result = MemoryEngine.runLuaScript(pid, scriptCode)
-                                    result.onSuccess { res ->
-                                        if (res.success) {
-                                            LuaUiBridge.postLog("[Script] Completed successfully. Result: ${res.result ?: "nil"}")
-                                        } else {
-                                            LuaUiBridge.postLog("[Script Error] ${res.error}")
-                                        }
-                                    }.onFailure { e ->
-                                        LuaUiBridge.postLog("[Execution Failed] ${e.message}")
-                                    }
-                                    LuaUiBridge.setScriptRunning(false)
-                                }
+                                luaScriptRunner.stop()
                             } else {
-                                LuaUiBridge.postLog("[Error] Please attach to a target process in the Processes tab first.")
+                                luaScriptRunner.start(attachedPid ?: 0, scriptCode)
                             }
                         },
                         shape = RoundedCornerShape(6.dp),
@@ -537,28 +519,10 @@ fun LuaScriptTab(
                     // Run / Stop Button
                     Button(
                         onClick = {
-                            val pid = attachedPid ?: 0
                             if (isRunning) {
-                                LuaUiBridge.postLog("[Script] Stopping script execution...")
-                                MemoryEngine.stopLuaScript()
-                            } else if (pid > 0) {
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    LuaUiBridge.setScriptRunning(true)
-                                    LuaUiBridge.postLog("[Script] Starting execution...")
-                                    val result = MemoryEngine.runLuaScript(pid, scriptCode)
-                                    result.onSuccess { res ->
-                                        if (res.success) {
-                                            LuaUiBridge.postLog("[Script] Completed successfully. Result: ${res.result ?: "nil"}")
-                                        } else {
-                                            LuaUiBridge.postLog("[Script Error] ${res.error}")
-                                        }
-                                    }.onFailure { e ->
-                                        LuaUiBridge.postLog("[Execution Failed] ${e.message}")
-                                    }
-                                    LuaUiBridge.setScriptRunning(false)
-                                }
+                                luaScriptRunner.stop()
                             } else {
-                                LuaUiBridge.postLog("[Error] Please attach to a target process in the Processes tab first.")
+                                luaScriptRunner.start(attachedPid ?: 0, scriptCode)
                             }
                         },
                         shape = RoundedCornerShape(6.dp),
@@ -624,7 +588,7 @@ fun LuaScriptTab(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                 ) {
-                    Icon(Icons.Default.Gamepad, contentDescription = null, modifier = Modifier.size(13.dp))
+                    Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(13.dp))
                     Text(
                         text = stringResource(R.string.lua_tab_menu_subtab),
                         fontSize = if (isCompactWidth) 9.sp else 10.sp,
@@ -1203,7 +1167,7 @@ private fun ScriptEditorView(
             "~", "+", "-", "*", "/", "_", "\n", "    ",
             "local ", "function ", "end", "if ", "then", "else", "elseif ", "while ", "do ", "return ", "for ", "in ",
             "print(", "hmem.get_pid()", "hmem.read_memory(", "hmem.write_memory(", "hmem.create_menu(", "hmem.log(",
-            "gg.searchNumber(", "gg.getResults(", "gg.editAll(", "canvas."
+            "hmem.search(", "hmem.get_results(", "hmem.batch_write(", "canvas."
         )
     }
 

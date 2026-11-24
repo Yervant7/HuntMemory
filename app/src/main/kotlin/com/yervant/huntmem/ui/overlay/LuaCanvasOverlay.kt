@@ -40,16 +40,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 
 /**
- * Ultra high-performance, transparent, hardware-accelerated Compose Canvas overlay.
- * Observing canvasCommands via collectAsState ensures that real-time canvas updates
- * (ESP HUD / overlays) immediately redraw cleanly at 60-120 FPS.
+ * Hardware-accelerated transparent 2D Canvas overlay for Lua telemetry scripts.
+ * Defers reading [LuaUiBridge.canvasCommands] until the draw phase (`drawBehind`)
+ * so 60–120 FPS frame updates invalidate only the draw layer without recomposing.
  */
 @Composable
 fun LuaCanvasOverlay(
     modifier: Modifier = Modifier
 ) {
     val isVisible by LuaUiBridge.isCanvasVisible.collectAsState()
-    val commands by LuaUiBridge.canvasCommands.collectAsState()
+    val commandsState = LuaUiBridge.canvasCommands.collectAsState()
 
     val textPaint = remember {
         Paint().apply {
@@ -59,7 +59,7 @@ fun LuaCanvasOverlay(
         }
     }
 
-    if (!isVisible || commands.isEmpty()) {
+    if (!isVisible) {
         return
     }
 
@@ -67,6 +67,9 @@ fun LuaCanvasOverlay(
         modifier = modifier
             .fillMaxSize()
             .drawBehind {
+                val commands = commandsState.value
+                if (commands.isEmpty()) return@drawBehind
+
                 val currentDensity = density
                 val nativeCanvas = drawContext.canvas.nativeCanvas
 
@@ -107,14 +110,14 @@ fun LuaCanvasOverlay(
                             if (cmd.filled) {
                                 drawCircle(
                                     color = cmd.color,
-                                    radius = cmd.radius * currentDensity,
+                                    radius = cmd.radius,
                                     center = Offset(cmd.cx, cmd.cy),
                                     style = Fill
                                 )
                             } else {
                                 drawCircle(
                                     color = cmd.color,
-                                    radius = cmd.radius * currentDensity,
+                                    radius = cmd.radius,
                                     center = Offset(cmd.cx, cmd.cy),
                                     style = Stroke(width = cmd.strokeWidth * currentDensity)
                                 )

@@ -131,7 +131,7 @@
     <string name="memory_menu_preset_reset">RÉINITIALISER</string>
     <string name="memory_menu_syntax_help_title">Techniques de Recherche &amp; Syntaxe</string>
     <string name="memory_menu_syntax_help_button_cd">Aide sur la syntaxe de recherche</string>
-    <string name="memory_menu_syntax_help_text"><b>1. Mantisse / Exposant (Scientifique / BigDouble) :</b>\n• <i>1.5e6</i> ou <i>1.5,6</i> ou <i>1.5:6</i>\n• Type : Sélectionnez BigDouble ou écrivez <i>bigdouble:1.5,6</i>\n\n<b>2. Valeurs Obscurcies / Chiffrées (Anti-Cheat XOR) :</b>\n• Sélectionnez Obscured Int ou Obscured Float\n• Ou préfixe : <i>xor:1000</i> ou <i>obscured:1000</i>\n\n<b>3. Tolérance Float / Epsilon :</b>\n• Marge absolue : <i>100.0 +- 0.5</i>\n• Marge en pourcentage : <i>100 +- 2%</i>\n\n<b>4. Point Fixe Mis à l\'Échelle :</b>\n• Formule : <i>10.5 * 1000</i> (cherche 10500)\n• Ou préfixe : <i>scaled:10.5:1000</i>\n\n<b>5. Groupe de Structures Hétérogènes :</b>\n• Types mixtes : <i>f64:1.5; i64:6 : 16</i>\n• Ou : <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_syntax_help_text"><b>1. Mantisse / Exposant (Scientifique / BigDouble) :</b>\n• <i>1.5e6</i> ou <i>1.5,6</i> ou <i>1.5:6</i>\n• Type : Sélectionnez BigDouble ou écrivez <i>bigdouble:1.5,6</i>\n\n<b>2. Valeurs Obscurcies / Chiffrées (Paire XOR) :</b>\n• Sélectionnez Obscured Int ou Obscured Float\n• Ou préfixe : <i>xor:1000</i> ou <i>obscured:1000</i>\n\n<b>3. Tolérance Float / Epsilon :</b>\n• Marge absolue : <i>100.0 +- 0.5</i>\n• Marge en pourcentage : <i>100 +- 2%</i>\n\n<b>4. Point Fixe Mis à l\'Échelle :</b>\n• Formule : <i>10.5 * 1000</i> (cherche 10500)\n• Ou préfixe : <i>scaled:10.5:1000</i>\n\n<b>5. Groupe de Structures Hétérogènes :</b>\n• Types mixtes : <i>f64:1.5; i64:6 : 16</i>\n• Ou : <i>f32:100.0; i32:50; byte:1 : 32</i></string>
     <string name="memory_menu_new_scan_button">Nouvelle Recherche</string>
     <string name="memory_menu_new_search_button_initial">Nouvelle Recherche</string>
     <string name="memory_menu_refine_button">Affiner</string>
@@ -165,7 +165,7 @@
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">Avertissement</string>
-    <string name="disclaimer_text">Bienvenue sur HuntMemory.\n\nIl s\'agit d\'un outil de lecture et d\'édition de mémoire destiné au développement, au débogage et à l\'apprentissage sur vos propres applications et processus.\n\nIl est strictement interdit d\'utiliser cette application pour des activités illégales, telles que la triche dans les jeux en ligne, la modification non autorisée d\'autres applications ou toute autre action violant les conditions d\'utilisation de tiers ou la législation en vigueur.\n\nEn continuant, vous reconnaissez et acceptez que vous êtes seul responsable de vos actes. Les développeurs ne sont pas responsables de toute mauvaise utilisation, dommage ou conséquence négative résultant de l\'utilisation de cet outil.</string>
+    <string name="disclaimer_text">Bienvenue sur HuntMemory.\n\nIl s\'agit d\'un outil de lecture et d\'édition de mémoire destiné au développement, au débogage et à l\'apprentissage sur vos propres applications et processus.\n\nIl est strictement interdit d\'utiliser cette application pour des activités illicites, la modification non autorisée d\'autres applications ou toute autre action violant les conditions d\'utilisation de tiers ou la législation en vigueur.\n\nEn continuant, vous reconnaissez et acceptez que vous êtes seul responsable de vos actes. Les développeurs ne sont pas responsables de toute mauvaise utilisation, dommage ou conséquence négative résultant de l\'utilisation de cet outil.</string>
     <string name="disclaimer_accept_button">Accepter et Continuer</string>
     <string name="disclaimer_scroll_down_hint">Faites défiler vers le bas pour en savoir plus</string>
 
@@ -230,10 +230,10 @@
     <string name="search_help_try_hint">Astuce : Appuyez sur un exemple pour le charger directement dans la barre de recherche.</string>
     <string name="search_help_cat_basic_title">Exact &amp; Tolérance Float</string>
     <string name="search_help_cat_basic_desc">Recherchez des nombres exacts ou flottants avec une marge absolue ou en pourcentage.</string>
-    <string name="search_help_cat_obscured_title">Offusqué &amp; Anti-Triche (XOR)</string>
-    <string name="search_help_cat_obscured_desc">Analyse les variables chiffrées protégées par des moteurs anti-triche (comme ACTk) à l\'aide de clés XOR dynamiques.</string>
+    <string name="search_help_cat_obscured_title">Offusqué &amp; Paire XOR</string>
+    <string name="search_help_cat_obscured_desc">Analyse les variables obfusquées encodées à l\'aide de paires de clés XOR dynamiques.</string>
     <string name="search_help_cat_bigdouble_title">Scientifique &amp; BigDouble</string>
-    <string name="search_help_cat_bigdouble_desc">Valeurs énormes stockées sous forme de mantisse et d\'exposant (courant dans les jeux incrémentaux/idle).</string>
+    <string name="search_help_cat_bigdouble_desc">Grandes valeurs stockées sous forme de mantisse et d\'exposant (utilisées dans les environnements scientifiques et numériques à grande plage).</string>
     <string name="search_help_cat_scaled_title">Virgule Fixe avec Facteur</string>
     <string name="search_help_cat_scaled_desc">Décimales stockées en interne comme entiers mis à l\'échelle (ex: 10.5 × 1000 recherche 10500).</string>
     <string name="search_help_cat_group_title">Structures &amp; Recherche Groupée</string>
@@ -276,7 +276,7 @@
     <string name="main_screen_status_popup_permission_missing">Pop-up manquant</string>
     <string name="oem_compat_banner_title">Optimisation %1$s</string>
     <string name="oem_compat_hyperos_desc">ROM personnalisée détectée. Autorisez \"Afficher des fenêtres pop-up\" et \"Démarrage automatique\" pour éviter la fermeture du menu flottant.</string>
-    <string name="oem_compat_battery_desc">Les restrictions de batterie peuvent interrompre l\'overlay pendant le jeu.</string>
+    <string name="oem_compat_battery_desc">Les restrictions de batterie peuvent interrompre l\'overlay lors de sessions intensives au premier plan.</string>
     <string name="oem_compat_status_granted">Accordé</string>
     <string name="oem_compat_status_missing">Manquant</string>
     <string name="oem_compat_status_unrestricted">Sans restriction</string>
@@ -292,7 +292,7 @@
     <string name="oem_compat_dialog_item_overlay_title">1. Fenêtres pop-up &amp; Overlay</string>
     <string name="oem_compat_dialog_item_overlay_desc">Sur HyperOS/MIUI, vous devez autoriser \"Afficher des fenêtres pop-up en arrière-plan\" dans l\'application Sécurité.</string>
     <string name="oem_compat_dialog_item_autostart_title">2. Démarrage auto &amp; Activité en arrière-plan</string>
-    <string name="oem_compat_dialog_item_autostart_desc">Le démarrage automatique empêche le système de fermer HuntMemory lors de sessions de jeu lourdes.</string>
+    <string name="oem_compat_dialog_item_autostart_desc">Le démarrage automatique empêche le système de fermer HuntMemory lorsque des applications au premier plan consomment beaucoup de mémoire.</string>
     <string name="oem_compat_dialog_item_battery_title">3. Économiseur de batterie sans restriction</string>
     <string name="oem_compat_dialog_item_battery_desc">Définissez la batterie sur \"Pas de restrictions\" pour assurer la recherche continue.</string>
     <string name="oem_compat_dialog_dismiss">Compris</string>

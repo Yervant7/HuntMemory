@@ -114,6 +114,7 @@ import com.yervant.huntmem.ui.keyboard.VirtualTextField
 import com.yervant.huntmem.ui.overlay.tabs.AddressTableTab
 import com.yervant.huntmem.ui.overlay.tabs.HuntSettings
 import com.yervant.huntmem.ui.overlay.tabs.LuaDialog
+import com.yervant.huntmem.ui.overlay.tabs.LuaScriptRunner
 import com.yervant.huntmem.ui.overlay.tabs.LuaScriptTab
 import com.yervant.huntmem.ui.overlay.tabs.LuaUiBridge
 import com.yervant.huntmem.ui.overlay.tabs.MemoryScanTab
@@ -165,6 +166,7 @@ fun FloatingIcon(
 fun MenuOverlayContent(
     uiState: OverlayUiState,
     viewModel: ProcessViewModel,
+    luaScriptRunner: LuaScriptRunner,
     context: Context,
     dialogCallback: DialogCallback,
     onToggleMenu: () -> Unit,
@@ -186,6 +188,7 @@ fun MenuOverlayContent(
                     onTabSelected = onTabSelected,
                     onOpacityChange = onOpacityChange,
                     viewModel = viewModel,
+                    luaScriptRunner = luaScriptRunner,
                     context = context,
                     dialogCallback = dialogCallback,
                     onClose = onToggleMenu,
@@ -220,6 +223,7 @@ fun MenuContent(
     onTabSelected: (Int) -> Unit,
     onOpacityChange: (Float) -> Unit = {},
     viewModel: ProcessViewModel,
+    luaScriptRunner: LuaScriptRunner,
     context: Context,
     dialogCallback: DialogCallback,
     onClose: () -> Unit
@@ -396,17 +400,21 @@ fun MenuContent(
                 0 -> ProcessScreen(viewModel = viewModel)
                 1 -> MemoryScanTab(
                     context = context,
-                    dialogCallback = dialogCallback
+                    dialogCallback = dialogCallback,
+                    onNavigateToProcesses = { onTabSelected(0) }
                 )
                 2 -> AddressTableTab(
                     context = context,
-                    dialogCallback = dialogCallback
+                    dialogCallback = dialogCallback,
+                    onNavigateToProcesses = { onTabSelected(0) }
                 )
                 3 -> LuaScriptTab(
-                    context = context
+                    context = context,
+                    luaScriptRunner = luaScriptRunner
                 )
                 4 -> HuntSettings(
-                    context = context
+                    context = context,
+                    onNavigateToProcesses = { onTabSelected(0) }
                 )
             }
         }

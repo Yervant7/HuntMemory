@@ -25,6 +25,8 @@ import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +48,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
@@ -57,6 +60,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -84,6 +88,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -112,6 +117,7 @@ import com.yervant.huntmem.BuildConfig
 import com.yervant.huntmem.R
 import com.yervant.huntmem.backend.AttachedProcessRepository
 import com.yervant.huntmem.backend.HMemServiceConnection
+import com.yervant.huntmem.backend.KpmAssetExporter
 import com.yervant.huntmem.backend.NativeBridge.getHmkpmVersionInfo
 import com.yervant.huntmem.backend.NativeBridge.isHmkpmAvailable
 import com.yervant.huntmem.ui.compat.OemCompatibilityHelper
@@ -121,6 +127,7 @@ import com.yervant.huntmem.ui.theme.SuccessEmerald
 import com.yervant.huntmem.ui.theme.TertiaryAmber
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -141,6 +148,36 @@ fun MainScreen(
     var hmkpmRefreshTrigger by remember { mutableIntStateOf(0) }
     var showHmkpmInfoDialog by remember { mutableStateOf(false) }
     var showOemInfoDialog by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    var isExportingKpm by remember { mutableStateOf(false) }
+    val exportKpmLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        isExportingKpm = true
+        coroutineScope.launch {
+            val result = KpmAssetExporter.exportBundledKpm(ctx, uri)
+            isExportingKpm = false
+            result.onSuccess {
+                Toast.makeText(
+                    ctx,
+                    ctx.getString(R.string.hmkpm_export_success, BuildConfig.HMKPM_EXPORT_FILENAME),
+                    Toast.LENGTH_LONG
+                ).show()
+            }.onFailure { err ->
+                Toast.makeText(
+                    ctx,
+                    ctx.getString(R.string.hmkpm_export_error, err.message ?: "Unknown error"),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+    val launchKpmExport: () -> Unit = {
+        if (!isExportingKpm) {
+            exportKpmLauncher.launch(BuildConfig.HMKPM_EXPORT_FILENAME)
+        }
+    }
     var isRootGranted by remember { mutableStateOf<Boolean?>(null) }
     var hasOverlayPermission by remember { mutableStateOf(OemCompatibilityHelper.hasOverlayPermission(ctx)) }
     var hasPopupPermission by remember { mutableStateOf(OemCompatibilityHelper.hasPopupPermission(ctx)) }
@@ -205,7 +242,7 @@ fun MainScreen(
                 isCheckingHmkpm = true
                 val ver = withContext(Dispatchers.IO) {
                     try {
-                        getHmkpmVersionInfo()
+                        getHmkpmVersionInfo(forceRefresh = true)
                     } catch (_: Throwable) {
                         null
                     }
@@ -375,9 +412,11 @@ fun MainScreen(
                         isOk = isHmkpmReady == true,
                         isWarning = isHmkpmLockless,
                         isLoading = isCheckingHmkpm,
-                        onClick = if (isHmkpmReady == true) {
-                            { showHmkpmInfoDialog = true }
-                        } else null,
+                        onClick = when {
+                            isHmkpmReady == true -> ({ showHmkpmInfoDialog = true })
+                            !isCheckingHmkpm -> launchKpmExport
+                            else -> null
+                        },
                         onRefresh = if (isRootGranted == true) {
                             { if (!isCheckingHmkpm) hmkpmRefreshTrigger++ }
                         } else null,
@@ -485,6 +524,14 @@ fun MainScreen(
                         }
                     }
                 }
+
+                HmkpmExportCard(
+                    isHmkpmReady = isHmkpmReady == true,
+                    isChecking = isCheckingHmkpm,
+                    probeError = hmkpmVersion?.error,
+                    isExporting = isExportingKpm,
+                    onExportClick = launchKpmExport
+                )
             }
 
             // OEM System Compatibility & Background Optimization Banner
@@ -785,6 +832,7 @@ fun MainScreen(
     if (showHmkpmInfoDialog && hmkpmVersion != null) {
         HmkpmInfoDialog(
             versionInfo = hmkpmVersion!!,
+            onExportKpm = launchKpmExport,
             onDismiss = { showHmkpmInfoDialog = false }
         )
     }
@@ -937,6 +985,7 @@ private fun CompactStatusCard(
 @Composable
 fun HmkpmInfoDialog(
     versionInfo: com.yervant.huntmem.backend.NativeBridge.HmkpmVersion,
+    onExportKpm: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val isLockless = versionInfo.isLockless || !versionInfo.supportsWrite
@@ -971,7 +1020,7 @@ fun HmkpmInfoDialog(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "v${versionInfo.versionStr.ifBlank { "2.8.0" }} • ARM64 MMU Engine",
+                        text = "v${versionInfo.versionStr.ifBlank { BuildConfig.HMKPM_VERSION }} • ARM64 MMU Engine",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1087,6 +1136,26 @@ fun HmkpmInfoDialog(
                             enabled = versionInfo.supportsKernelScan
                         )
                         FeatureRow(
+                            label = stringResource(id = R.string.hmkpm_dialog_feature_scan_ext),
+                            enabled = versionInfo.supportsScanExt
+                        )
+                        FeatureRow(
+                            label = stringResource(id = R.string.hmkpm_dialog_feature_scan_refine),
+                            enabled = versionInfo.supportsScanRefine
+                        )
+                        FeatureRow(
+                            label = stringResource(id = R.string.hmkpm_dialog_feature_read_chain),
+                            enabled = versionInfo.supportsReadChain
+                        )
+                        FeatureRow(
+                            label = stringResource(id = R.string.hmkpm_dialog_feature_enum_regions),
+                            enabled = versionInfo.supportsEnumRegions
+                        )
+                        FeatureRow(
+                            label = stringResource(id = R.string.hmkpm_dialog_feature_fsnotify),
+                            enabled = versionInfo.supportsFsnotifyFilter
+                        )
+                        FeatureRow(
                             label = stringResource(id = R.string.hmkpm_dialog_feature_write),
                             enabled = versionInfo.supportsWrite,
                             disabledReason = if (isLockless) stringResource(id = R.string.main_screen_hmkpm_lockless_tag) else null
@@ -1095,31 +1164,41 @@ fun HmkpmInfoDialog(
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                             modifier = Modifier.padding(vertical = 2.dp)
                         )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = stringResource(id = R.string.hmkpm_dialog_mmap_offset),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = if (versionInfo.mmapLockOffset >= 0) {
-                                    "0x${versionInfo.mmapLockOffset.toString(16).uppercase()}"
-                                } else {
-                                    stringResource(id = R.string.hmkpm_dialog_status_unresolved)
-                                },
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                fontSize = 11.sp,
-                                color = if (versionInfo.mmapLockOffset >= 0) SuccessEmerald else TertiaryAmber
+                        TelemetryRow(
+                            label = stringResource(id = R.string.hmkpm_dialog_mmap_offset),
+                            value = if (versionInfo.mmapLockOffset >= 0) {
+                                "0x${versionInfo.mmapLockOffset.toString(16).uppercase()} (${versionInfo.lockSource})"
+                            } else {
+                                stringResource(id = R.string.hmkpm_dialog_status_unresolved)
+                            },
+                            valueColor = if (versionInfo.mmapLockOffset >= 0) SuccessEmerald else TertiaryAmber
+                        )
+                        if (versionInfo.kverStr.isNotBlank()) {
+                            TelemetryRow(
+                                label = stringResource(id = R.string.hmkpm_dialog_kernel_version),
+                                value = versionInfo.kverStr
                             )
                         }
+                        if (versionInfo.pageSize > 0 || versionInfo.vaBits > 0) {
+                            val pageKb = versionInfo.pageSize / 1024
+                            val vaSummary = if (versionInfo.vaBits > 0) {
+                                "${pageKb} KiB • ${versionInfo.vaBits}-bit VA${if (versionInfo.tbi0) " (TBI0)" else ""}"
+                            } else {
+                                "${pageKb} KiB"
+                            }
+                            TelemetryRow(
+                                label = stringResource(id = R.string.hmkpm_dialog_mmu_geometry),
+                                value = vaSummary
+                            )
+                        }
+                        TelemetryRow(
+                            label = stringResource(id = R.string.hmkpm_dialog_sw_pan_mode),
+                            value = versionInfo.swPanMode
+                        )
+                        TelemetryRow(
+                            label = stringResource(id = R.string.hmkpm_dialog_fsnotify_mode),
+                            value = versionInfo.fsnotifyMode
+                        )
                     }
                 }
             }
@@ -1138,8 +1217,136 @@ fun HmkpmInfoDialog(
                     fontWeight = FontWeight.Bold
                 )
             }
-        }
+        },
+        dismissButton = if (onExportKpm != null) {
+            {
+                TextButton(
+                    onClick = {
+                        onDismiss()
+                        onExportKpm()
+                    }
+                ) {
+                    Text(
+                        text = stringResource(id = R.string.hmkpm_export_button),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        } else null
     )
+}
+
+@Composable
+private fun HmkpmExportCard(
+    isHmkpmReady: Boolean,
+    isChecking: Boolean,
+    probeError: String?,
+    isExporting: Boolean,
+    onExportClick: () -> Unit
+) {
+    val isMismatch = !isHmkpmReady && !isChecking && !probeError.isNullOrBlank() &&
+        probeError.contains("Incompatible HMKPM", ignoreCase = true)
+    val needsAttention = !isHmkpmReady && !isChecking
+
+    val containerColor = if (needsAttention) {
+        TertiaryAmber.copy(alpha = 0.10f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    }
+    val borderColor = if (needsAttention) {
+        TertiaryAmber.copy(alpha = 0.45f)
+    } else {
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+    }
+    val accentColor = if (needsAttention) TertiaryAmber else MaterialTheme.colorScheme.primary
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = accentColor.copy(alpha = 0.16f),
+                modifier = Modifier.size(32.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = stringResource(id = R.string.hmkpm_export_card_title, BuildConfig.HMKPM_VERSION),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (needsAttention) TertiaryAmber else MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = when {
+                        isMismatch -> stringResource(
+                            id = R.string.hmkpm_export_card_mismatch_desc,
+                            BuildConfig.HMKPM_VERSION
+                        )
+                        !isHmkpmReady -> stringResource(
+                            id = R.string.hmkpm_export_card_missing_desc,
+                            BuildConfig.HMKPM_VERSION
+                        )
+                        else -> stringResource(
+                            id = R.string.hmkpm_export_card_ready_desc,
+                            BuildConfig.HMKPM_VERSION
+                        )
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Button(
+                onClick = onExportClick,
+                enabled = !isExporting,
+                modifier = Modifier.height(32.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (needsAttention) TertiaryAmber else MaterialTheme.colorScheme.primary,
+                    contentColor = if (needsAttention) Color.Black else MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                if (isExporting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = if (needsAttention) Color.Black else MaterialTheme.colorScheme.onPrimary
+                    )
+                } else {
+                    Text(
+                        text = stringResource(id = R.string.hmkpm_export_button),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -1179,6 +1386,35 @@ private fun FeatureRow(
             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
             fontSize = 10.sp,
             color = if (enabled) SuccessEmerald else TertiaryAmber
+        )
+    }
+}
+
+@Composable
+private fun TelemetryRow(
+    label: String,
+    value: String,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            ),
+            fontSize = 11.sp,
+            color = valueColor
         )
     }
 }

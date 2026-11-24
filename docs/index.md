@@ -29,7 +29,7 @@ The project pairs a modern **Jetpack Compose** floating overlay UI with an ultra
 
     ---
 
-    Understand the ARM64 NEON SIMD vectorization, 4MB → 64KB subdivision reader, ACTk obscured types, and memory region filtering.
+    Understand the ARM64 NEON SIMD vectorization, V2P resident-range coalescing, 4 MiB chunked scanning, XOR-keypair obscured types, and memory region filtering.
 
     [:octicons-arrow-right-24: Read Scanning Guide](memory-scanning.md)
 
@@ -37,7 +37,7 @@ The project pairs a modern **Jetpack Compose** floating overlay UI with an ultra
 
     ---
 
-    Automate scans with Lua 5.4, use the GameGuardian compatibility layer (`gg.*`), create dynamic menus, and render hardware-accelerated Canvas ESP overlays.
+    Automate scans with Lua 5.4, use the native `hmem.*` API, create dynamic menus, and render hardware-accelerated 2D Canvas telemetry overlays.
 
     [:octicons-arrow-right-24: Read Scripting Guide](lua-scripting.md)
 
@@ -45,7 +45,7 @@ The project pairs a modern **Jetpack Compose** floating overlay UI with an ultra
 
     ---
 
-    Deep-dive into the `SYS_GETRESUID` syscall hook (148), C-ABI struct layouts, batch payload memory alignments, and MMU `pgd` resolution.
+    Deep-dive into the `SYS_GETRESUID` kernel interface (148), C-ABI struct layouts, batch buffer memory alignments, and MMU `pgd` resolution.
 
     [:octicons-arrow-right-24: Read Protocol Spec](kernel-protocol.md)
 
@@ -71,7 +71,7 @@ To run HuntMemory on your device:
 4. **Root Environment**: Magisk 26+, KernelSU, or APatch with root granted.
 5. **KernelPatch & HuntMemory-KPM (HMKPM)**:
     - Device kernel patched with **[KernelPatch](https://github.com/bmax121/KernelPatch)** or **[KPM-Manager](https://github.com/Yervant7/KPM-Manager)**.
-    - **[HMKPM](https://github.com/Yervant7/HuntMemory-KPM)** loaded to enable direct MMU memory manipulation via the `SYS_GETRESUID` syscall hook.
+    - **[HMKPM](https://github.com/Yervant7/HuntMemory-KPM)** loaded to enable direct MMU memory access via the `SYS_GETRESUID` kernel interface.
 6. **Overlay Permission**:
     - Grant **"Display over other apps"** (`SYSTEM_ALERT_WINDOW`) when prompted on the initial launch.
 
@@ -97,9 +97,9 @@ graph TD
         subgraph Rust_Engine ["Rust Engine (libhmem_jni.so)"]
             SCAN["Scanner (ARM NEON SIMD)"]
             EDIT["Editor & FreezeEngine (Worker Thread)"]
-            SCRIPT["Lua 5.4 Engine (mlua + gg.* API)"]
-            MAPS["Maps & Pagemap Streaming Parser"]
-            KPMC["HMKPM Client (mlock + Syscall Hook)"]
+            SCRIPT["Lua 5.4 Engine (mlua + hmem.* API)"]
+            MAPS["Maps Streaming Parser & V2P Inspector"]
+            KPMC["HMKPM Client (Zero-Copy Kernel Interface)"]
         end
     end
 
@@ -132,18 +132,18 @@ graph TD
     - **Range & Group Scanning**: Locate values within bounds or discover structured variables grouped closely in memory (`spec:distance`).
     - **Unknown & Differential Scans**: Track dynamic values with *Increased*, *Decreased*, *Changed*, *Unchanged*, and delta filters.
 
-- 📜 **Lua 5.4 Scripting & GameGuardian Compatibility**:
-    - **Native `hmem.*` & `gg.*` Support**: Direct compatibility for running existing GameGuardian scripts.
-    - **Dynamic Overlay Menus & Event Loop**: Create custom floating cheat menus, prompts, and responsive button/toggle handlers directly in Lua.
-    - **On-Screen Canvas Overlay (ESP/HUD)**: Hardware-accelerated 2D lines, bounding boxes, circles, and text rendering overlaying target games.
+- 📜 **Lua 5.4 Scripting & Canvas Overlay**:
+    - **Native `hmem.*` & `canvas.*` API**: Sandboxed Lua 5.4 scripting for automated memory scans, batch editing, and pointer traversal.
+    - **Dynamic Overlay Menus & Event Loop**: Create custom floating control menus, prompts, and responsive button/toggle handlers directly in Lua.
+    - **On-Screen 2D Canvas Overlay**: Hardware-accelerated 2D lines, bounding boxes, circles, and text rendering overlaying foreground applications.
 
 - 🔐 **Obscured & Scientific Number Support**:
-    - **XOR-Keypair Decryption**: Native detection and editing for Anti-Cheat Toolkit (ACTk) obscured types (`ObscuredInt`, `ObscuredFloat`, `ObscuredDouble`, `ObscuredLong`).
+    - **XOR-Keypair Decoding**: Native scanning and editing for XOR-encoded obscured types (`ObscuredInt`, `ObscuredFloat`, `ObscuredDouble`, `ObscuredLong`).
     - **BigDouble / Scientific Structs**: Parse and modify scientific mantissa/exponent structures used by incremental engines (`BreakInfinity` / `Decimal`).
 
 - 🗺️ **Comprehensive Memory Region Filtering**:
-    - Automatically classifies memory mappings: `Anonymous [A]`, `C++ Alloc [CA]`, `C++ BSS [CB]`, `C++ Data [CD]`, `C++ Heap [CH]`, `Java Heap [JH]`, `Stack [S]`, `Ashmem [AS]`, and `Libraries [XA]`.
-    - Pagemap residency verification (`PM_PRESENT` / `PM_SWAP`) and zram swap awareness.
+    - Automatically classifies memory mappings: `Anonymous [A]`, `C++ Alloc [CA]`, `C++ BSS [CB]`, `C++ Data [CD]`, `C++ Heap [CH]`, `Java Heap [JH]`, `Stack [S]`, `Ashmem [AS]`, `Native Libraries [NL]`, and `Files [F]`.
+    - Zero-FD V2P page residency verification (`HMKPM_MAGIC_V2P_BATCH`) and hugepage coalescing.
 
 - ✏️ **Real-Time Memory Editing & Freeze Engine**:
     - Single and batch memory writing with physical RAM page validation.

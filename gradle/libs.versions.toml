@@ -1,18 +1,19 @@
 [versions]
 activityCompose = "1.13.0"
-agp = "9.5.1"
+agp = "9.5.2"
 annotation = "1.11.0"
 appcompat = "1.8.0"
 coilCompose = "2.7.0"
-composeBom = "2026.09.00"
+composeBom = "2026.11.01"
 coreKtx = "1.19.1"
+hmkpm = "3.0.0"
 kotlin = "2.4.21"
 kotlinxCoroutinesAndroid = "1.11.0"
 kotlinxSerialization = "1.13.0"
 apksign = "1.5"
 libsu = "6.0.0"
-lifecycle = "2.11.0"
-material3 = "1.4.0"
+lifecycle = "2.11.1"
+material3 = "1.5.0"
 materialIconsExtended = "1.7.8"
 
 [libraries]

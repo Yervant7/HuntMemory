@@ -59,7 +59,10 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.yervant.huntmem.R
 import com.yervant.huntmem.ui.keyboard.KeyboardType
 import com.yervant.huntmem.ui.overlay.LuaCanvasOverlay
+import com.yervant.huntmem.ui.overlay.tabs.AddressTableRepository
+import com.yervant.huntmem.ui.overlay.tabs.LuaScriptRunner
 import com.yervant.huntmem.ui.overlay.tabs.LuaUiBridge
+import com.yervant.huntmem.ui.overlay.tabs.MemoryScanRepository
 import com.yervant.huntmem.ui.overlay.tabs.ProcessViewModel
 import com.yervant.huntmem.ui.theme.HuntMemTheme
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -137,6 +140,8 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
         )[ProcessViewModel::class.java]
     }
 
+    private lateinit var luaScriptRunner: LuaScriptRunner
+
     private val _uiState = MutableStateFlow(OverlayUiState())
     val uiState = _uiState.asStateFlow()
 
@@ -144,6 +149,9 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
         savedStateRegistryController = SavedStateRegistryController.create(this)
         savedStateRegistryController.performRestore(null)
         super.onCreate()
+
+        luaScriptRunner = LuaScriptRunner(lifecycleScope)
+        LuaUiBridge.setDialogsEnabled(true)
 
         val savedOpacity = OverlayPreferences.load(this)
         _uiState.update { it.copy(opacity = savedOpacity) }
@@ -269,6 +277,7 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
                 MenuOverlayContent(
                     uiState = currentUiState,
                     viewModel = processViewModel,
+                    luaScriptRunner = luaScriptRunner,
                     context = applicationContext,
                     dialogCallback = this@OverlayService,
                     onToggleMenu = ::toggleMenu,
@@ -308,6 +317,13 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
         lifecycleScope.launch {
             LuaUiBridge.isCanvasVisible.collect { isCanvasVisible ->
                 canvasView.visibility = if (isCanvasVisible) View.VISIBLE else View.GONE
+            }
+        }
+        lifecycleScope.launch {
+            LuaUiBridge.activeDialog.collect { activeDialog ->
+                if (activeDialog != null && !_uiState.value.isMenuVisible) {
+                    _uiState.update { it.copy(isMenuVisible = true) }
+                }
             }
         }
     }
@@ -538,6 +554,12 @@ class OverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegist
     }
 
     override fun onDestroy() {
+        if (::luaScriptRunner.isInitialized) {
+            luaScriptRunner.shutdown()
+        }
+        MemoryScanRepository.onOverlayDestroyed(lifecycleScope)
+        AddressTableRepository.onOverlayDestroyed(lifecycleScope)
+        LuaUiBridge.onOverlayDestroyed()
         super.onDestroy()
         _isServiceRunning.value = false
         viewModelStore.clear()

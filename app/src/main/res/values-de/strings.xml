@@ -130,7 +130,7 @@
     <string name="memory_menu_preset_reset">ZURÜCKSETZEN</string>
     <string name="memory_menu_syntax_help_title">Suchtechniken &amp; Syntax-Hilfe</string>
     <string name="memory_menu_syntax_help_button_cd">Suchsyntax-Hilfe</string>
-    <string name="memory_menu_syntax_help_text"><b>1. Mantisse / Exponent (Wissenschaftlich / BigDouble):</b>\n• <i>1.5e6</i> oder <i>1.5,6</i> oder <i>1.5:6</i>\n• Typ: BigDouble wählen oder <i>bigdouble:1.5,6</i> eingeben\n\n<b>2. Verschleiert / Verschlüsselt (Anti-Cheat XOR):</b>\n• Obscured Int oder Obscured Float wählen\n• Oder Präfix: <i>xor:1000</i> oder <i>obscured:1000</i>\n\n<b>3. Float-Toleranz / Epsilon:</b>\n• Absolute Spanne: <i>100.0 +- 0.5</i>\n• Prozentuale Spanne: <i>100 +- 2%</i>\n\n<b>4. Skalierter Festkommawert:</b>\n• Multiplikator-Formel: <i>10.5 * 1000</i> (sucht 10500)\n• Oder Präfix: <i>scaled:10.5:1000</i>\n\n<b>5. Heterogene Strukturgruppe:</b>\n• Gemischte Typen: <i>f64:1.5; i64:6 : 16</i>\n• Oder: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_syntax_help_text"><b>1. Mantisse / Exponent (Wissenschaftlich / BigDouble):</b>\n• <i>1.5e6</i> oder <i>1.5,6</i> oder <i>1.5:6</i>\n• Typ: BigDouble wählen oder <i>bigdouble:1.5,6</i> eingeben\n\n<b>2. Verschleiert / Verschlüsselt (XOR-Schlüsselpaar):</b>\n• Obscured Int oder Obscured Float wählen\n• Oder Präfix: <i>xor:1000</i> oder <i>obscured:1000</i>\n\n<b>3. Float-Toleranz / Epsilon:</b>\n• Absolute Spanne: <i>100.0 +- 0.5</i>\n• Prozentuale Spanne: <i>100 +- 2%</i>\n\n<b>4. Skalierter Festkommawert:</b>\n• Multiplikator-Formel: <i>10.5 * 1000</i> (sucht 10500)\n• Oder Präfix: <i>scaled:10.5:1000</i>\n\n<b>5. Heterogene Strukturgruppe:</b>\n• Gemischte Typen: <i>f64:1.5; i64:6 : 16</i>\n• Oder: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
     <string name="memory_menu_new_scan_button">Neuer Scan</string>
     <string name="memory_menu_new_search_button_initial">Neue Suche</string>
     <string name="memory_menu_refine_button">Verfeinern</string>
@@ -162,7 +162,7 @@
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">Haftungsausschluss</string>
-    <string name="disclaimer_text">Willkommen bei HuntMemory.\n\nDies ist ein Tool zum Lesen und Bearbeiten von Arbeitsspeicher, das für Entwicklungs-, Debugging- und Lernzwecke in Ihren eigenen Anwendungen und Prozessen bestimmt ist.\n\nEs ist strengstens untersagt, diese Anwendung für illegale Aktivitäten wie Cheaten in Online-Spielen, unbefugte Modifikation anderer Anwendungen oder andere Handlungen zu verwenden, die gegen die Nutzungsbedingungen Dritter oder geltendes Recht verstoßen.\n\nIndem Sie fortfahren, erkennen Sie an und stimmen zu, dass Sie allein für Ihre Handlungen verantwortlich sind. Die Entwickler haften nicht für Missbrauch, Schäden oder negative Folgen, die sich aus der Verwendung dieses Tools ergeben.</string>
+    <string name="disclaimer_text">Willkommen bei HuntMemory.\n\nDies ist ein Tool zum Lesen und Bearbeiten von Arbeitsspeicher, das für Entwicklungs-, Debugging- und Lernzwecke in Ihren eigenen Anwendungen und Prozessen bestimmt ist.\n\nEs ist strengstens untersagt, diese Anwendung für rechtswidrige Aktivitäten, unbefugte Modifikationen anderer Anwendungen oder andere Handlungen zu verwenden, die gegen die Nutzungsbedingungen Dritter oder geltendes Recht verstoßen.\n\nIndem Sie fortfahren, erkennen Sie an und stimmen zu, dass Sie allein für Ihre Handlungen verantwortlich sind. Die Entwickler haften nicht für Missbrauch, Schäden oder negative Folgen, die sich aus der Verwendung dieses Tools ergeben.</string>
     <string name="disclaimer_accept_button">Akzeptieren und Fortfahren</string>
     <string name="disclaimer_scroll_down_hint">Nach unten scrollen, um mehr zu lesen</string>
 
@@ -227,10 +227,10 @@
     <string name="search_help_try_hint">Tipp: Tippen Sie auf ein Beispiel, um es direkt in das Suchfeld einzufügen.</string>
     <string name="search_help_cat_basic_title">Exakt &amp; Float-Toleranz</string>
     <string name="search_help_cat_basic_desc">Suchen Sie nach exakten Zahlen oder Fließkommawerten mit absoluter oder prozentualer Toleranz.</string>
-    <string name="search_help_cat_obscured_title">Verschleiert &amp; Anti-Cheat (XOR)</string>
-    <string name="search_help_cat_obscured_desc">Durchsucht verschlüsselte Variablen, die durch Anti-Cheat-Engines (wie ACTk) mit dynamischen XOR-Schlüsseln geschützt sind.</string>
+    <string name="search_help_cat_obscured_title">Verschleiert &amp; XOR-Schlüsselpaar</string>
+    <string name="search_help_cat_obscured_desc">Durchsucht verschleierte Variablen, die mit dynamischen XOR-Schlüsselpaaren kodiert sind.</string>
     <string name="search_help_cat_bigdouble_title">Wissenschaftlich &amp; BigDouble</string>
-    <string name="search_help_cat_bigdouble_desc">Riesige Werte, die als Mantisse und Exponent gespeichert sind (häufig in Idle- und Incremental-Spielen).</string>
+    <string name="search_help_cat_bigdouble_desc">Große Werte, die als Mantisse und Exponent gespeichert sind (verwendet in wissenschaftlichen und numerischen Laufzeiten mit großem Wertebereich).</string>
     <string name="search_help_cat_scaled_title">Skalierter Festkommawert</string>
     <string name="search_help_cat_scaled_desc">Dezimalzahlen, die intern als skalierte Ganzzahlen gespeichert sind (z. B. 10.5 mit Faktor 1000 sucht 10500).</string>
     <string name="search_help_cat_group_title">Strukturen &amp; Gruppensuche</string>
@@ -273,7 +273,7 @@
     <string name="main_screen_status_popup_permission_missing">Pop-up fehlt</string>
     <string name="oem_compat_banner_title">%1$s-Optimierung</string>
     <string name="oem_compat_hyperos_desc">Benutzerdefiniertes ROM erkannt. Erlauben Sie \"Pop-up-Fenster anzeigen\" und \"Autostart\", um ein Schließen des Overlays zu verhindern.</string>
-    <string name="oem_compat_battery_desc">Akku-Einschränkungen im Hintergrund können das Overlay während des Spielens beenden.</string>
+    <string name="oem_compat_battery_desc">Akku-Einschränkungen im Hintergrund können das Overlay bei intensiven Vordergrund-Sitzungen beenden.</string>
     <string name="oem_compat_status_granted">Gewährt</string>
     <string name="oem_compat_status_missing">Fehlt</string>
     <string name="oem_compat_status_unrestricted">Uneingeschränkt</string>

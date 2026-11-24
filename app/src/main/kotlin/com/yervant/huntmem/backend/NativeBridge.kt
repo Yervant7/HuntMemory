@@ -23,14 +23,28 @@ package com.yervant.huntmem.backend
 import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
+import com.yervant.huntmem.BuildConfig
 import dalvik.annotation.optimization.FastNative
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
 object NativeBridge {
 
     private const val LIB_NAME = "hmem_jni"
     private const val TAG = "NativeBridge"
+
+    const val MAP_FLAG_REQUIRE_READ = 1 shl 0
+    const val MAP_FLAG_REQUIRE_WRITE = 1 shl 1
+    const val MAP_FLAG_INCLUDE_SWAPPED = 1 shl 2
+    const val MAP_FLAGS_DEFAULT = MAP_FLAG_REQUIRE_READ or MAP_FLAG_INCLUDE_SWAPPED
+    const val PINNED_HMKPM_VERSION = BuildConfig.HMKPM_VERSION
+    @Volatile
     private var isLibraryLoaded = false
+
+    val isLoaded: Boolean
+        get() = isLibraryLoaded
 
     /**
      * Loads the native library. Must be invoked ONLY in the root daemon process (HMemService).
@@ -87,7 +101,6 @@ object NativeBridge {
     }
 
     /** returns "error" in error */
-    @FastNative
     external fun nativeReadMemory(
         pid: Int,
         address: Long,
@@ -111,7 +124,6 @@ object NativeBridge {
     }
 
     /** Write typed value. Returns 0 success, -1 error */
-    @FastNative
     external fun nativeWriteMemory(
         pid: Int,
         address: Long,
@@ -142,7 +154,15 @@ object NativeBridge {
         val versionCode: Int = 0,
         val features: Long = 0L,
         val isLockless: Boolean = false,
+        val lockSource: String = "lockless",
         val mmapLockOffset: Int = -1,
+        val pageSize: Int = 4096,
+        val kver: Int = 0,
+        val kverStr: String = "",
+        val vaBits: Int = 0,
+        val tbi0: Boolean = false,
+        val swPanMode: String = "off",
+        val fsnotifyMode: String = "off",
         val supportsRead: Boolean = false,
         val supportsWrite: Boolean = false,
         val supportsReadBatch: Boolean = false,
@@ -150,6 +170,11 @@ object NativeBridge {
         val supportsV2pBatch: Boolean = false,
         val supportsKernelScan: Boolean = false,
         val supportsLockless: Boolean = false,
+        val supportsReadChain: Boolean = false,
+        val supportsScanRefine: Boolean = false,
+        val supportsEnumRegions: Boolean = false,
+        val supportsScanExt: Boolean = false,
+        val supportsFsnotifyFilter: Boolean = false,
         val error: String? = null
     )
 
@@ -168,10 +193,24 @@ object NativeBridge {
         return false
     }
 
+    private val _hmkpmVersion = MutableStateFlow<HmkpmVersion?>(null)
+    val hmkpmVersion: StateFlow<HmkpmVersion?> = _hmkpmVersion.asStateFlow()
+
+    /** Clears the in-process HMKPM version cache (e.g., on root daemon disconnect/reconnect). */
+    fun invalidateHmkpmCache() {
+        _hmkpmVersion.value = null
+    }
+
     /** Retrieves detailed HMKPM version and supported features metadata. */
-    @FastNative
     external fun nativeGetHmkpmVersionInfo(): String
-    fun getHmkpmVersionInfo(): HmkpmVersion {
+    fun getHmkpmVersionInfo(forceRefresh: Boolean = false): HmkpmVersion {
+        if (!forceRefresh) {
+            val cached = _hmkpmVersion.value
+            if (cached != null && cached.available) {
+                return cached
+            }
+        }
+
         val s = HMemServiceConnection.service
         val jsonStr = if (s != null) {
             try {
@@ -185,38 +224,64 @@ object NativeBridge {
         }
 
         if (jsonStr.isBlank()) {
-            return HmkpmVersion(available = false, error = "Service disconnected")
+            val disconnected = HmkpmVersion(available = false, error = "Service disconnected")
+            _hmkpmVersion.value = disconnected
+            return disconnected
         }
 
-        return try {
+        val parsed = try {
             val obj = org.json.JSONObject(jsonStr)
             val available = obj.optBoolean("available", false)
             if (!available) {
                 HmkpmVersion(available = false, error = obj.optString("error", "Not available"))
             } else {
-                HmkpmVersion(
-                    available = true,
-                    versionStr = obj.optString("version", "2.8.0"),
-                    versionCode = obj.optInt("version_code", 0),
-                    features = obj.optLong("features", 0L),
-                    isLockless = obj.optBoolean("is_lockless", false),
-                    mmapLockOffset = obj.optInt("mmap_lock_offset", -1),
-                    supportsRead = obj.optBoolean("supports_read", false),
-                    supportsWrite = obj.optBoolean("supports_write", false),
-                    supportsReadBatch = obj.optBoolean("supports_read_batch", false),
-                    supportsWriteBatch = obj.optBoolean("supports_write_batch", false),
-                    supportsV2pBatch = obj.optBoolean("supports_v2p_batch", false),
-                    supportsKernelScan = obj.optBoolean("supports_kernel_scan", false),
-                    supportsLockless = obj.optBoolean("supports_lockless", false)
-                )
+                val detectedVersion = obj.optString("version", "")
+                if (detectedVersion.isNotBlank() && detectedVersion != PINNED_HMKPM_VERSION) {
+                    HmkpmVersion(
+                        available = false,
+                        versionStr = detectedVersion,
+                        error = "Incompatible HMKPM version: pinned to v$PINNED_HMKPM_VERSION, detected v$detectedVersion"
+                    )
+                } else {
+                    HmkpmVersion(
+                        available = true,
+                        versionStr = detectedVersion.ifBlank { PINNED_HMKPM_VERSION },
+                        versionCode = obj.optInt("version_code", 0),
+                        features = obj.optLong("features", 0L),
+                        isLockless = obj.optBoolean("is_lockless", false),
+                        lockSource = obj.optString("lock_source", "lockless"),
+                        mmapLockOffset = obj.optInt("mmap_lock_offset", -1),
+                        pageSize = obj.optInt("page_size", 4096),
+                        kver = obj.optInt("kver", 0),
+                        kverStr = obj.optString("kver_str", ""),
+                        vaBits = obj.optInt("va_bits", 0),
+                        tbi0 = obj.optBoolean("tbi0", false),
+                        swPanMode = obj.optString("sw_pan_mode", "off"),
+                        fsnotifyMode = obj.optString("fsnotify_mode", "off"),
+                        supportsRead = obj.optBoolean("supports_read", false),
+                        supportsWrite = obj.optBoolean("supports_write", false),
+                        supportsReadBatch = obj.optBoolean("supports_read_batch", false),
+                        supportsWriteBatch = obj.optBoolean("supports_write_batch", false),
+                        supportsV2pBatch = obj.optBoolean("supports_v2p_batch", false),
+                        supportsKernelScan = obj.optBoolean("supports_kernel_scan", false),
+                        supportsLockless = obj.optBoolean("supports_lockless", false),
+                        supportsReadChain = obj.optBoolean("supports_read_chain", false),
+                        supportsScanRefine = obj.optBoolean("supports_scan_refine", false),
+                        supportsEnumRegions = obj.optBoolean("supports_enum_regions", false),
+                        supportsScanExt = obj.optBoolean("supports_scan_ext", false),
+                        supportsFsnotifyFilter = obj.optBoolean("supports_fsnotify_filter", false)
+                    )
+                }
             }
         } catch (e: Exception) {
             HmkpmVersion(available = false, error = e.message)
         }
+
+        _hmkpmVersion.value = parsed
+        return parsed
     }
 
     /** Translates virtual addresses to physical addresses in batch via kernel page table walk. */
-    @FastNative
     external fun nativeTranslateV2P(pid: Int, addresses: LongArray): LongArray?
     fun translateV2P(pid: Int, addresses: LongArray): LongArray? {
         val s = HMemServiceConnection.service
@@ -232,182 +297,6 @@ object NativeBridge {
         }
     }
 
-    @FastNative
-    external fun nativeGetMemoryMaps(
-        pid: Int,
-        requireRead: Boolean,
-        requireWrite: Boolean,
-        includeSwapped: Boolean,
-        minSize: Long,
-        filterTypes: String,
-        custom: String
-    ): String
-    fun getMemoryMaps(
-        pid: Int,
-        requireRead: Boolean = true,
-        requireWrite: Boolean = false,
-        includeSwapped: Boolean = true,
-        minSize: Long = 0L,
-        filterTypes: String = "",
-        custom: String = ""
-    ): String {
-        val s = HMemServiceConnection.service
-        return if (s != null) {
-            try {
-                s.nativeGetMemoryMaps(
-                    pid, requireRead, requireWrite, includeSwapped,
-                    minSize,
-                    filterTypes, custom
-                )
-            } catch (_: Exception) {
-                ""
-            }
-        } else {
-            ""
-        }
-    }
-
-    /** First scan. Returns JSON {"matches":[...],"count":N} */
-    @FastNative
-    external fun nativeScanMemory(
-        pid: Int,
-        sessionId: String,
-        value: String,
-        valueType: String,
-        regionsJson: String,
-        operator: String
-    ): String
-    fun scanMemory(
-        pid: Int,
-        sessionId: String,
-        value: String,
-        valueType: String,
-        regionsJson: String,
-        operator: String
-    ): String {
-        val s = HMemServiceConnection.service
-        return if (s != null) {
-            try {
-                s.nativeScanMemory(pid, sessionId, value, valueType, regionsJson, operator)
-            } catch (_: Exception) {
-                ""
-            }
-        } else {
-            ""
-        }
-    }
-
-    /** Range scan. Returns JSON {"matches":[...],"count":N} */
-    @FastNative
-    external fun nativeScanRange(
-        pid: Int,
-        sessionId: String,
-        minValue: String,
-        maxValue: String,
-        valueType: String,
-        regionsJson: String
-    ): String
-    fun scanRange(
-        pid: Int,
-        sessionId: String,
-        minValue: String,
-        maxValue: String,
-        valueType: String,
-        regionsJson: String
-    ): String {
-        val s = HMemServiceConnection.service
-        return if (s != null) {
-            try {
-                s.nativeScanRange(pid, sessionId, minValue, maxValue, valueType, regionsJson)
-            } catch (_: Exception) {
-                ""
-            }
-        } else {
-            ""
-        }
-    }
-
-    /** Group scan. Returns JSON {"matches":[...],"count":N} */
-    @FastNative
-    external fun nativeScanGroup(
-        pid: Int,
-        sessionId: String,
-        groupSpec: String,
-        valueType: String,
-        regionsJson: String
-    ): String
-    fun scanGroup(
-        pid: Int,
-        sessionId: String,
-        groupSpec: String,
-        valueType: String,
-        regionsJson: String
-    ): String {
-        val s = HMemServiceConnection.service
-        return if (s != null) {
-            try {
-                s.nativeScanGroup(pid, sessionId, groupSpec, valueType, regionsJson)
-            } catch (_: Exception) {
-                ""
-            }
-        } else {
-            ""
-        }
-    }
-
-    /** Filter/next scan. Returns JSON {"matches":[...],"count":N} */
-    @FastNative
-    external fun nativeFilterMatches(
-        pid: Int,
-        sessionId: String,
-        targetValue: String,
-        operator: String
-    ): String
-    fun filterMatches(
-        pid: Int,
-        sessionId: String,
-        targetValue: String,
-        operator: String
-    ): String {
-        val s = HMemServiceConnection.service
-        return if (s != null) {
-            try {
-                s.nativeFilterMatches(pid, sessionId, targetValue, operator)
-            } catch (_: Exception) {
-                ""
-            }
-        } else {
-            ""
-        }
-    }
-
-    /** Filter by range. Returns JSON {"matches":[...],"count":N} */
-    @FastNative
-    external fun nativeFilterRangeMatches(
-        pid: Int,
-        sessionId: String,
-        minValue: String,
-        maxValue: String
-    ): String
-    fun filterRangeMatches(
-        pid: Int,
-        sessionId: String,
-        minValue: String,
-        maxValue: String
-    ): String {
-        val s = HMemServiceConnection.service
-        return if (s != null) {
-            try {
-                s.nativeFilterRangeMatches(pid, sessionId, minValue, maxValue)
-            } catch (_: Exception) {
-                ""
-            }
-        } else {
-            ""
-        }
-    }
-
-    @FastNative
     external fun nativeClearSession(sessionId: String)
     fun clearSession(sessionId: String) {
         val s = HMemServiceConnection.service
@@ -419,30 +308,7 @@ object NativeBridge {
         }
     }
 
-    /** Batch write. Returns count of successful writes */
-    @FastNative
-    external fun nativeBatchWrite(
-        pid: Int,
-        writesJson: String
-    ): Int
-    fun batchWrite(
-        pid: Int,
-        writesJson: String
-    ): Int {
-        val s = HMemServiceConnection.service
-        return if (s != null) {
-            try {
-                s.nativeBatchWrite(pid, writesJson)
-            } catch (_: Exception) {
-                0
-            }
-        } else {
-            0
-        }
-    }
-
     /** Batch write binary. Returns count of successful writes */
-    @FastNative
     external fun nativeBatchWriteBinary(
         pid: Int,
         payload: ByteArray
@@ -572,7 +438,6 @@ object NativeBridge {
     }
 
     /** Freeze address to value */
-    @FastNative
     external fun nativeFreezeAddress(
         pid: Int,
         address: Long,
@@ -598,7 +463,6 @@ object NativeBridge {
     }
 
     /** Unfreeze address */
-    @FastNative
     external fun nativeUnfreezeAddress(
         pid: Int,
         address: Long
@@ -620,7 +484,6 @@ object NativeBridge {
     }
 
     /** Unfreeze all addresses */
-    @FastNative
     external fun nativeUnfreezeAll(): Int
     fun unfreezeAll(): Int {
         val s = HMemServiceConnection.service
@@ -636,7 +499,6 @@ object NativeBridge {
     }
 
     /** Check if address is frozen */
-    @FastNative
     external fun nativeIsAddressFrozen(
         pid: Int,
         address: Long
@@ -657,121 +519,16 @@ object NativeBridge {
         }
     }
 
-    /** Scan for Obscured (XOR key-pair) types. Returns JSON {"matches":[...],"count":N} */
-    @FastNative
-    external fun nativeScanObscured(
-        pid: Int,
-        sessionId: String,
-        value: String,
-        obscuredType: String,
-        regionsJson: String
-    ): String
-    fun scanObscured(
-        pid: Int,
-        sessionId: String,
-        value: String,
-        obscuredType: String,
-        regionsJson: String
-    ): String {
-        val s = HMemServiceConnection.service
-        return if (s != null) {
-            try {
-                s.nativeScanObscured(pid, sessionId, value, obscuredType, regionsJson)
-            } catch (_: Exception) {
-                ""
-            }
-        } else {
-            ""
-        }
-    }
-
-    /** Scan for BigDouble (mantissa/exponent scientific structs). Returns JSON {"matches":[...],"count":N} */
-    @FastNative
-    external fun nativeScanBigDouble(
-        pid: Int,
-        sessionId: String,
-        value: String,
-        regionsJson: String
-    ): String
-    fun scanBigDouble(
-        pid: Int,
-        sessionId: String,
-        value: String,
-        regionsJson: String
-    ): String {
-        val s = HMemServiceConnection.service
-        return if (s != null) {
-            try {
-                s.nativeScanBigDouble(pid, sessionId, value, regionsJson)
-            } catch (_: Exception) {
-                ""
-            }
-        } else {
-            ""
-        }
-    }
-
-    /** Filter Obscured scan matches */
-    @FastNative
-    external fun nativeFilterObscuredMatches(
-        pid: Int,
-        sessionId: String,
-        targetValue: String,
-        obscuredType: String
-    ): String
-    fun filterObscuredMatches(
-        pid: Int,
-        sessionId: String,
-        targetValue: String,
-        obscuredType: String
-    ): String {
-        val s = HMemServiceConnection.service
-        return if (s != null) {
-            try {
-                s.nativeFilterObscuredMatches(pid, sessionId, targetValue, obscuredType)
-            } catch (_: Exception) {
-                ""
-            }
-        } else {
-            ""
-        }
-    }
-
-    /** Filter BigDouble scan matches */
-    @FastNative
-    external fun nativeFilterBigDoubleMatches(
-        pid: Int,
-        sessionId: String,
-        targetValue: String
-    ): String
-    fun filterBigDoubleMatches(
-        pid: Int,
-        sessionId: String,
-        targetValue: String
-    ): String {
-        val s = HMemServiceConnection.service
-        return if (s != null) {
-            try {
-                s.nativeFilterBigDoubleMatches(pid, sessionId, targetValue)
-            } catch (_: Exception) {
-                ""
-            }
-        } else {
-            ""
-        }
-    }
-
     /**
      * Writes an obscured value (XOR keypair) into process memory at the specified address.
      *
      * JNI Contract:
      * - `pid`: Target process ID (> 0).
      * - `address`: 64-bit virtual memory address.
-     * - `value`: Non-null string representation of the desired decrypted value (e.g., "100", "99.5").
+     * - `value`: Non-null string representation of the desired decoded value (e.g., "100", "99.5").
      * - `obscuredType`: Obscured type name ("obscured_int", "obscured_float", "obscured_double", "obscured_long").
      * - Returns 0 on success, -1 on failure.
      */
-    @FastNative
     external fun nativeWriteObscured(
         pid: Int,
         address: Long,
@@ -784,7 +541,7 @@ object NativeBridge {
      *
      * @param pid Target process ID.
      * @param address 64-bit virtual memory address.
-     * @param value Target decrypted value as string.
+     * @param value Target decoded value as string.
      * @param obscuredType Type identifier ("obscured_int", "obscured_float", "obscured_double", "obscured_long").
      * @return 0 on success, -1 on failure or if root service is disconnected.
      */
@@ -815,7 +572,6 @@ object NativeBridge {
      * - `value`: Non-null scientific notation string (e.g. "1.5e10", "1500000").
      * - Returns 0 on success, -1 on failure.
      */
-    @FastNative
     external fun nativeWriteBigDouble(
         pid: Int,
         address: Long,
@@ -848,7 +604,7 @@ object NativeBridge {
     }
 
     /**
-     * Executes a Lua script with full process memory access.
+     * Executes a Lua script with sandboxed process memory access.
      *
      * JNI Contract:
      * - `pid`: Target process ID (> 0).
@@ -856,7 +612,6 @@ object NativeBridge {
      * - `callback`: Optional ILuaUiCallback instance for interactive UI/canvas/console bridging.
      * - Returns JSON string: `{"success":bool,"output":string,"error":string|null,"result":string|null}`.
      */
-    @FastNative
     external fun nativeRunLuaScript(
         pid: Int,
         script: String,
@@ -865,9 +620,16 @@ object NativeBridge {
 
     /**
      * Cancels / interrupts currently running Lua script.
+     * Lock-free atomic flag store; safe for `@FastNative`.
      */
     @FastNative
     external fun nativeCancelLuaScript()
+
+    /**
+     * Configures the sandbox dump directory for `hmem.dump_memory`.
+     * Invoked internally by `HMemService.onBind` in the root daemon process only.
+     */
+    external fun nativeSetSandboxDumpDir(dirPath: String)
 
     /**
      * High-level wrapper to run a Lua script via root IPC service.
@@ -895,24 +657,22 @@ object NativeBridge {
     }
 
     /**
-     * High-level wrapper to cancel running Lua script.
+     * High-level wrapper to cancel running Lua script via root IPC service.
      */
     fun cancelLuaScript() {
         val s = HMemServiceConnection.service
         if (s != null) {
             try {
                 s.nativeCancelLuaScript()
-            } catch (_: Exception) {}
+            } catch (e: Throwable) {
+                Log.w(TAG, "nativeCancelLuaScript on root service failed: ${e.message}")
+            }
         }
-        try {
-            nativeCancelLuaScript()
-        } catch (_: Exception) {}
     }
 
     /**
      * Retrieves the base virtual memory address of a loaded shared library or module.
      */
-    @FastNative
     external fun nativeGetModuleBase(
         pid: Int,
         moduleName: String
@@ -937,7 +697,6 @@ object NativeBridge {
     /**
      * Resolves a multi-level pointer chain in target process memory.
      */
-    @FastNative
     external fun nativeResolvePointerChain(
         pid: Int,
         baseExpr: String,
@@ -963,7 +722,6 @@ object NativeBridge {
 
     // === FAST BINARY & PAGINATED IPC BINDINGS ===
 
-    @FastNative
     external fun nativeGetMemoryMapsBinary(
         pid: Int,
         requireRead: Boolean,
@@ -995,7 +753,6 @@ object NativeBridge {
         }
     }
 
-    @FastNative
     external fun nativeGetResultsCount(sessionId: String): Int
 
     fun getResultsCount(sessionId: String): Int {
@@ -1011,7 +768,6 @@ object NativeBridge {
         }
     }
 
-    @FastNative
     external fun nativeGetResultsPage(sessionId: String, offset: Int, limit: Int): ByteArray?
 
     fun getResultsPage(sessionId: String, offset: Int, limit: Int): ByteArray? {
@@ -1027,7 +783,21 @@ object NativeBridge {
         }
     }
 
-    @FastNative
+    external fun nativeRefreshResultsPage(pid: Int, sessionId: String, offset: Int, limit: Int): ByteArray?
+
+    fun refreshResultsPage(pid: Int, sessionId: String, offset: Int, limit: Int): ByteArray? {
+        val s = HMemServiceConnection.service
+        return if (s != null) {
+            try {
+                s.nativeRefreshResultsPage(pid, sessionId, offset, limit)
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+    }
+
     external fun nativeScanMemoryFast(
         pid: Int,
         sessionId: String,
@@ -1035,7 +805,9 @@ object NativeBridge {
         valueType: String,
         filterTypes: String,
         customFilter: String,
-        operator: String
+        operator: String,
+        mapFlags: Int,
+        minSize: Long
     ): Int
 
     fun scanMemoryFast(
@@ -1045,12 +817,16 @@ object NativeBridge {
         valueType: String,
         filterTypes: String = "",
         customFilter: String = "",
-        operator: String = "equal"
+        operator: String = "equal",
+        mapFlags: Int = MAP_FLAGS_DEFAULT,
+        minSize: Long = 0L
     ): Int {
         val s = HMemServiceConnection.service
         return if (s != null) {
             try {
-                s.nativeScanMemoryFast(pid, sessionId, value, valueType, filterTypes, customFilter, operator)
+                s.nativeScanMemoryFast(
+                    pid, sessionId, value, valueType, filterTypes, customFilter, operator, mapFlags, minSize
+                )
             } catch (_: Exception) {
                 -1
             }
@@ -1059,7 +835,6 @@ object NativeBridge {
         }
     }
 
-    @FastNative
     external fun nativeScanRangeFast(
         pid: Int,
         sessionId: String,
@@ -1067,7 +842,9 @@ object NativeBridge {
         maxValue: String,
         valueType: String,
         filterTypes: String,
-        customFilter: String
+        customFilter: String,
+        mapFlags: Int,
+        minSize: Long
     ): Int
 
     fun scanRangeFast(
@@ -1077,12 +854,16 @@ object NativeBridge {
         maxValue: String,
         valueType: String,
         filterTypes: String = "",
-        customFilter: String = ""
+        customFilter: String = "",
+        mapFlags: Int = MAP_FLAGS_DEFAULT,
+        minSize: Long = 0L
     ): Int {
         val s = HMemServiceConnection.service
         return if (s != null) {
             try {
-                s.nativeScanRangeFast(pid, sessionId, minValue, maxValue, valueType, filterTypes, customFilter)
+                s.nativeScanRangeFast(
+                    pid, sessionId, minValue, maxValue, valueType, filterTypes, customFilter, mapFlags, minSize
+                )
             } catch (_: Exception) {
                 -1
             }
@@ -1091,14 +872,15 @@ object NativeBridge {
         }
     }
 
-    @FastNative
     external fun nativeScanGroupFast(
         pid: Int,
         sessionId: String,
         groupSpec: String,
         valueType: String,
         filterTypes: String,
-        customFilter: String
+        customFilter: String,
+        mapFlags: Int,
+        minSize: Long
     ): Int
 
     fun scanGroupFast(
@@ -1107,12 +889,16 @@ object NativeBridge {
         groupSpec: String,
         valueType: String,
         filterTypes: String = "",
-        customFilter: String = ""
+        customFilter: String = "",
+        mapFlags: Int = MAP_FLAGS_DEFAULT,
+        minSize: Long = 0L
     ): Int {
         val s = HMemServiceConnection.service
         return if (s != null) {
             try {
-                s.nativeScanGroupFast(pid, sessionId, groupSpec, valueType, filterTypes, customFilter)
+                s.nativeScanGroupFast(
+                    pid, sessionId, groupSpec, valueType, filterTypes, customFilter, mapFlags, minSize
+                )
             } catch (_: Exception) {
                 -1
             }
@@ -1121,14 +907,15 @@ object NativeBridge {
         }
     }
 
-    @FastNative
     external fun nativeScanObscuredFast(
         pid: Int,
         sessionId: String,
         value: String,
         obscuredType: String,
         filterTypes: String,
-        customFilter: String
+        customFilter: String,
+        mapFlags: Int,
+        minSize: Long
     ): Int
 
     fun scanObscuredFast(
@@ -1137,12 +924,16 @@ object NativeBridge {
         value: String,
         obscuredType: String,
         filterTypes: String = "",
-        customFilter: String = ""
+        customFilter: String = "",
+        mapFlags: Int = MAP_FLAGS_DEFAULT,
+        minSize: Long = 0L
     ): Int {
         val s = HMemServiceConnection.service
         return if (s != null) {
             try {
-                s.nativeScanObscuredFast(pid, sessionId, value, obscuredType, filterTypes, customFilter)
+                s.nativeScanObscuredFast(
+                    pid, sessionId, value, obscuredType, filterTypes, customFilter, mapFlags, minSize
+                )
             } catch (_: Exception) {
                 -1
             }
@@ -1151,13 +942,14 @@ object NativeBridge {
         }
     }
 
-    @FastNative
     external fun nativeScanBigDoubleFast(
         pid: Int,
         sessionId: String,
         value: String,
         filterTypes: String,
-        customFilter: String
+        customFilter: String,
+        mapFlags: Int,
+        minSize: Long
     ): Int
 
     fun scanBigDoubleFast(
@@ -1165,12 +957,16 @@ object NativeBridge {
         sessionId: String,
         value: String,
         filterTypes: String = "",
-        customFilter: String = ""
+        customFilter: String = "",
+        mapFlags: Int = MAP_FLAGS_DEFAULT,
+        minSize: Long = 0L
     ): Int {
         val s = HMemServiceConnection.service
         return if (s != null) {
             try {
-                s.nativeScanBigDoubleFast(pid, sessionId, value, filterTypes, customFilter)
+                s.nativeScanBigDoubleFast(
+                    pid, sessionId, value, filterTypes, customFilter, mapFlags, minSize
+                )
             } catch (_: Exception) {
                 -1
             }
@@ -1179,7 +975,6 @@ object NativeBridge {
         }
     }
 
-    @FastNative
     external fun nativeFilterMatchesFast(
         pid: Int,
         sessionId: String,
@@ -1205,7 +1000,6 @@ object NativeBridge {
         }
     }
 
-    @FastNative
     external fun nativeFilterRangeMatchesFast(
         pid: Int,
         sessionId: String,
@@ -1231,7 +1025,6 @@ object NativeBridge {
         }
     }
 
-    @FastNative
     external fun nativeFilterObscuredMatchesFast(
         pid: Int,
         sessionId: String,
@@ -1257,7 +1050,6 @@ object NativeBridge {
         }
     }
 
-    @FastNative
     external fun nativeFilterBigDoubleMatchesFast(
         pid: Int,
         sessionId: String,
@@ -1309,6 +1101,100 @@ object NativeBridge {
         }
     }
 
+    @FastNative
+    external fun nativeCancelScan()
+
+    fun cancelScan() {
+        val s = HMemServiceConnection.service
+        if (s != null) {
+            try {
+                s.nativeCancelScan()
+            } catch (e: Throwable) {
+                Log.w(TAG, "nativeCancelScan on root service failed: ${e.message}")
+            }
+        }
+    }
+
+    external fun nativeSaveSessionCheckpoint(sessionId: String): Boolean
+
+    fun saveSessionCheckpoint(sessionId: String): Boolean {
+        val s = HMemServiceConnection.service ?: return false
+        return try {
+            s.nativeSaveSessionCheckpoint(sessionId)
+        } catch (e: Exception) {
+            Log.w(TAG, "nativeSaveSessionCheckpoint failed: ${e.message}")
+            false
+        }
+    }
+
+    external fun nativeUndoSession(sessionId: String): Int
+
+    fun undoSession(sessionId: String): Int {
+        val s = HMemServiceConnection.service ?: return -1
+        return try {
+            s.nativeUndoSession(sessionId)
+        } catch (e: Exception) {
+            Log.w(TAG, "nativeUndoSession failed: ${e.message}")
+            -1
+        }
+    }
+
+    external fun nativeGetSessionUndoCount(sessionId: String): Int
+
+    fun getSessionUndoCount(sessionId: String): Int {
+        val s = HMemServiceConnection.service ?: return 0
+        return try {
+            s.nativeGetSessionUndoCount(sessionId)
+        } catch (e: Exception) {
+            Log.w(TAG, "nativeGetSessionUndoCount failed: ${e.message}")
+            0
+        }
+    }
+
+    external fun nativeIsSessionSaved(sessionId: String): Boolean
+
+    fun isSessionSaved(sessionId: String): Boolean {
+        val s = HMemServiceConnection.service ?: return false
+        return try {
+            s.nativeIsSessionSaved(sessionId)
+        } catch (e: Exception) {
+            Log.w(TAG, "nativeIsSessionSaved failed: ${e.message}")
+            false
+        }
+    }
+
+    external fun nativeCloneSession(sourceSessionId: String, targetSessionId: String): Int
+
+    fun cloneSession(sourceSessionId: String, targetSessionId: String): Int {
+        val s = HMemServiceConnection.service ?: return -1
+        return try {
+            s.nativeCloneSession(sourceSessionId, targetSessionId)
+        } catch (e: Exception) {
+            Log.w(TAG, "nativeCloneSession failed: ${e.message}")
+            -1
+        }
+    }
+
+    external fun nativeCopyMatchesToSession(
+        sourceSessionId: String,
+        targetSessionId: String,
+        addresses: LongArray
+    ): Int
+
+    fun copyMatchesToSession(
+        sourceSessionId: String,
+        targetSessionId: String,
+        addresses: LongArray
+    ): Int {
+        val s = HMemServiceConnection.service ?: return -1
+        return try {
+            s.nativeCopyMatchesToSession(sourceSessionId, targetSessionId, addresses)
+        } catch (e: Exception) {
+            Log.w(TAG, "nativeCopyMatchesToSession failed: ${e.message}")
+            -1
+        }
+    }
+
     // === HIGH-PERFORMANCE ZERO-JSON BYTEBUFFER DECODERS ===
 
     fun decodeMemoryRegions(bytes: ByteArray?): List<MemoryEngine.MemoryMapEntry> {
@@ -1346,13 +1232,13 @@ object NativeBridge {
         sessionId: String,
         bytes: ByteArray?,
         pid: Int
-    ): Pair<Int, List<com.yervant.huntmem.ui.overlay.tabs.MatchInfo>> {
+    ): Pair<Int, List<MatchInfo>> {
         if (bytes == null || bytes.size < 12) return Pair(0, emptyList())
         val buffer = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
         val totalCount = buffer.int
-        val offset = buffer.int
+        buffer.int // pageOffset
         val pageCount = buffer.int
-        val list = ArrayList<com.yervant.huntmem.ui.overlay.tabs.MatchInfo>(pageCount.coerceAtLeast(0))
+        val list = ArrayList<MatchInfo>(pageCount.coerceAtLeast(0))
         for (i in 0 until pageCount) {
             val address = buffer.long
             val regionStart = buffer.long
@@ -1399,8 +1285,8 @@ object NativeBridge {
             }
 
             list.add(
-                com.yervant.huntmem.ui.overlay.tabs.MatchInfo(
-                    id = "$sessionId-${offset + i}-$address",
+                MatchInfo(
+                    id = "$sessionId-$address-$valueType",
                     pid = pid,
                     address = address,
                     prevValue = parsedValue,

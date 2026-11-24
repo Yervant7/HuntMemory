@@ -20,8 +20,6 @@
 
 package com.yervant.huntmem.backend
 
-import com.yervant.huntmem.ui.overlay.tabs.AddressInfo
-
 class MemoryEditor {
 
     fun writeAll(addrs: List<AddressInfo>, value: String): Int {
@@ -72,6 +70,10 @@ class MemoryEditor {
     }
 
     fun unfreezeAll(addressList: List<AddressInfo>) {
-        NativeBridge.unfreezeAll()
+        addressList.forEach { addressInfo ->
+            NativeBridge.unfreezeAddress(addressInfo.matchInfo.pid, addressInfo.matchInfo.address)
+        }
     }
+
+    fun unfreezeAllGlobal(): Int = NativeBridge.unfreezeAll()
 }

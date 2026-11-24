@@ -30,7 +30,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,14 +42,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -58,13 +55,13 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,6 +75,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
+import com.yervant.huntmem.HuntMemApplication
 import com.yervant.huntmem.R
 import com.yervant.huntmem.backend.AttachedProcessRepository
 import com.yervant.huntmem.backend.MemoryEngine
@@ -85,24 +84,139 @@ import com.yervant.huntmem.backend.ShellProcessProvider
 import com.yervant.huntmem.ui.keyboard.KeyboardType
 import com.yervant.huntmem.ui.keyboard.VirtualTextField
 import com.yervant.huntmem.ui.theme.MonospaceAddressStyle
+import com.yervant.huntmem.ui.theme.SuccessEmerald
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
-private var regionsSelected: List<MemoryEngine.MemoryRegionType> = emptyList()
-private var customRegionFilter: String? = null
+private val defaultRegions = listOf(
+    MemoryEngine.MemoryRegionType.ANONYMOUS,
+    MemoryEngine.MemoryRegionType.JAVA_HEAP,
+    MemoryEngine.MemoryRegionType.HEAP,
+    MemoryEngine.MemoryRegionType.ALLOC
+)
 
-fun getSelectedRegions(): List<MemoryEngine.MemoryRegionType> {
-    return regionsSelected.ifEmpty {
-        listOf(
-            MemoryEngine.MemoryRegionType.ANONYMOUS, MemoryEngine.MemoryRegionType.JAVA_HEAP,
-            MemoryEngine.MemoryRegionType.HEAP, MemoryEngine.MemoryRegionType.ALLOC
-        )
+/**
+ * Reactive state holder for memory region selection and scan engine settings,
+ * backed by `StateFlow` and persisted in `SharedPreferences("hconfig")`.
+ */
+object HuntSettingsRepository {
+    private val _selectedRegions = MutableStateFlow(defaultRegions)
+    val selectedRegions: StateFlow<List<MemoryEngine.MemoryRegionType>> = _selectedRegions.asStateFlow()
+
+    private val _customRegionFilter = MutableStateFlow<String?>(null)
+    val customRegionFilter: StateFlow<String?> = _customRegionFilter.asStateFlow()
+
+    @Volatile
+    var isLoadedFromPrefs: Boolean = false
+        private set
+
+    fun updateRegions(
+        regions: List<MemoryEngine.MemoryRegionType>,
+        customFilter: String?
+    ) {
+        val cleanRegions = regions.filter { it != MemoryEngine.MemoryRegionType.CUSTOM }
+        if (cleanRegions.isNotEmpty()) {
+            _selectedRegions.value = cleanRegions
+        }
+        _customRegionFilter.value = customFilter?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    fun markLoaded() {
+        isLoadedFromPrefs = true
     }
 }
-fun getCustomFilter(): String? = customRegionFilter
+
+private const val PREF_SELECTED_REGIONS = "hunt_settings_regions"
+private const val PREF_CUSTOM_FILTER = "hunt_settings_custom_filter"
+private const val PREF_REQ_READ = "hunt_settings_req_read"
+private const val PREF_REQ_WRITE = "hunt_settings_req_write"
+private const val PREF_INC_SWAPPED = "hunt_settings_inc_swapped"
+private const val PREF_MIN_SIZE = "hunt_settings_min_size"
+private const val PREF_SCAN_ENGINE = "hunt_settings_scan_engine"
+
+internal fun ensureSettingsLoaded(context: Context) {
+    if (HuntSettingsRepository.isLoadedFromPrefs) return
+    HuntSettingsRepository.markLoaded()
+    val prefs = context.getSharedPreferences(HuntMemApplication.SP_NAME, Context.MODE_PRIVATE)
+    val savedRegionsStr = prefs.getString(PREF_SELECTED_REGIONS, null)
+    val parsedRegions = if (!savedRegionsStr.isNullOrBlank()) {
+        savedRegionsStr.split(",")
+            .mapNotNull { name ->
+                MemoryEngine.MemoryRegionType.entries.firstOrNull {
+                    it.name == name && it != MemoryEngine.MemoryRegionType.CUSTOM
+                }
+            }
+            .ifEmpty { defaultRegions }
+    } else {
+        defaultRegions
+    }
+    val savedCustom = prefs.getString(PREF_CUSTOM_FILTER, null)?.takeIf { it.isNotBlank() }
+    HuntSettingsRepository.updateRegions(parsedRegions, savedCustom)
+
+    val reqRead = prefs.getBoolean(PREF_REQ_READ, MemoryEngine.globalMapOptions.requireRead)
+    val reqWrite = prefs.getBoolean(PREF_REQ_WRITE, MemoryEngine.globalMapOptions.requireWrite)
+    val incSwapped = prefs.getBoolean(PREF_INC_SWAPPED, MemoryEngine.globalMapOptions.includeSwapped)
+    val minSize = prefs.getLong(PREF_MIN_SIZE, MemoryEngine.globalMapOptions.minSize)
+    MemoryEngine.globalMapOptions = MemoryEngine.MemoryMapOptions(
+        requireRead = reqRead,
+        requireWrite = reqWrite,
+        includeSwapped = incSwapped,
+        minSize = minSize
+    )
+
+    val engineCode = prefs.getInt(PREF_SCAN_ENGINE, MemoryEngine.globalScanEngineMode.code)
+    MemoryEngine.updateScanEngineMode(MemoryEngine.ScanEngineMode.fromCode(engineCode))
+}
+
+private fun persistSettings(
+    context: Context,
+    selectedRegions: List<MemoryEngine.MemoryRegionType>,
+    customFilter: String,
+    requireRead: Boolean,
+    requireWrite: Boolean,
+    includeSwapped: Boolean,
+    minSize: Long,
+    engineMode: MemoryEngine.ScanEngineMode
+) {
+    val cleanRegions = selectedRegions.filter { it != MemoryEngine.MemoryRegionType.CUSTOM }
+    HuntSettingsRepository.updateRegions(cleanRegions.ifEmpty { defaultRegions }, customFilter)
+
+    MemoryEngine.globalMapOptions = MemoryEngine.MemoryMapOptions(
+        requireRead = requireRead,
+        requireWrite = requireWrite,
+        includeSwapped = includeSwapped,
+        minSize = minSize
+    )
+    MemoryEngine.updateScanEngineMode(engineMode)
+
+    val prefs = context.getSharedPreferences(HuntMemApplication.SP_NAME, Context.MODE_PRIVATE)
+    prefs.edit {
+        putString(PREF_SELECTED_REGIONS, cleanRegions.joinToString(",") { it.name })
+        putString(PREF_CUSTOM_FILTER, customFilter.trim())
+        putBoolean(PREF_REQ_READ, requireRead)
+        putBoolean(PREF_REQ_WRITE, requireWrite)
+        putBoolean(PREF_INC_SWAPPED, includeSwapped)
+        putLong(PREF_MIN_SIZE, minSize)
+        putInt(PREF_SCAN_ENGINE, engineMode.code)
+    }
+}
+
+fun getSelectedRegions(): List<MemoryEngine.MemoryRegionType> {
+    if (!HuntSettingsRepository.customRegionFilter.value.isNullOrBlank()) {
+        return listOf(MemoryEngine.MemoryRegionType.CUSTOM)
+    }
+    return HuntSettingsRepository.selectedRegions.value.ifEmpty { defaultRegions }
+}
+
+fun getCustomFilter(): String? = HuntSettingsRepository.customRegionFilter.value
+
 fun setRegions(regions: List<MemoryEngine.MemoryRegionType>, customFilter: String? = null) {
-    regionsSelected = regions
-    customRegionFilter = customFilter
+    HuntSettingsRepository.updateRegions(regions, customFilter)
 }
 
 @SuppressLint("DefaultLocale")
@@ -112,40 +226,91 @@ fun formatSize(sizeInBytes: Long): String {
 }
 
 @Composable
-fun HuntSettings(context: Context) {
+fun HuntSettings(
+    context: Context,
+    onNavigateToProcesses: () -> Unit = {}
+) {
+    remember(context) {
+        ensureSettingsLoaded(context)
+        true
+    }
+
     val allRegions = remember {
         MemoryEngine.MemoryRegionType.entries.filter { it != MemoryEngine.MemoryRegionType.CUSTOM }
     }
-    val selectedRegions = remember { regionsSelected.toMutableStateList() }
-    val customRegion = remember { mutableStateOf(customRegionFilter ?: "") }
+    val selectedRegions = remember {
+        HuntSettingsRepository.selectedRegions.value.ifEmpty { defaultRegions }.toMutableStateList()
+    }
+    val customRegion = remember { mutableStateOf(HuntSettingsRepository.customRegionFilter.value ?: "") }
     val expandedRegion = remember { mutableStateOf<MemoryEngine.MemoryRegionType?>(null) }
     val memoryDetailsMap = remember { mutableStateMapOf<MemoryEngine.MemoryRegionType, List<MemoryEngine.MemoryMapEntry>>() }
-    val pid = AttachedProcessRepository.getAttachedPid()
+    val pid by AttachedProcessRepository.attachedProcessPid.collectAsState()
 
     val requireRead = remember { mutableStateOf(MemoryEngine.globalMapOptions.requireRead) }
     val requireWrite = remember { mutableStateOf(MemoryEngine.globalMapOptions.requireWrite) }
     val includeSwapped = remember { mutableStateOf(MemoryEngine.globalMapOptions.includeSwapped) }
-    val minSize = remember { mutableStateOf(MemoryEngine.globalMapOptions.minSize.toString()) }
+    val minSize = remember {
+        mutableStateOf(
+            MemoryEngine.globalMapOptions.minSize.let { if (it > 0L) it.toString() else "0" }
+        )
+    }
     val scanEngineMode = remember { mutableStateOf(MemoryEngine.globalScanEngineMode) }
     val showAdvancedOptions = remember { mutableStateOf(false) }
-    val refreshTrigger = remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(key1 = pid, key2 = refreshTrigger.intValue) {
-        if (pid != null) {
+    val saveCurrentState: () -> Unit = {
+        persistSettings(
+            context = context,
+            selectedRegions = selectedRegions.toList(),
+            customFilter = customRegion.value,
+            requireRead = requireRead.value,
+            requireWrite = requireWrite.value,
+            includeSwapped = includeSwapped.value,
+            minSize = minSize.value.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
+            engineMode = scanEngineMode.value
+        )
+    }
+
+    LaunchedEffect(
+        pid,
+        requireRead.value,
+        requireWrite.value,
+        includeSwapped.value,
+        minSize.value
+    ) {
+        val currentPid = pid
+        if (currentPid != null) {
+            delay(150L.milliseconds)
             val details = withContext(Dispatchers.IO) {
-                if (!ShellProcessProvider().isProcessRunning(pid.toString())) {
+                if (!ShellProcessProvider().isProcessRunning(currentPid.toString())) {
                     return@withContext null
                 }
-                val allMemoryMaps = MemoryEngine.getMemoryMaps(pid, emptyList(), null)
+                val allMemoryMaps = MemoryEngine.getMemoryMaps(
+                    pid = currentPid,
+                    selectedRegions = emptyList(),
+                    customFilter = null,
+                    options = MemoryEngine.globalMapOptions
+                )
                 val mappedDetails = mutableMapOf<MemoryEngine.MemoryRegionType, List<MemoryEngine.MemoryMapEntry>>()
                 allRegions.forEach { region ->
-                    mappedDetails[region] = allMemoryMaps.filter { entry -> MemoryEngine.determineRegionType(entry.path) == region.name }
+                    mappedDetails[region] = allMemoryMaps.filter { entry ->
+                        MemoryEngine.matchesRegionType(entry.path, region)
+                    }
                 }
                 mappedDetails
             }
             if (details != null) {
                 memoryDetailsMap.clear()
                 memoryDetailsMap.putAll(details)
+            }
+        } else {
+            memoryDetailsMap.clear()
+        }
+    }
+
+    val totalSelectedBytes = remember {
+        derivedStateOf {
+            selectedRegions.sumOf { region ->
+                (memoryDetailsMap[region] ?: emptyList()).sumOf { it.end - it.start }
             }
         }
     }
@@ -156,18 +321,62 @@ fun HuntSettings(context: Context) {
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // Top Header with Quick Select (ALL/RESET) and Advanced Options Toggle
+        if (pid == null) {
+            NoProcessAttachedBanner(onSelectProcessClick = onNavigateToProcesses)
+        }
+
+        // Top Header with Active Summary, Quick Select (ALL/RESET), and Advanced Options Toggle
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = stringResource(R.string.hunt_settings_memory_regions_title),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = stringResource(R.string.hunt_settings_memory_regions_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = SuccessEmerald.copy(alpha = 0.15f),
+                    border = BorderStroke(0.5.dp, SuccessEmerald.copy(alpha = 0.45f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = SuccessEmerald,
+                            modifier = Modifier.size(10.dp)
+                        )
+                        Text(
+                            text = if (customRegion.value.isNotBlank()) {
+                                "CUSTOM"
+                            } else {
+                                "${selectedRegions.size} • ${formatSize(totalSelectedBytes.value)}"
+                            },
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = SuccessEmerald,
+                            fontSize = 8.5.sp,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -181,10 +390,12 @@ fun HuntSettings(context: Context) {
                     modifier = Modifier.clickable {
                         if (selectedRegions.size == allRegions.size) {
                             selectedRegions.clear()
+                            selectedRegions.addAll(defaultRegions)
                         } else {
                             selectedRegions.clear()
                             selectedRegions.addAll(allRegions)
                         }
+                        saveCurrentState()
                     }
                 ) {
                     Text(
@@ -265,7 +476,7 @@ fun HuntSettings(context: Context) {
                                     .height(28.dp)
                                     .clickable {
                                         scanEngineMode.value = mode
-                                        MemoryEngine.updateScanEngineMode(mode)
+                                        saveCurrentState()
                                     }
                             ) {
                                 Row(
@@ -303,7 +514,10 @@ fun HuntSettings(context: Context) {
                         CompactFilterChip(
                             label = "Req (r)",
                             checked = requireRead.value,
-                            onCheckedChange = { requireRead.value = it },
+                            onCheckedChange = {
+                                requireRead.value = it
+                                saveCurrentState()
+                            },
                             modifier = Modifier.weight(0.9f)
                         )
 
@@ -311,7 +525,10 @@ fun HuntSettings(context: Context) {
                         CompactFilterChip(
                             label = "Req (w)",
                             checked = requireWrite.value,
-                            onCheckedChange = { requireWrite.value = it },
+                            onCheckedChange = {
+                                requireWrite.value = it
+                                saveCurrentState()
+                            },
                             modifier = Modifier.weight(0.9f)
                         )
 
@@ -319,14 +536,20 @@ fun HuntSettings(context: Context) {
                         CompactFilterChip(
                             label = "Swapped",
                             checked = includeSwapped.value,
-                            onCheckedChange = { includeSwapped.value = it },
+                            onCheckedChange = {
+                                includeSwapped.value = it
+                                saveCurrentState()
+                            },
                             modifier = Modifier.weight(1.0f)
                         )
 
                         // Min Size TextField
                         VirtualTextField(
                             value = minSize.value,
-                            onValueChange = { minSize.value = it },
+                            onValueChange = {
+                                minSize.value = it
+                                saveCurrentState()
+                            },
                             keyboardType = KeyboardType.NUMERIC,
                             placeholder = { Text(stringResource(R.string.hunt_settings_min_size_label), fontSize = 9.sp) },
                             singleLine = true,
@@ -343,7 +566,7 @@ fun HuntSettings(context: Context) {
             derivedStateOf {
                 allRegions.filter { region ->
                     val details = memoryDetailsMap[region] ?: emptyList()
-                    details.sumOf { it.end - it.start } > 0
+                    details.sumOf { it.end - it.start } > 0 || selectedRegions.contains(region)
                 }
             }
         }
@@ -365,6 +588,7 @@ fun HuntSettings(context: Context) {
                         } else {
                             selectedRegions.add(region)
                         }
+                        saveCurrentState()
                     },
                     onClick = {
                         expandedRegion.value = if (expandedRegion.value == region) null else region
@@ -373,64 +597,21 @@ fun HuntSettings(context: Context) {
             }
         }
 
-        // Custom Filter + Save Bar
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
-        ) {
-            VirtualTextField(
-                value = customRegion.value,
-                onValueChange = { customRegion.value = it },
-                keyboardType = KeyboardType.QWERTY,
-                placeholder = { Text(stringResource(R.string.hunt_settings_custom_filter_label), fontSize = 10.sp) },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(6.dp),
-                singleLine = true
-            )
-
-            Button(
-                onClick = {
-                    MemoryEngine.globalMapOptions = MemoryEngine.MemoryMapOptions(
-                        requireRead = requireRead.value,
-                        requireWrite = requireWrite.value,
-                        includeSwapped = includeSwapped.value,
-                        minSize = minSize.value.toLongOrNull() ?: 0L
-                    )
-                    MemoryEngine.updateScanEngineMode(scanEngineMode.value)
-                    refreshTrigger.intValue += 1
-
-                    if (customRegion.value.isNotBlank()) {
-                        setRegions(listOf(MemoryEngine.MemoryRegionType.CUSTOM), customRegion.value)
-                    } else {
-                        setRegions(selectedRegions.toList())
-                    }
-                },
-                modifier = Modifier.height(38.dp),
-                shape = RoundedCornerShape(6.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Save,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Text(
-                        text = stringResource(R.string.hunt_settings_save_button),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-        }
+        // Full-Width Auto-Saved Custom Filter Field
+        VirtualTextField(
+            value = customRegion.value,
+            onValueChange = {
+                customRegion.value = it
+                saveCurrentState()
+            },
+            keyboardType = KeyboardType.QWERTY,
+            placeholder = { Text(stringResource(R.string.hunt_settings_custom_filter_label), fontSize = 10.sp) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp),
+            shape = RoundedCornerShape(6.dp),
+            singleLine = true
+        )
     }
 }
 

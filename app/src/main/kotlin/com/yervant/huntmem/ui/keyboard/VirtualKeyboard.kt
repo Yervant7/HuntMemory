@@ -130,6 +130,7 @@ fun VirtualKeyboard(controller: KeyboardController) {
 private fun KeyboardPreviewHeader(controller: KeyboardController) {
     val text = controller.currentText.value
     val pos = controller.cursorPosition.intValue.coerceIn(0, text.length)
+    val activeType = controller.keyboardType.value
 
     Row(
         modifier = Modifier
@@ -191,6 +192,52 @@ private fun KeyboardPreviewHeader(controller: KeyboardController) {
             )
         }
 
+        // Layout mode switcher (ABC | 123 | HEX)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.padding(end = 2.dp)
+        ) {
+            val modeOptions = listOf(
+                KeyboardType.QWERTY to "ABC",
+                KeyboardType.NUMERIC to "123",
+                KeyboardType.HEXADECIMAL to "HEX"
+            )
+            modeOptions.forEach { (mode, label) ->
+                val isSelected = activeType == mode
+                Surface(
+                    onClick = { controller.keyboardType.value = mode },
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                    },
+                    border = BorderStroke(
+                        0.5.dp,
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        }
+                    )
+                ) {
+                    Text(
+                        text = label,
+                        fontSize = 9.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
+            }
+        }
+
         // Close button
         IconButton(
             onClick = { controller.hide() },
@@ -216,6 +263,7 @@ private fun NumericLayout(controller: KeyboardController) {
             DigitKey("7", Modifier.weight(1f)) { controller.onKeyPress("7") }
             DigitKey("8", Modifier.weight(1f)) { controller.onKeyPress("8") }
             DigitKey("9", Modifier.weight(1f)) { controller.onKeyPress("9") }
+            DigitKey("-", Modifier.weight(1f)) { controller.onKeyPress("-") }
             ActionKey(
                 text = "CLR",
                 icon = Icons.Default.Clear,
@@ -233,6 +281,12 @@ private fun NumericLayout(controller: KeyboardController) {
             DigitKey("5", Modifier.weight(1f)) { controller.onKeyPress("5") }
             DigitKey("6", Modifier.weight(1f)) { controller.onKeyPress("6") }
             ActionKey(
+                text = "+/-",
+                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.weight(1f)
+            ) { controller.toggleSign() }
+            ActionKey(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -247,12 +301,8 @@ private fun NumericLayout(controller: KeyboardController) {
             DigitKey("1", Modifier.weight(1f)) { controller.onKeyPress("1") }
             DigitKey("2", Modifier.weight(1f)) { controller.onKeyPress("2") }
             DigitKey("3", Modifier.weight(1f)) { controller.onKeyPress("3") }
-            ActionKey(
-                text = "+/-",
-                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.weight(1f)
-            ) { controller.toggleSign() }
+            DigitKey(";", Modifier.weight(1f)) { controller.onKeyPress(";") }
+            DigitKey(":", Modifier.weight(1f)) { controller.onKeyPress(":") }
         }
 
         Row(
@@ -261,7 +311,8 @@ private fun NumericLayout(controller: KeyboardController) {
         ) {
             DigitKey("0", Modifier.weight(1f)) { controller.onKeyPress("0") }
             DigitKey(".", Modifier.weight(1f)) { controller.onKeyPress(".") }
-            DigitKey(":", Modifier.weight(1f)) { controller.onKeyPress(":") }
+            DigitKey(",", Modifier.weight(1f)) { controller.onKeyPress(",") }
+            DigitKey("e", Modifier.weight(1f)) { controller.onKeyPress("e") }
             ActionKey(
                 icon = Icons.Default.Check,
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -278,7 +329,7 @@ private fun NumericLayout(controller: KeyboardController) {
 @Composable
 private fun HexadecimalLayout(controller: KeyboardController) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        // Hex Row 1: A B C + CLR
+        // Hex Row 1: A B C [ + CLR
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -286,6 +337,7 @@ private fun HexadecimalLayout(controller: KeyboardController) {
             HexKey("A", Modifier.weight(1f)) { controller.onKeyPress("A") }
             HexKey("B", Modifier.weight(1f)) { controller.onKeyPress("B") }
             HexKey("C", Modifier.weight(1f)) { controller.onKeyPress("C") }
+            DigitKey("[", Modifier.weight(1f)) { controller.onKeyPress("[") }
             ActionKey(
                 text = "CLR",
                 icon = Icons.Default.Clear,
@@ -295,7 +347,7 @@ private fun HexadecimalLayout(controller: KeyboardController) {
             ) { controller.onClear() }
         }
 
-        // Hex Row 2: D E F + DEL
+        // Hex Row 2: D E F ] + DEL
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -303,6 +355,7 @@ private fun HexadecimalLayout(controller: KeyboardController) {
             HexKey("D", Modifier.weight(1f)) { controller.onKeyPress("D") }
             HexKey("E", Modifier.weight(1f)) { controller.onKeyPress("E") }
             HexKey("F", Modifier.weight(1f)) { controller.onKeyPress("F") }
+            DigitKey("]", Modifier.weight(1f)) { controller.onKeyPress("]") }
             ActionKey(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -311,7 +364,7 @@ private fun HexadecimalLayout(controller: KeyboardController) {
             ) { controller.onBackspace() }
         }
 
-        // Digits 7 8 9 + 0x prefix
+        // Digits 7 8 9 + 0x prefix + "+"
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -325,9 +378,10 @@ private fun HexadecimalLayout(controller: KeyboardController) {
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.weight(1f)
             ) { controller.toggleHexPrefix() }
+            DigitKey("+", Modifier.weight(1f)) { controller.onKeyPress("+") }
         }
 
-        // Digits 4 5 6 + "+" (offset separator)
+        // Digits 4 5 6 + "-" + "*"
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -335,10 +389,11 @@ private fun HexadecimalLayout(controller: KeyboardController) {
             DigitKey("4", Modifier.weight(1f)) { controller.onKeyPress("4") }
             DigitKey("5", Modifier.weight(1f)) { controller.onKeyPress("5") }
             DigitKey("6", Modifier.weight(1f)) { controller.onKeyPress("6") }
-            DigitKey("+", Modifier.weight(1f)) { controller.onKeyPress("+") }
+            DigitKey("-", Modifier.weight(1f)) { controller.onKeyPress("-") }
+            DigitKey("*", Modifier.weight(1f)) { controller.onKeyPress("*") }
         }
 
-        // Digits 1 2 3 0
+        // Digits 1 2 3 + ";" + ":"
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(3.dp)
@@ -346,17 +401,21 @@ private fun HexadecimalLayout(controller: KeyboardController) {
             DigitKey("1", Modifier.weight(1f)) { controller.onKeyPress("1") }
             DigitKey("2", Modifier.weight(1f)) { controller.onKeyPress("2") }
             DigitKey("3", Modifier.weight(1f)) { controller.onKeyPress("3") }
-            DigitKey("0", Modifier.weight(1f)) { controller.onKeyPress("0") }
+            DigitKey(";", Modifier.weight(1f)) { controller.onKeyPress(";") }
+            DigitKey(":", Modifier.weight(1f)) { controller.onKeyPress(":") }
         }
 
-        // Delimiters & OK
+        // Digit 0 + Delimiters (. , ~ % ?) & OK
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            DigitKey(".", Modifier.weight(1f)) { controller.onKeyPress(".") }
-            DigitKey(":", Modifier.weight(1f)) { controller.onKeyPress(":") }
-            DigitKey("~", Modifier.weight(1f)) { controller.onKeyPress("~") }
+            DigitKey("0", Modifier.weight(1f)) { controller.onKeyPress("0") }
+            DigitKey(".", Modifier.weight(0.8f)) { controller.onKeyPress(".") }
+            DigitKey(",", Modifier.weight(0.8f)) { controller.onKeyPress(",") }
+            DigitKey("~", Modifier.weight(0.8f)) { controller.onKeyPress("~") }
+            DigitKey("%", Modifier.weight(0.8f)) { controller.onKeyPress("%") }
+            DigitKey("?", Modifier.weight(0.8f)) { controller.onKeyPress("?") }
             ActionKey(
                 icon = Icons.Default.Check,
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -385,9 +444,9 @@ private fun QwertyLayout(controller: KeyboardController) {
         listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")
     }
     val row3 = if (isShift) {
-        listOf("A", "S", "D", "F", "G", "H", "J", "K", "L", "?")
+        listOf("A", "S", "D", "F", "G", "H", "J", "K", "L", "{", "}")
     } else {
-        listOf("a", "s", "d", "f", "g", "h", "j", "k", "l", "~")
+        listOf("a", "s", "d", "f", "g", "h", "j", "k", "l", "[", "]")
     }
     val row4 = if (isShift) {
         listOf("Z", "X", "C", "V", "B", "N", "M")
@@ -415,8 +474,9 @@ private fun QwertyLayout(controller: KeyboardController) {
                 DigitKey(key, Modifier.weight(1f)) { controller.onKeyPress(key) }
             }
 
-            DigitKey(if (isShift) "+" else "_", Modifier.weight(0.8f)) { controller.onKeyPress(if (isShift) "+" else "_") }
-            DigitKey(if (isShift) "/" else "=", Modifier.weight(0.8f)) { controller.onKeyPress(if (isShift) "/" else "=") }
+            DigitKey(if (isShift) "_" else "-", Modifier.weight(0.85f)) { controller.onKeyPress(if (isShift) "_" else "-") }
+            DigitKey(if (isShift) "+" else "=", Modifier.weight(0.85f)) { controller.onKeyPress(if (isShift) "+" else "=") }
+            DigitKey(if (isShift) "\\" else "/", Modifier.weight(0.85f)) { controller.onKeyPress(if (isShift) "\\" else "/") }
 
             ActionKey(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
@@ -434,39 +494,42 @@ private fun QwertyLayout(controller: KeyboardController) {
                 text = "0x",
                 containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.weight(0.9f)
+                modifier = Modifier.weight(0.8f)
             ) { controller.toggleHexPrefix() }
 
             ActionKey(
                 text = "CLR",
                 containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
                 contentColor = MaterialTheme.colorScheme.error,
-                modifier = Modifier.weight(0.9f)
+                modifier = Modifier.weight(0.8f)
             ) { controller.onClear() }
+
+            DigitKey(if (isShift) "?" else "~", Modifier.weight(0.65f)) { controller.onKeyPress(if (isShift) "?" else "~") }
 
             KeyButton(
                 text = stringResource(R.string.keyboard_space),
-                modifier = Modifier.weight(2.6f),
+                modifier = Modifier.weight(2.0f),
                 onClick = { controller.onKeyPress(" ") }
             )
 
-            DigitKey("\"", Modifier.weight(0.7f)) { controller.onKeyPress("\"") }
-            DigitKey(":", Modifier.weight(0.7f)) { controller.onKeyPress(":") }
-            DigitKey(";", Modifier.weight(0.7f)) { controller.onKeyPress(";") }
-            DigitKey(".", Modifier.weight(0.7f)) { controller.onKeyPress(".") }
+            DigitKey(if (isShift) "'" else "\"", Modifier.weight(0.65f)) { controller.onKeyPress(if (isShift) "'" else "\"") }
+            DigitKey(if (isShift) "|" else ":", Modifier.weight(0.65f)) { controller.onKeyPress(if (isShift) "|" else ":") }
+            DigitKey(if (isShift) "`" else ";", Modifier.weight(0.65f)) { controller.onKeyPress(if (isShift) "`" else ";") }
+            DigitKey(if (isShift) "<" else ",", Modifier.weight(0.65f)) { controller.onKeyPress(if (isShift) "<" else ",") }
+            DigitKey(if (isShift) ">" else ".", Modifier.weight(0.65f)) { controller.onKeyPress(if (isShift) ">" else ".") }
 
             ActionKey(
                 text = "⏎",
                 containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.weight(1.0f)
+                modifier = Modifier.weight(0.9f)
             ) { controller.onKeyPress("\n") }
 
             ActionKey(
                 icon = Icons.Default.Check,
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.weight(1.0f)
+                modifier = Modifier.weight(0.9f)
             ) {
                 controller.onDone?.invoke()
                 controller.hide()

@@ -1,4 +1,16 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Optional
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URI
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 plugins {
     alias(libs.plugins.android.application)
@@ -22,47 +34,23 @@ apksign {
     keyPasswordProperty = "KEY_PASSWORD"
 }
 
-fun getCargoPackageVersion(packageName: String): String {
-    val lockFile = layout.projectDirectory.file("src/main/hmem/Cargo.lock").asFile
-    if (lockFile.exists()) {
-        val lockText = lockFile.readText()
-        val regex = Regex("""\[\[package\]\]\r?\nname\s*=\s*"$packageName"\r?\nversion\s*=\s*"([^"]+)"""")
-        regex.find(lockText)?.groupValues?.get(1)?.let { return it }
-    }
-    val tomlFile = layout.projectDirectory.file("src/main/hmem/hmem_jni/Cargo.toml").asFile
-    if (tomlFile.exists()) {
-        val tomlText = tomlFile.readText()
-        if (packageName == "hmem_jni") {
-            val pkgVerRegex = Regex("""\[package\][\s\S]*?version\s*=\s*"([^"]+)"""")
-            pkgVerRegex.find(tomlText)?.groupValues?.get(1)?.let { return it }
-        }
-        val depRegex = Regex("""$packageName\s*=\s*(?:\{[^}]*version\s*=\s*"([^"]+)"|"([^"]+)")""")
-        depRegex.find(tomlText)?.let {
-            val match = it.groupValues[1].ifEmpty { it.groupValues[2] }
-            if (match.isNotEmpty()) return match
-        }
-    }
-    return "unknown"
-}
-
 android {
     namespace = "com.yervant.huntmem"
     compileSdk = 37
 
-    ndkVersion = "29.0.14206865"
+    ndkVersion = "30.0.16248370"
 
     defaultConfig {
         applicationId = "com.yervant.huntmem"
         minSdk = 29
         targetSdk = 37
-        versionCode = 350
-        versionName = "3.5.0"
+        versionCode = 400
+        versionName = "4.0.0"
 
         ndk {
             abiFilters.add("arm64-v8a")
         }
         signingConfig = signingConfigs.getByName("debug")
-        multiDexEnabled = false
 
         // Automatic version extraction for Dependency Credits
         buildConfigField("String", "DEP_VERSION_COMPOSE_BOM", "\"${libs.versions.composeBom.get()}\"")
@@ -79,19 +67,9 @@ android {
         buildConfigField("String", "DEP_VERSION_KOTLIN", "\"${libs.versions.kotlin.get()}\"")
         buildConfigField("String", "DEP_VERSION_SERIALIZATION", "\"${libs.versions.kotlinxSerialization.get()}\"")
         buildConfigField("String", "DEP_VERSION_AGP", "\"${libs.versions.agp.get()}\"")
-
-        buildConfigField("String", "RUST_VERSION_HMEM_JNI", "\"${getCargoPackageVersion("hmem_jni")}\"")
-        buildConfigField("String", "RUST_VERSION_JNI", "\"${getCargoPackageVersion("jni")}\"")
-        buildConfigField("String", "RUST_VERSION_LIBC", "\"${getCargoPackageVersion("libc")}\"")
-        buildConfigField("String", "RUST_VERSION_MLUA", "\"${getCargoPackageVersion("mlua")}\"")
-        buildConfigField("String", "RUST_VERSION_SERDE", "\"${getCargoPackageVersion("serde")}\"")
-        buildConfigField("String", "RUST_VERSION_SERDE_JSON", "\"${getCargoPackageVersion("serde_json")}\"")
-        buildConfigField("String", "RUST_VERSION_MEMCHR", "\"${getCargoPackageVersion("memchr")}\"")
-        buildConfigField("String", "RUST_VERSION_COMBINE", "\"${getCargoPackageVersion("combine")}\"")
-        buildConfigField("String", "RUST_VERSION_SIMD_CESU8", "\"${getCargoPackageVersion("simd_cesu8")}\"")
-        buildConfigField("String", "RUST_VERSION_THISERROR", "\"${getCargoPackageVersion("thiserror")}\"")
-        buildConfigField("String", "RUST_VERSION_WALKDIR", "\"${getCargoPackageVersion("walkdir")}\"")
-        buildConfigField("String", "RUST_VERSION_ITOA", "\"${getCargoPackageVersion("itoa")}\"")
+        buildConfigField("String", "HMKPM_VERSION", "\"${libs.versions.hmkpm.get()}\"")
+        buildConfigField("String", "HMKPM_ASSET_NAME", "\"hmkpm.kpm\"")
+        buildConfigField("String", "HMKPM_EXPORT_FILENAME", "\"hmkpm-${libs.versions.hmkpm.get()}.kpm\"")
     }
 
     buildTypes {
@@ -108,7 +86,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            multiDexEnabled = true
         }
     }
     compileOptions {
@@ -212,6 +189,112 @@ tasks.matching { it.name == "preDebugBuild" || it.name == "mergeDebugJniLibFolde
 
 tasks.matching { it.name == "preReleaseBuild" || it.name == "mergeReleaseJniLibFolders" }.configureEach {
     dependsOn(copyRustRelease)
+}
+
+abstract class DownloadHmkpmTask : DefaultTask() {
+    @get:Input
+    abstract val version: Property<String>
+
+    @get:Input
+    abstract val downloadUrl: Property<String>
+
+    @get:Input
+    abstract val assetFileName: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val localFilePath: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun execute() {
+        val outDir = outputDir.get().asFile
+        outDir.mkdirs()
+        val targetFile = File(outDir, assetFileName.get())
+
+        val localOverride = localFilePath.orNull?.trim().orEmpty()
+        if (localOverride.isNotEmpty()) {
+            val sourceFile = File(localOverride)
+            if (!sourceFile.isFile || sourceFile.length() == 0L) {
+                throw org.gradle.api.GradleException("Local HMKPM file not found or empty: $localOverride")
+            }
+            Files.copy(sourceFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            return
+        }
+
+        val tmpFile = File(temporaryDir, "${assetFileName.get()}.tmp")
+        var currentUrl = downloadUrl.get()
+        var redirects = 0
+        while (true) {
+            val conn = (URI.create(currentUrl).toURL().openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = 15_000
+                readTimeout = 60_000
+                setRequestProperty("User-Agent", "HuntMemory-Gradle-Build")
+            }
+            try {
+                val status = conn.responseCode
+                if (status in listOf(
+                        HttpURLConnection.HTTP_MOVED_PERM,
+                        HttpURLConnection.HTTP_MOVED_TEMP,
+                        HttpURLConnection.HTTP_SEE_OTHER,
+                        307,
+                        308
+                    )
+                ) {
+                    val nextLocation = conn.getHeaderField("Location")
+                        ?: throw org.gradle.api.GradleException("Missing redirect Location header for $currentUrl")
+                    redirects += 1
+                    if (redirects > 5) {
+                        throw org.gradle.api.GradleException("Too many redirects downloading HMKPM from ${downloadUrl.get()}")
+                    }
+                    currentUrl = URI.create(currentUrl).resolve(nextLocation).toString()
+                    continue
+                }
+                if (status != HttpURLConnection.HTTP_OK) {
+                    throw org.gradle.api.GradleException(
+                        "Failed to download HMKPM v${version.get()} from $currentUrl (HTTP $status)"
+                    )
+                }
+                conn.inputStream.use { input ->
+                    tmpFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                break
+            } finally {
+                conn.disconnect()
+            }
+        }
+
+        if (!tmpFile.isFile || tmpFile.length() == 0L) {
+            throw org.gradle.api.GradleException("Downloaded HMKPM artifact is empty: ${downloadUrl.get()}")
+        }
+        Files.move(tmpFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+    }
+}
+
+val hmkpmVersion = libs.versions.hmkpm.get()
+val hmkpmAssetName = "hmkpm.kpm"
+val downloadHmkpm = tasks.register<DownloadHmkpmTask>("downloadHmkpm") {
+    description = "Downloads pinned HMKPM v$hmkpmVersion module from GitHub Releases into generated assets"
+    group = "hmkpm"
+    version.set(hmkpmVersion)
+    assetFileName.set(hmkpmAssetName)
+    downloadUrl.set("https://github.com/Yervant7/HuntMemory-KPM/releases/download/$hmkpmVersion/$hmkpmAssetName")
+    localFilePath.set(providers.gradleProperty("hmkpmLocalFile"))
+    outputDir.set(layout.buildDirectory.dir("generated/hmkpm/assets"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(
+            downloadHmkpm,
+            DownloadHmkpmTask::outputDir
+        )
+    }
 }
 
 

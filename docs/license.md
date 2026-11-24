@@ -44,7 +44,7 @@ For the full legal text, see the [LICENSE](https://github.com/Yervant7/HuntMemor
 HuntMemory is built with the support of several outstanding open-source projects:
 
 - **[libsu](https://github.com/topjohnwu/libsu)** by John Wu — Complete solution for Android root tools and root services.
-- **[KernelPatch](https://github.com/bmax121/KernelPatch)** by bmax121 — Dynamic Linux kernel hooking and patching framework.
+- **[KernelPatch](https://github.com/bmax121/KernelPatch)** by bmax121 — Dynamic Linux kernel module loading and instrumentation framework.
 - **[KPM-Manager](https://github.com/Yervant7/KPM-Manager)** by Yervant7 — KernelPatch fork for Module manager and kernel patcher.
 - **[HuntMemory-KPM](https://github.com/Yervant7/HuntMemory-KPM)** — Direct MMU memory access KernelPatch module.
 - **[Jetpack Compose](https://developer.android.com/jetpack/compose)** by Google — Modern Android declarative UI toolkit.

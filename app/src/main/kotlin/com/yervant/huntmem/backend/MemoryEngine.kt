@@ -23,13 +23,12 @@ package com.yervant.huntmem.backend
 import android.annotation.SuppressLint
 import android.util.Log
 import androidx.annotation.Keep
-import com.yervant.huntmem.ui.overlay.tabs.MatchInfo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.util.UUID
 
 object MemoryEngine {
 
@@ -53,7 +52,15 @@ object MemoryEngine {
         val requireWrite: Boolean = false,
         val includeSwapped: Boolean = true,
         val minSize: Long = 0L
-    )
+    ) {
+        fun toMapFlags(): Int {
+            var flags = 0
+            if (requireRead) flags = flags or NativeBridge.MAP_FLAG_REQUIRE_READ
+            if (requireWrite) flags = flags or NativeBridge.MAP_FLAG_REQUIRE_WRITE
+            if (includeSwapped) flags = flags or NativeBridge.MAP_FLAG_INCLUDE_SWAPPED
+            return flags
+        }
+    }
 
     @Keep
     data class LuaExecutionResult(
@@ -122,35 +129,9 @@ object MemoryEngine {
                 custom = custom
             )
             if (binaryBytes != null && binaryBytes.isNotEmpty()) {
-                val decoded = NativeBridge.decodeMemoryRegions(binaryBytes)
-                if (decoded.isNotEmpty()) {
-                    return decoded
-                }
-            }
-
-            // Fallback to legacy JSON if binary not available
-            val json = NativeBridge.getMemoryMaps(
-                pid = pid,
-                requireRead = options.requireRead,
-                requireWrite = options.requireWrite,
-                includeSwapped = options.includeSwapped,
-                minSize = options.minSize,
-                filterTypes = filterTypesStr,
-                custom = custom
-            )
-            val arr = JSONArray(json)
-            (0 until arr.length()).map { i ->
-                val obj = arr.getJSONObject(i)
-                MemoryMapEntry(
-                    start = obj.getLong("start"),
-                    end = obj.getLong("end"),
-                    permissions = obj.optString("permissions", ""),
-                    offset = obj.optLong("offset", 0L),
-                    device = "",
-                    inode = 0L,
-                    path = obj.optString("path", ""),
-                    mergedCount = obj.optInt("merged_count", 1)
-                )
+                NativeBridge.decodeMemoryRegions(binaryBytes)
+            } else {
+                emptyList()
             }
         } catch (e: Exception) {
             Log.e("MemoryRegionScanner", "Error reading memory maps via JNI", e)
@@ -162,10 +143,10 @@ object MemoryEngine {
         pid: Int,
         addr: Long,
         valueType: String,
-    ): Result<String> = runCatching {
+    ): Result<String> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
             val res = NativeBridge.readMemory(pid, addr, valueType)
-            if (res == "error") {
+            if (res == "error" || res.isEmpty()) {
                 throw IOException("Failed to read memory")
             }
             res
@@ -177,20 +158,18 @@ object MemoryEngine {
         address: Long,
         datatype: String,
         value: String,
-    ): Result<Unit> = runCatching {
-        if (NativeBridge.getHmkpmVersionInfo().isLockless) {
-            throw IOException("Memory write blocked: HMKPM Lockless Mode is active (kernel mmap_lock unavailable)")
-        }
+    ): Result<Unit> {
         val normalized = datatype.lowercase().trim()
-        when {
-            normalized.startsWith("obscured") || normalized.startsWith("actk") || normalized.startsWith("xor") -> {
-                writeObscured(pid, address, value, datatype).getOrThrow()
-            }
-            normalized == "big_double" || normalized == "bigdouble" -> {
-                writeBigDouble(pid, address, value).getOrThrow()
-            }
-            else -> {
+        return when {
+            normalized.startsWith("obscured") || normalized.startsWith("actk") || normalized.startsWith("xor") ->
+                writeObscured(pid, address, value, datatype)
+            normalized == "big_double" || normalized == "bigdouble" ->
+                writeBigDouble(pid, address, value)
+            else -> runCatchingCancellable {
                 withContext(Dispatchers.IO) {
+                    if (NativeBridge.getHmkpmVersionInfo().isLockless) {
+                        throw IOException("Memory write blocked: HMKPM Lockless Mode is active (kernel mmap_lock unavailable)")
+                    }
                     val res = NativeBridge.writeMemory(pid, address, value, datatype)
                     if (res != 0) {
                         throw IOException("Failed to write memory ($datatype) at 0x${address.toString(16)}")
@@ -205,11 +184,11 @@ object MemoryEngine {
         address: Long,
         value: String,
         obscuredType: String,
-    ): Result<Unit> = runCatching {
-        if (NativeBridge.getHmkpmVersionInfo().isLockless) {
-            throw IOException("Memory write blocked: HMKPM Lockless Mode is active (kernel mmap_lock unavailable)")
-        }
+    ): Result<Unit> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
+            if (NativeBridge.getHmkpmVersionInfo().isLockless) {
+                throw IOException("Memory write blocked: HMKPM Lockless Mode is active (kernel mmap_lock unavailable)")
+            }
             val res = NativeBridge.writeObscured(pid, address, value, obscuredType)
             if (res != 0) {
                 throw IOException("Failed to write obscured memory ($obscuredType) at 0x${address.toString(16)}")
@@ -221,11 +200,11 @@ object MemoryEngine {
         pid: Int,
         address: Long,
         value: String,
-    ): Result<Unit> = runCatching {
-        if (NativeBridge.getHmkpmVersionInfo().isLockless) {
-            throw IOException("Memory write blocked: HMKPM Lockless Mode is active (kernel mmap_lock unavailable)")
-        }
+    ): Result<Unit> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
+            if (NativeBridge.getHmkpmVersionInfo().isLockless) {
+                throw IOException("Memory write blocked: HMKPM Lockless Mode is active (kernel mmap_lock unavailable)")
+            }
             val res = NativeBridge.writeBigDouble(pid, address, value)
             if (res != 0) {
                 throw IOException("Failed to write BigDouble memory at 0x${address.toString(16)}")
@@ -233,150 +212,20 @@ object MemoryEngine {
         }
     }
 
-    suspend fun search(
-        pid: Int,
-        sessionId: String,
-        value: String,
-        dataType: String,
-        regions: List<MemoryMapEntry>,
-        operator: String = "equal",
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
-        withContext(Dispatchers.IO) {
-            val rJson = regionsToJson(regions)
-            val resJson = NativeBridge.scanMemory(pid, sessionId, value, dataType, rJson, operator)
-            parseMatchesFromJson(resJson, pid, dataType)
-        }
-    }
-
-    suspend fun searchRange(
-        pid: Int,
-        sessionId: String,
-        valueMin: String,
-        valueMax: String,
-        dataType: String,
-        regions: List<MemoryMapEntry>,
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
-        withContext(Dispatchers.IO) {
-            val rJson = regionsToJson(regions)
-            val resJson = NativeBridge.scanRange(pid, sessionId, valueMin, valueMax, dataType, rJson)
-            parseMatchesFromJson(resJson, pid, dataType)
-        }
-    }
-
-    suspend fun searchGroup(
-        pid: Int,
-        sessionId: String,
-        value: String,
-        dataType: String,
-        regions: List<MemoryMapEntry>,
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
-        withContext(Dispatchers.IO) {
-            val rJson = regionsToJson(regions)
-            val resJson = NativeBridge.scanGroup(pid, sessionId, value, dataType, rJson)
-            parseMatchesFromJson(resJson, pid, dataType)
-        }
-    }
-
-    suspend fun searchObscured(
-        pid: Int,
-        sessionId: String,
-        value: String,
-        obscuredType: String,
-        regions: List<MemoryMapEntry>,
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
-        withContext(Dispatchers.IO) {
-            val rJson = regionsToJson(regions)
-            val resJson = NativeBridge.scanObscured(pid, sessionId, value, obscuredType, rJson)
-            val defaultType = when (obscuredType.lowercase()) {
-                "obscured_float" -> "float"
-                "obscured_double" -> "double"
-                "obscured_long" -> "long"
-                else -> "int"
-            }
-            parseMatchesFromJson(resJson, pid, defaultType)
-        }
-    }
-
-    suspend fun searchBigDouble(
-        pid: Int,
-        sessionId: String,
-        value: String,
-        regions: List<MemoryMapEntry>,
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
-        withContext(Dispatchers.IO) {
-            val rJson = regionsToJson(regions)
-            val resJson = NativeBridge.scanBigDouble(pid, sessionId, value, rJson)
-            parseMatchesFromJson(resJson, pid, "double")
-        }
-    }
-
-    suspend fun filterAddressesAuto(
-        pid: Int,
-        sessionId: String,
-        fallbackType: String,
-        targetValue: String,
-        operator: String,
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
-        withContext(Dispatchers.IO) {
-            val resJson = NativeBridge.filterMatches(pid, sessionId, targetValue, operator)
-            parseMatchesFromJson(resJson, pid, fallbackType)
-        }
-    }
-
-    suspend fun filterObscuredAuto(
-        pid: Int,
-        sessionId: String,
-        fallbackType: String,
-        targetValue: String,
-        obscuredType: String,
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
-        withContext(Dispatchers.IO) {
-            val resJson = NativeBridge.filterObscuredMatches(pid, sessionId, targetValue, obscuredType)
-            parseMatchesFromJson(resJson, pid, fallbackType)
-        }
-    }
-
-    suspend fun filterBigDoubleAuto(
-        pid: Int,
-        sessionId: String,
-        targetValue: String,
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
-        withContext(Dispatchers.IO) {
-            val resJson = NativeBridge.filterBigDoubleMatches(pid, sessionId, targetValue)
-            parseMatchesFromJson(resJson, pid, "double")
-        }
-    }
-
-    suspend fun filterRangeAuto(
-        pid: Int,
-        sessionId: String,
-        fallbackType: String,
-        targetValueMin: String,
-        targetValueMax: String,
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
-        withContext(Dispatchers.IO) {
-            val resJson = NativeBridge.filterRangeMatches(pid, sessionId, targetValueMin, targetValueMax)
-            parseMatchesFromJson(resJson, pid, fallbackType)
-        }
-    }
-
-    /**
-     * Filters group scan matches against target values.
-     */
-    suspend fun filterGroupAddressesAuto(
-        pid: Int,
-        sessionId: String,
-        fallbackType: String,
-        targetValues: List<String>,
-        operator: String,
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
-        withContext(Dispatchers.IO) {
-            val targetVal = targetValues.firstOrNull() ?: ""
-            filterAddressesFast(pid, sessionId, targetVal, operator).getOrThrow()
-        }
-    }
-
     // === FAST BINARY & ZERO-JSON PAGINATED ENGINE APIS ===
+
+    private suspend fun <T> runCatchingCancellable(block: suspend () -> T): Result<T> =
+        try {
+            Result.success(block())
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
+
+    fun cancelScan() {
+        NativeBridge.cancelScan()
+    }
 
     suspend fun searchFast(
         pid: Int,
@@ -386,10 +235,21 @@ object MemoryEngine {
         filterTypes: String = "",
         customFilter: String = "",
         operator: String = "equal",
-        limit: Int = 100
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        limit: Int = 100,
+        options: MemoryMapOptions = globalMapOptions
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
-            val count = NativeBridge.scanMemoryFast(pid, sessionId, value, dataType, filterTypes, customFilter, operator)
+            val count = NativeBridge.scanMemoryFast(
+                pid,
+                sessionId,
+                value,
+                dataType,
+                filterTypes,
+                customFilter,
+                operator,
+                options.toMapFlags(),
+                options.minSize
+            )
             if (count < 0) throw IOException("Fast memory scan failed")
             if (count == 0) return@withContext Pair(0, emptyList())
             val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
@@ -405,10 +265,21 @@ object MemoryEngine {
         dataType: String,
         filterTypes: String = "",
         customFilter: String = "",
-        limit: Int = 100
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        limit: Int = 100,
+        options: MemoryMapOptions = globalMapOptions
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
-            val count = NativeBridge.scanRangeFast(pid, sessionId, valueMin, valueMax, dataType, filterTypes, customFilter)
+            val count = NativeBridge.scanRangeFast(
+                pid,
+                sessionId,
+                valueMin,
+                valueMax,
+                dataType,
+                filterTypes,
+                customFilter,
+                options.toMapFlags(),
+                options.minSize
+            )
             if (count < 0) throw IOException("Fast range scan failed")
             if (count == 0) return@withContext Pair(0, emptyList())
             val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
@@ -423,10 +294,20 @@ object MemoryEngine {
         dataType: String,
         filterTypes: String = "",
         customFilter: String = "",
-        limit: Int = 100
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        limit: Int = 100,
+        options: MemoryMapOptions = globalMapOptions
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
-            val count = NativeBridge.scanGroupFast(pid, sessionId, value, dataType, filterTypes, customFilter)
+            val count = NativeBridge.scanGroupFast(
+                pid,
+                sessionId,
+                value,
+                dataType,
+                filterTypes,
+                customFilter,
+                options.toMapFlags(),
+                options.minSize
+            )
             if (count < 0) throw IOException("Fast group scan failed")
             if (count == 0) return@withContext Pair(0, emptyList())
             val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
@@ -441,10 +322,20 @@ object MemoryEngine {
         obscuredType: String,
         filterTypes: String = "",
         customFilter: String = "",
-        limit: Int = 100
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        limit: Int = 100,
+        options: MemoryMapOptions = globalMapOptions
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
-            val count = NativeBridge.scanObscuredFast(pid, sessionId, value, obscuredType, filterTypes, customFilter)
+            val count = NativeBridge.scanObscuredFast(
+                pid,
+                sessionId,
+                value,
+                obscuredType,
+                filterTypes,
+                customFilter,
+                options.toMapFlags(),
+                options.minSize
+            )
             if (count < 0) throw IOException("Fast obscured scan failed")
             if (count == 0) return@withContext Pair(0, emptyList())
             val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
@@ -458,10 +349,19 @@ object MemoryEngine {
         value: String,
         filterTypes: String = "",
         customFilter: String = "",
-        limit: Int = 100
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+        limit: Int = 100,
+        options: MemoryMapOptions = globalMapOptions
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
-            val count = NativeBridge.scanBigDoubleFast(pid, sessionId, value, filterTypes, customFilter)
+            val count = NativeBridge.scanBigDoubleFast(
+                pid,
+                sessionId,
+                value,
+                filterTypes,
+                customFilter,
+                options.toMapFlags(),
+                options.minSize
+            )
             if (count < 0) throw IOException("Fast BigDouble scan failed")
             if (count == 0) return@withContext Pair(0, emptyList())
             val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
@@ -475,7 +375,7 @@ object MemoryEngine {
         targetValue: String,
         operator: String = "equal",
         limit: Int = 100
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
             val count = NativeBridge.filterMatchesFast(pid, sessionId, targetValue, operator)
             if (count < 0) throw IOException("Fast filter matches failed")
@@ -491,7 +391,7 @@ object MemoryEngine {
         minValue: String,
         maxValue: String,
         limit: Int = 100
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
             val count = NativeBridge.filterRangeMatchesFast(pid, sessionId, minValue, maxValue)
             if (count < 0) throw IOException("Fast range filter failed")
@@ -507,7 +407,7 @@ object MemoryEngine {
         targetValue: String,
         obscuredType: String,
         limit: Int = 100
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
             val count = NativeBridge.filterObscuredMatchesFast(pid, sessionId, targetValue, obscuredType)
             if (count < 0) throw IOException("Fast obscured filter failed")
@@ -522,7 +422,7 @@ object MemoryEngine {
         sessionId: String,
         targetValue: String,
         limit: Int = 100
-    ): Result<Pair<Int, List<MatchInfo>>> = runCatching {
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
             val count = NativeBridge.filterBigDoubleMatchesFast(pid, sessionId, targetValue)
             if (count < 0) throw IOException("Fast BigDouble filter failed")
@@ -542,128 +442,155 @@ object MemoryEngine {
         NativeBridge.decodeMatchesPage(sessionId, bytes, pid)
     }
 
+    suspend fun refreshResultsPage(
+        pid: Int,
+        sessionId: String,
+        offset: Int,
+        limit: Int
+    ): Pair<Int, List<MatchInfo>> = withContext(Dispatchers.IO) {
+        val bytes = NativeBridge.refreshResultsPage(pid, sessionId, offset, limit)
+        NativeBridge.decodeMatchesPage(sessionId, bytes, pid)
+    }
+
+    suspend fun saveSessionCheckpoint(sessionId: String): Boolean = withContext(Dispatchers.IO) {
+        NativeBridge.saveSessionCheckpoint(sessionId)
+    }
+
+    suspend fun getSessionUndoCount(sessionId: String): Int = withContext(Dispatchers.IO) {
+        NativeBridge.getSessionUndoCount(sessionId)
+    }
+
+    suspend fun isSessionSaved(sessionId: String): Boolean = withContext(Dispatchers.IO) {
+        NativeBridge.isSessionSaved(sessionId)
+    }
+
+    suspend fun undoSessionFast(
+        pid: Int,
+        sessionId: String,
+        limit: Int = 100
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatchingCancellable {
+        withContext(Dispatchers.IO) {
+            val count = NativeBridge.undoSession(sessionId)
+            if (count < 0) throw IOException("No refinement checkpoint available to undo")
+            if (count == 0) return@withContext Pair(0, emptyList())
+            val pageBytes = NativeBridge.getResultsPage(sessionId, 0, limit)
+            NativeBridge.decodeMatchesPage(sessionId, pageBytes, pid)
+        }
+    }
+
+    suspend fun cloneSessionFast(
+        pid: Int,
+        sourceSessionId: String,
+        targetSessionId: String,
+        limit: Int = 100
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatchingCancellable {
+        withContext(Dispatchers.IO) {
+            val count = NativeBridge.cloneSession(sourceSessionId, targetSessionId)
+            if (count < 0) throw IOException("Failed to clone search session")
+            if (count == 0) return@withContext Pair(0, emptyList())
+            val pageBytes = NativeBridge.getResultsPage(targetSessionId, 0, limit)
+            NativeBridge.decodeMatchesPage(targetSessionId, pageBytes, pid)
+        }
+    }
+
+    suspend fun copyMatchesToSessionFast(
+        pid: Int,
+        sourceSessionId: String,
+        targetSessionId: String,
+        addresses: LongArray,
+        limit: Int = 100
+    ): Result<Pair<Int, List<MatchInfo>>> = runCatchingCancellable {
+        withContext(Dispatchers.IO) {
+            val count = NativeBridge.copyMatchesToSession(sourceSessionId, targetSessionId, addresses)
+            if (count < 0) throw IOException("Failed to copy selected matches to target tab")
+            if (count == 0) return@withContext Pair(0, emptyList())
+            val pageBytes = NativeBridge.getResultsPage(targetSessionId, 0, limit)
+            NativeBridge.decodeMatchesPage(targetSessionId, pageBytes, pid)
+        }
+    }
+
     // === HELPER FUNCTIONS ===
 
-    private fun regionsToJson(regions: List<MemoryMapEntry>): String {
-        val arr = JSONArray()
-        for (r in regions) {
-            val obj = JSONObject()
-            obj.put("start", r.start)
-            obj.put("end", r.end)
-            obj.put("permissions", r.permissions)
-            obj.put("offset", r.offset)
-            obj.put("path", r.path)
-            arr.put(obj)
-        }
-        return arr.toString()
-    }
-
-    private fun parseMatchesFromJson(
-        json: String,
-        pid: Int,
-        defaultType: String,
-    ): Pair<Int, List<MatchInfo>> {
-        val results = mutableListOf<MatchInfo>()
-        var count = 0
-        try {
-            val root = JSONObject(json)
-            if (root.has("error")) {
-                Log.e(TAG, "Rust engine returned error: ${root.getString("error")}")
-                return Pair(0, emptyList())
-            }
-            count = root.optInt("count", 0)
-            if (!root.has("matches")) return Pair(count, emptyList())
-
-            val arr = root.getJSONArray("matches")
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                val address = obj.getLong("address")
-                val valueStr = obj.optString("value", "")
-                val vtype = obj.optString("value_type", defaultType)
-                val regionStart = obj.optLong("region_start", 0L)
-                val regionEnd = obj.optLong("region_end", 0L)
-                val perms = obj.optString("permissions", "")
-                val path = obj.optString("path", "")
-
-                val parsedValue: Any = when (vtype.lowercase()) {
-                    "byte" -> valueStr.toByteOrNull() ?: 0.toByte()
-                    "short" -> valueStr.toShortOrNull() ?: 0.toShort()
-                    "float16" -> valueStr.toFloatOrNull() ?: 0.0f
-                    "int" -> valueStr.toIntOrNull() ?: 0
-                    "long" -> valueStr.toLongOrNull() ?: 0L
-                    "float" -> valueStr.toFloatOrNull() ?: 0.0f
-                    "double" -> valueStr.toDoubleOrNull() ?: 0.0
-                    else -> valueStr
-                }
-
-                val size = when (vtype.lowercase()) {
-                    "byte" -> 1
-                    "short", "float16" -> 2
-                    "int", "float" -> 4
-                    "long", "double" -> 8
-                    else -> 4
-                }
-
-                results.add(
-                    MatchInfo(
-                        id = UUID.randomUUID().toString(),
-                        pid = pid,
-                        address = address,
-                        prevValue = parsedValue,
-                        valueType = vtype,
-                        size = size,
-                        memoryRegion = path,
-                        regionType = determineRegionType(path),
-                        regionStart = regionStart,
-                        regionEnd = regionEnd,
-                        permissions = perms,
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing Rust matches JSON: $e")
-        }
-        return Pair(count, results)
-    }
-
     @SuppressLint("SdCardPath")
+    private fun isDataRegion(path: String): Boolean {
+        return (path.startsWith("/data/app/") ||
+                path.startsWith("/data/data/") ||
+                path.startsWith("/data/user/") ||
+                path.startsWith("/data/user_de/") ||
+                path.startsWith("/mnt/expand/")) &&
+                !path.endsWith(".so")
+    }
+
+    private fun isFileBackedRegion(path: String): Boolean {
+        val p = path.trim()
+        if (p.isEmpty() || p.startsWith("[")) return false
+        if (p.startsWith("/dev/") || p.startsWith("/memfd:")) return false
+        return p.startsWith("/")
+    }
+
+    /**
+     * Checks whether a memory map path belongs to the given [MemoryRegionType],
+     * mirroring `maps.rs::match_filter_type_upper` in the native engine.
+     */
+    fun matchesRegionType(path: String, region: MemoryRegionType): Boolean {
+        return when (region) {
+            MemoryRegionType.ALLOC ->
+                path.contains("[anon:libc_malloc]") || path.contains("[anon:scudo:") ||
+                        path.contains("[anon:GWP-ASan]") || path.contains("[anon:jemalloc]") ||
+                        path.contains("[anon:malloc]")
+
+            MemoryRegionType.BSS ->
+                path.contains("[anon:.bss]") || path.contains("[anon:bss]")
+
+            MemoryRegionType.DATA ->
+                isDataRegion(path)
+
+            MemoryRegionType.HEAP ->
+                path == "[heap]" || path.startsWith("[heap")
+
+            MemoryRegionType.JAVA_HEAP ->
+                path.contains("/dev/ashmem/dalvik") || path.contains("[anon:dalvik-") ||
+                        path.contains("[anon:art_") || path.contains("[anon:main space]") ||
+                        path.contains("[anon:alloc space]") || path.contains("[anon:region space]") ||
+                        path.contains("[anon:zygote") || path.contains("[anon:large object space]") ||
+                        path.contains("[anon:non moving space]")
+
+            MemoryRegionType.ANONYMOUS ->
+                path.isEmpty() || (path.startsWith("[anon:") &&
+                        !path.contains("libc_malloc") && !path.contains("scudo") &&
+                        !path.contains("jemalloc") && !path.contains("GWP-ASan") &&
+                        !path.contains(".bss") && !path.contains("dalvik") &&
+                        !path.contains("art_") && !path.contains("ashmem"))
+
+            MemoryRegionType.STACK ->
+                path.contains("[stack]") || path.contains("[stack:")
+
+            MemoryRegionType.ASHMEM ->
+                path.contains("/dev/ashmem") || path.contains("[anon:ashmem]")
+
+            MemoryRegionType.NATIVE_LIBS ->
+                path.endsWith(".so")
+
+            MemoryRegionType.FILES ->
+                isFileBackedRegion(path)
+
+            MemoryRegionType.CUSTOM ->
+                false
+        }
+    }
+
     fun determineRegionType(path: String): String {
         return when {
-            path.isEmpty() || (path.startsWith("[anon:") &&
-                    !path.contains("libc_malloc") && !path.contains("scudo") &&
-                    !path.contains("jemalloc") && !path.contains("GWP-ASan") &&
-                    !path.contains(".bss") && !path.contains("dalvik") &&
-                    !path.contains("art_") && !path.contains("ashmem")) -> "ANONYMOUS"
-            
-            path.contains("[anon:libc_malloc]") || path.contains("[anon:scudo:") ||
-                    path.contains("[anon:GWP-ASan]") || path.contains("[anon:jemalloc]") ||
-                    path.contains("[anon:malloc]") -> "ALLOC"
-            
-            path.contains("[anon:.bss]") || path.contains("[anon:bss]") -> "BSS"
-            
-            (path.contains("/data/app/") || path.contains("/data/data/") ||
-                    path.contains("/data/user/") || path.contains("/data/user_de/") ||
-                    path.contains("/mnt/expand/")) &&
-                    !path.endsWith(".so") && !path.endsWith(".apk") &&
-                    !path.endsWith(".odex") && !path.endsWith(".oat") &&
-                    !path.endsWith(".vdex") && !path.endsWith(".art") &&
-                    !path.endsWith(".jar") -> "DATA"
-            
-            path.contains("[heap]") -> "HEAP"
-            
-            path.contains("/dev/ashmem/dalvik") || path.contains("[anon:dalvik-") ||
-                    path.contains("[anon:art_") || path.contains("[anon:main space]") ||
-                    path.contains("[anon:alloc space]") || path.contains("[anon:zygote") ||
-                    path.contains("[anon:large object space]") || path.contains("[anon:non moving space]") -> "JAVA_HEAP"
-
-            path.contains("[stack]") || path.contains("[stack:") -> "STACK"
-            
-            path.contains("/dev/ashmem") || path.contains("[anon:ashmem]") -> "ASHMEM"
-            
-            path.endsWith(".so") || path.endsWith(".apk") || path.endsWith(".odex") ||
-                    path.endsWith(".oat") || path.endsWith(".vdex") || path.endsWith(".art") ||
-                    path.endsWith(".jar") -> "LIBS"
-            
+            matchesRegionType(path, MemoryRegionType.ANONYMOUS) -> MemoryRegionType.ANONYMOUS.name
+            matchesRegionType(path, MemoryRegionType.ALLOC) -> MemoryRegionType.ALLOC.name
+            matchesRegionType(path, MemoryRegionType.BSS) -> MemoryRegionType.BSS.name
+            matchesRegionType(path, MemoryRegionType.HEAP) -> MemoryRegionType.HEAP.name
+            matchesRegionType(path, MemoryRegionType.JAVA_HEAP) -> MemoryRegionType.JAVA_HEAP.name
+            matchesRegionType(path, MemoryRegionType.STACK) -> MemoryRegionType.STACK.name
+            matchesRegionType(path, MemoryRegionType.ASHMEM) -> MemoryRegionType.ASHMEM.name
+            matchesRegionType(path, MemoryRegionType.NATIVE_LIBS) -> MemoryRegionType.NATIVE_LIBS.name
+            matchesRegionType(path, MemoryRegionType.DATA) -> MemoryRegionType.DATA.name
+            matchesRegionType(path, MemoryRegionType.FILES) -> MemoryRegionType.FILES.name
             else -> "UNKNOWN"
         }
     }
@@ -672,7 +599,7 @@ object MemoryEngine {
         pid: Int,
         baseExpr: String,
         offsets: List<Long>
-    ): Result<Long> = runCatching {
+    ): Result<Long> = runCatchingCancellable {
         withContext(Dispatchers.IO) {
             val offsetsJson = JSONArray(offsets).toString()
             val addr = NativeBridge.resolvePointerChain(pid, baseExpr, offsetsJson)
@@ -685,13 +612,13 @@ object MemoryEngine {
 
     /**
      * Parses complex address expressions including:
-     * - Direct Hex: "0x7b123400"
-     * - Module Offset: "libil2cpp.so+0x1234"
-     * - Pointer Dereference: "[0x7b123400]+0x20" or "[libil2cpp.so+0x1234]+0x20+0x48"
+     * - Direct Hex: "0x7b123400" or "@0x7b123400"
+     * - Module Offset: "libnative.so+0x1234"
+     * - Pointer Dereference: "[0x7b123400]+0x20" or "[libnative.so+0x1234]+0x20+0x48"
      * - Simple addition: "0x7b123400+0x48"
      */
     suspend fun parseAddressExpression(pid: Int, expr: String): Long? {
-        val s = expr.trim()
+        val s = expr.trim().removePrefix("@").trim()
         if (s.isEmpty()) return null
 
         return withContext(Dispatchers.IO) {
@@ -779,8 +706,8 @@ object MemoryEngine {
     suspend fun runLuaScript(
         pid: Int,
         script: String
-    ): Result<LuaExecutionResult> = runCatching {
-        withContext(Dispatchers.IO) {
+    ): Result<LuaExecutionResult> = try {
+        val executionResult = withContext(Dispatchers.IO) {
             val callback = com.yervant.huntmem.ui.overlay.tabs.LuaUiBridge.asAidlCallback()
             val json = NativeBridge.runLuaScript(pid, script, callback)
             val obj = JSONObject(json)
@@ -795,9 +722,15 @@ object MemoryEngine {
                 result = result
             )
         }
+        Result.success(executionResult)
+    } catch (ce: CancellationException) {
+        throw ce
+    } catch (e: Exception) {
+        Result.failure(e)
     }
 
     fun stopLuaScript() {
+        com.yervant.huntmem.ui.overlay.tabs.LuaUiBridge.cancelPendingDialog()
         NativeBridge.cancelLuaScript()
     }
 }

@@ -164,7 +164,7 @@ To run HuntMemory on your device:
 5. **KernelPatch & HuntMemory-KPM(HMKPM)**:
    - Device kernel patched with **[KernelPatch](https://github.com/bmax121/KernelPatch)**.
    - Or Device kernel patched with **[KPM-Manager](https://github.com/Yervant7/KPM-Manager)**.
-   - **[HMKPM](https://github.com/Yervant7/HuntMemory-KPM)** loaded to enable direct MMU memory manipulation via the `SYS_GETRESUID` syscall hook.
+   - **[HMKPM](https://github.com/Yervant7/HuntMemory-KPM)** loaded to enable direct MMU memory access via the `SYS_GETRESUID` kernel interface.
 6. **Overlay Permission**:
    - Grant **"Display over other apps"** (`SYSTEM_ALERT_WINDOW`) when prompted on the initial launch.
 

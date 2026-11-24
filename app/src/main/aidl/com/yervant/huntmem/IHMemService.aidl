@@ -23,7 +23,7 @@ package com.yervant.huntmem;
 import com.yervant.huntmem.ILuaUiCallback;
 
 /**
- * Root service for memory reading/writing via pagemap + HMKPM.
+ * Root service for process memory inspection and editing via HMKPM direct MMU translation and V2P residency checks.
  */
 interface IHMemService {
 
@@ -40,21 +40,8 @@ interface IHMemService {
 
     int nativeWriteMemory(int pid, long address, String value, String valueType);
 
-    String nativeGetMemoryMaps(int pid, boolean require_read, boolean require_write, boolean include_swapped, long min_size, String filter_types, String custom);
-
-    String nativeScanMemory(int pid, String sessionId, String value, String valueType, String regionsJson, String operator);
-
-    String nativeScanRange(int pid, String sessionId, String minValue, String maxValue, String valueType, String regionsJson);
-
-    String nativeScanGroup(int pid, String sessionId, String groupSpec, String valueType, String regionsJson);
-
-    String nativeFilterMatches(int pid, String sessionId, String targetValue, String operator);
-
-    String nativeFilterRangeMatches(int pid, String sessionId, String minValue, String maxValue);
-
     void nativeClearSession(String sessionId);
 
-    int nativeBatchWrite(int pid, String writesJson);
     int nativeBatchWriteBinary(int pid, in byte[] payload);
 
     int nativeFreezeAddress(int pid, long address, String value, String valueType);
@@ -62,14 +49,6 @@ interface IHMemService {
     boolean nativeUnfreezeAddress(int pid, long address);
 
     int nativeUnfreezeAll();
-
-    String nativeScanObscured(int pid, String sessionId, String value, String obscuredType, String regionsJson);
-
-    String nativeScanBigDouble(int pid, String sessionId, String value, String regionsJson);
-
-    String nativeFilterObscuredMatches(int pid, String sessionId, String targetValue, String obscuredType);
-
-    String nativeFilterBigDoubleMatches(int pid, String sessionId, String targetValue);
 
     int nativeWriteObscured(int pid, long address, String value, String obscuredType);
 
@@ -91,15 +70,17 @@ interface IHMemService {
 
     byte[] nativeGetResultsPage(String sessionId, int offset, int limit);
 
-    int nativeScanMemoryFast(int pid, String sessionId, String value, String valueType, String filterTypes, String customFilter, String operator);
+    byte[] nativeRefreshResultsPage(int pid, String sessionId, int offset, int limit);
 
-    int nativeScanRangeFast(int pid, String sessionId, String minValue, String maxValue, String valueType, String filterTypes, String customFilter);
+    int nativeScanMemoryFast(int pid, String sessionId, String value, String valueType, String filterTypes, String customFilter, String operator, int mapFlags, long minSize);
 
-    int nativeScanGroupFast(int pid, String sessionId, String groupSpec, String valueType, String filterTypes, String customFilter);
+    int nativeScanRangeFast(int pid, String sessionId, String minValue, String maxValue, String valueType, String filterTypes, String customFilter, int mapFlags, long minSize);
 
-    int nativeScanObscuredFast(int pid, String sessionId, String value, String obscuredType, String filterTypes, String customFilter);
+    int nativeScanGroupFast(int pid, String sessionId, String groupSpec, String valueType, String filterTypes, String customFilter, int mapFlags, long minSize);
 
-    int nativeScanBigDoubleFast(int pid, String sessionId, String value, String filterTypes, String customFilter);
+    int nativeScanObscuredFast(int pid, String sessionId, String value, String obscuredType, String filterTypes, String customFilter, int mapFlags, long minSize);
+
+    int nativeScanBigDoubleFast(int pid, String sessionId, String value, String filterTypes, String customFilter, int mapFlags, long minSize);
 
     int nativeFilterMatchesFast(int pid, String sessionId, String targetValue, String operator);
 
@@ -112,5 +93,19 @@ interface IHMemService {
     void nativeSetScanEngineMode(int mode);
 
     int nativeGetScanEngineMode();
+
+    void nativeCancelScan();
+
+    boolean nativeSaveSessionCheckpoint(String sessionId);
+
+    int nativeUndoSession(String sessionId);
+
+    int nativeGetSessionUndoCount(String sessionId);
+
+    boolean nativeIsSessionSaved(String sessionId);
+
+    int nativeCloneSession(String sourceSessionId, String targetSessionId);
+
+    int nativeCopyMatchesToSession(String sourceSessionId, String targetSessionId, in long[] addresses);
 }
 

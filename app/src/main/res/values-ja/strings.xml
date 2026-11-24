@@ -129,7 +129,7 @@
     <string name="memory_menu_preset_reset">リセット</string>
     <string name="memory_menu_syntax_help_title">検索テクニックと構文ヘルプ</string>
     <string name="memory_menu_syntax_help_button_cd">検索構文ヘルプ</string>
-    <string name="memory_menu_syntax_help_text"><b>1. 仮数 / 指数 (科学的表記 / BigDouble):</b>\n• <i>1.5e6</i> または <i>1.5,6</i> または <i>1.5:6</i>\n• 型: BigDoubleを選択するか <i>bigdouble:1.5,6</i> と入力\n\n<b>2. 難読化 / 暗号化値 (Anti-Cheat XOR):</b>\n• Obscured Int または Obscured Float を選択\n• またはプレフィックス: <i>xor:1000</i> または <i>obscured:1000</i>\n\n<b>3. 浮動小数点許容誤差 / イプシロン:</b>\n• 絶対マージン: <i>100.0 +- 0.5</i>\n• パーセントマージン: <i>100 +- 2%</i>\n\n<b>4. スケーリング固定小数点:</b>\n• 乗数式: <i>10.5 * 1000</i> (10500を検索)\n• またはプレフィックス: <i>scaled:10.5:1000</i>\n\n<b>5. 異種構造体グループ:</b>\n• 複合型: <i>f64:1.5; i64:6 : 16</i>\n• または: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_syntax_help_text"><b>1. 仮数 / 指数 (科学的表記 / BigDouble):</b>\n• <i>1.5e6</i> または <i>1.5,6</i> または <i>1.5:6</i>\n• 型: BigDoubleを選択するか <i>bigdouble:1.5,6</i> と入力\n\n<b>2. 難読化 / 暗号化値 (XORキーペア):</b>\n• Obscured Int または Obscured Float を選択\n• またはプレフィックス: <i>xor:1000</i> または <i>obscured:1000</i>\n\n<b>3. 浮動小数点許容誤差 / イプシロン:</b>\n• 絶対マージン: <i>100.0 +- 0.5</i>\n• パーセントマージン: <i>100 +- 2%</i>\n\n<b>4. スケーリング固定小数点:</b>\n• 乗数式: <i>10.5 * 1000</i> (10500を検索)\n• またはプレフィックス: <i>scaled:10.5:1000</i>\n\n<b>5. 異種構造体グループ:</b>\n• 複合型: <i>f64:1.5; i64:6 : 16</i>\n• または: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
     <string name="memory_menu_new_scan_button">新規スキャン</string>
     <string name="memory_menu_new_search_button_initial">新規検索</string>
     <string name="memory_menu_refine_button">絞り込み</string>
@@ -159,7 +159,7 @@
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">免責事項</string>
-    <string name="disclaimer_text">HuntMemory へようこそ。\n\nこれは、自身のアプリケーションやプロセスにおける開発、デバッグ、学習目的を意図したメモリ読み取り・編集ツールです。\n\nオンラインゲームでのチート行為、他アプリケーションの不正な改変、第三者の利用規約または現行法に違反するその他の行為など、違法な活動にこのアプリを使用することは固く禁止されています。\n\n続行することにより、ご自身の行動に対して全責任を負うことを認め、同意したものとみなされます。開発者は、本ツールの使用から生じるいかなる誤用、損害、悪影響についても一切の責任を負いません。</string>
+    <string name="disclaimer_text">HuntMemory へようこそ。\n\nこれは、自身のアプリケーションやプロセスにおける開発、デバッグ、学習目的を意図したメモリ読み取り・編集ツールです。\n\n違法な活動、他アプリケーションの不正な改変、第三者の利用規約または現行法に違反するその他の行為にこのアプリを使用することは固く禁止されています。\n\n続行することにより、ご自身の行動に対して全責任を負うことを認め、同意したものとみなされます。開発者は、本ツールの使用から生じるいかなる誤用、損害、悪影響についても一切の責任を負いません。</string>
     <string name="disclaimer_accept_button">同意して続行</string>
     <string name="disclaimer_scroll_down_hint">スクロールして詳細を読む</string>
 
@@ -224,10 +224,10 @@
     <string name="search_help_try_hint">ヒント: 例をタップすると検索バーに直接入力されます。</string>
     <string name="search_help_cat_basic_title">完全一致と浮動小数点許容差</string>
     <string name="search_help_cat_basic_desc">完全な数値、または絶対値・パーセント誤差を含む浮動小数点値を検索します。</string>
-    <string name="search_help_cat_obscured_title">難読化・アンチチート (XOR)</string>
-    <string name="search_help_cat_obscured_desc">動的XORキーを使用してアンチチートエンジン（ACTkなど）によって保護された暗号化変数をスキャンします。</string>
+    <string name="search_help_cat_obscured_title">難読化・XORキーペア</string>
+    <string name="search_help_cat_obscured_desc">動的XORキーと値のペアでエンコードされた難読化変数をスキャンします。</string>
     <string name="search_help_cat_bigdouble_title">科学表記・BigDouble</string>
-    <string name="search_help_cat_bigdouble_desc">仮数と指数として格納された巨大な数値（放置・インクリメンタルゲームで多用）。</string>
+    <string name="search_help_cat_bigdouble_desc">仮数と指数として格納された大きな数値（科学計算や広範囲数値ランタイムで使用）。</string>
     <string name="search_help_cat_scaled_title">固定小数点・スケール値</string>
     <string name="search_help_cat_scaled_desc">内部で整数としてスケーリング保持される小数（例: 10.5 × 1000 の場合 10500 を検索）。</string>
     <string name="search_help_cat_group_title">構造体・グループ検索</string>
@@ -270,7 +270,7 @@
     <string name="main_screen_status_popup_permission_missing">ポップアップ未許可</string>
     <string name="oem_compat_banner_title">%1$s 最適化</string>
     <string name="oem_compat_hyperos_desc">カスタムROMが検出されました。オーバーレイの強制終了を防ぐため、「ポップアップ表示」と「自動起動」を許可してください。</string>
-    <string name="oem_compat_battery_desc">バックグラウンドでのバッテリー制限により、ゲーム中にオーバーレイが終了する可能性があります。</string>
+    <string name="oem_compat_battery_desc">バックグラウンドでのバッテリー制限により、高負荷なフォアグラウンド実行中にオーバーレイが終了する可能性があります。</string>
     <string name="oem_compat_status_granted">許可済み</string>
     <string name="oem_compat_status_missing">未許可</string>
     <string name="oem_compat_status_unrestricted">制限なし</string>
@@ -286,7 +286,7 @@
     <string name="oem_compat_dialog_item_overlay_title">1. ポップアップとオーバーレイ</string>
     <string name="oem_compat_dialog_item_overlay_desc">HyperOS/MIUIでは、セキュリティアプリで「バックグラウンドでのポップアップ表示」を許可する必要があります。</string>
     <string name="oem_compat_dialog_item_autostart_title">2. 自動起動とバックグラウンド動作</string>
-    <string name="oem_compat_dialog_item_autostart_desc">自動起動を許可すると、ゲーム中にメモリクリーナーによってHuntMemoryが終了するのを防ぎます。</string>
+    <string name="oem_compat_dialog_item_autostart_desc">自動起動を許可すると、フォアグラウンドアプリが大量のメモリを使用する際にメモリクリーナーによってHuntMemoryが終了するのを防ぎます。</string>
     <string name="oem_compat_dialog_item_battery_title">3. バッテリー制限なし</string>
     <string name="oem_compat_dialog_item_battery_desc">継続的なスキャンのために、バッテリーセーバーを「制限なし」に設定してください。</string>
     <string name="oem_compat_dialog_dismiss">了解</string>

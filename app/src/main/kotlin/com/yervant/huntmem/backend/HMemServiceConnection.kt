@@ -28,12 +28,24 @@ import android.os.IBinder
 import android.util.Log
 import com.topjohnwu.superuser.ipc.RootService
 import com.yervant.huntmem.IHMemService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 object HMemServiceConnection : ServiceConnection {
     private const val TAG = "HMemServiceConnection"
+
+    private val connectionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    @Volatile
+    private var appContext: Context? = null
 
     @Volatile
     var service: IHMemService? = null
@@ -46,12 +58,16 @@ object HMemServiceConnection : ServiceConnection {
     private var binding = false
 
     fun bind(context: Context, force: Boolean = false) {
+        val appCtx = context.applicationContext
+        appContext = appCtx
         if (!force && (service != null || binding)) return
         binding = true
         Log.i(TAG, "Binding to HMemService (force=$force)...")
-        val intent = Intent(context, HMemService::class.java).apply {
-            putExtra("NATIVE_LIB_DIR", context.applicationInfo.nativeLibraryDir)
-            putExtra("PACKAGE_NAME", context.packageName)
+        val sandboxDumpsDir = (appCtx.getExternalFilesDir("dumps") ?: File(appCtx.filesDir, "dumps")).absolutePath
+        val intent = Intent(appCtx, HMemService::class.java).apply {
+            putExtra("NATIVE_LIB_DIR", appCtx.applicationInfo.nativeLibraryDir)
+            putExtra("PACKAGE_NAME", appCtx.packageName)
+            putExtra("SANDBOX_DUMPS_DIR", sandboxDumpsDir)
         }
         try {
             RootService.bind(intent, this)
@@ -64,28 +80,50 @@ object HMemServiceConnection : ServiceConnection {
     override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
         service = IHMemService.Stub.asInterface(binder)
         binding = false
+        NativeBridge.invalidateHmkpmCache()
         _isConnected.value = true
         Log.i(TAG, "Root HMemService connected successfully!")
+        connectionScope.launch {
+            NativeBridge.setScanEngineMode(MemoryEngine.globalScanEngineMode.code)
+            NativeBridge.getHmkpmVersionInfo(forceRefresh = true)
+        }
     }
 
     override fun onServiceDisconnected(name: ComponentName?) {
         service = null
         binding = false
+        NativeBridge.invalidateHmkpmCache()
         _isConnected.value = false
         Log.w(TAG, "Root HMemService disconnected.")
+        scheduleReconnect()
     }
 
     override fun onBindingDied(name: ComponentName?) {
         service = null
         binding = false
+        NativeBridge.invalidateHmkpmCache()
         _isConnected.value = false
         Log.w(TAG, "Root HMemService binding died.")
+        scheduleReconnect()
     }
 
     override fun onNullBinding(name: ComponentName?) {
         service = null
         binding = false
+        NativeBridge.invalidateHmkpmCache()
         _isConnected.value = false
         Log.w(TAG, "Root HMemService null binding.")
+    }
+
+    private fun scheduleReconnect() {
+        val ctx = appContext ?: return
+        connectionScope.launch {
+            delay(500L)
+            if (service == null && !binding) {
+                withContext(Dispatchers.Main) {
+                    bind(ctx, force = false)
+                }
+            }
+        }
     }
 }

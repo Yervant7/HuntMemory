@@ -25,9 +25,9 @@ graph TD
         subgraph Rust_Engine ["Rust Engine (libhmem_jni.so)"]
             SCAN["Scanner (ARM NEON SIMD)"]
             EDIT["Memory Editor & FreezeEngine"]
-            SCRIPT["Lua 5.4 Engine (mlua + gg.* API)"]
-            MAPS["Maps & Pagemap Streaming Parser"]
-            KPMC["HMKPM Client (mlock + Syscall Hook)"]
+            SCRIPT["Lua 5.4 Engine (mlua + hmem.* API)"]
+            MAPS["Maps Streaming Parser & V2P Inspector"]
+            KPMC["HMKPM Client (Zero-Copy Kernel Interface)"]
         end
     end
 
@@ -65,11 +65,11 @@ The user-facing presentation layer runs in a standard Android app process and is
   - Supports dynamic resizing, repositioning, and collapse into a floating bubble overlay.
 
 - **`LuaCanvasOverlay` & `LuaUiBridge`**:
-  - Hardware-accelerated transparent overlay window rendering 2D geometry, text, ESP boxes, and radar HUDs over games using Compose `DrawScope`.
+  - Hardware-accelerated transparent overlay window rendering 2D geometry, text, bounding boxes, and telemetry overlays over applications using Compose `DrawScope`.
   - Dispatches interactive UI events (toasts, alerts, prompt inputs, dynamic menus) triggered by running Lua scripts.
 
 - **Integrated Virtual Keyboard (`VirtualKeyboard`)**:
-  - Eliminates reliance on the system Input Method Editor (IME), preventing window re-layouts or overlay displacements over target games/applications.
+  - Eliminates reliance on the system Input Method Editor (IME), preventing window re-layouts or overlay displacements over foreground applications.
   - Dynamically renders contextual keyboard layouts: **QWERTY**, **Numeric / Decimal**, and **Hexadecimal**.
 
 - **Asynchronous State Management**:
@@ -79,7 +79,7 @@ The user-facing presentation layer runs in a standard Android app process and is
 
 ## ⚡ 2. Privileged IPC Layer (Root Process)
 
-To bypass Android userspace SELinux restrictions and access low-level OS interfaces (`/proc/[pid]/maps`, `pagemap`, kernel syscalls), HuntMemory spawns a dedicated root daemon.
+To operate with root privileges and access low-level OS interfaces (`/proc/<pid>/maps` and HMKPM `SYS_GETRESUID` kernel syscalls), HuntMemory spawns a dedicated root daemon.
 
 ### Key Components
 
@@ -102,19 +102,19 @@ The computational engine is implemented in **Rust (Edition 2024)** and compiled 
 
 - **Zero-Panic JNI Boundary**:
   - Every exported JNI function wraps execution inside `std::panic::catch_unwind`.
-  - Errors are safely converted into typed error codes or structured JSON payloads, preventing JVM/ART crashes.
+  - Errors are safely converted into typed error codes or structured JSON responses, preventing JVM/ART crashes.
 
 - **`@FastNative` Optimization**:
   - Native functions avoid full JNI transition overhead when executing lightweight memory operations.
 
 - **Lua 5.4 Scripting Engine (`script.rs`)**:
-  - Embeds Lua 5.4 through `mlua`, exposing high-level memory automation, pointer traversal, batch edits, and GameGuardian (`gg.*`) API compatibility.
+  - Embeds Lua 5.4 through `mlua`, exposing high-level memory automation, pointer traversal, batch edits, and 2D Canvas telemetry rendering via `hmem.*` and `canvas.*`.
   - Implements the `ScriptUiCallback` trait to bridge script execution with Android Compose UI components asynchronously.
 
 - **Memory Map Streaming Parser (`maps.rs`) & Direct MMU V2P Resolver (`v2p.rs`)**:
   - Parses `/proc/[pid]/maps` using reusable heap buffers and zero-copy string slicing.
   - Automatically merges contiguous adjacent regions sharing identical permissions, paths, and continuous file offsets into consolidated entries with `merged_count`.
-  - **Zero-FD Kernel V2P Inspector (`v2p.rs`)**: Replaces legacy `/proc/[pid]/pagemap` parsing with direct MMU page table walks via HMKPM (`HMKPM_MAGIC_V2P_BATCH`), inspecting hardware `PAGE_FLAG_PRESENT` without touching procfs or leaving file descriptors.
+  - **Zero-FD Kernel V2P Inspector (`v2p.rs`)**: Performs direct MMU page-table walks via HMKPM (`HMKPM_MAGIC_V2P_BATCH`), inspecting hardware `PAGE_FLAG_PRESENT` in 4096-entry batches with zero procfs page-map file descriptors.
 
 - **Freeze Engine & Memory Editor (`editor.rs`)**:
   - Runs a dedicated background worker thread synchronized via `Arc<(Mutex<FreezeState>, Condvar)>`, partitioning locked addresses by `(pid, address)` for multi-process safety.
@@ -129,12 +129,13 @@ HuntMemory interacts directly with physical memory through **HMKPM**, a speciali
 
 ### Key Characteristics
 
-- **Dedicated Syscall Hooking**:
-  - Hooks the `SYS_GETRESUID` syscall (Syscall ID 148 on aarch64) using a proprietary 64-bit magic constant (`0x0048_4D4B_504D`).
+- **Dedicated Kernel Interface**:
+  - Dispatches via the `SYS_GETRESUID` syscall (Syscall ID 148 on aarch64) using a proprietary 64-bit magic constant (`0x0048_4D4B_504D`).
 
 - **Direct MMU Translation (`pgd`)**:
   - Traverses the target process page tables directly (`task->mm->pgd`).
   - Resolves virtual-to-physical memory mappings.
 
-- **Userspace Memory Locking (`mlock`)**:
-  - Userspace transfer buffers are pinned with `mlock` during large batch operations, guaranteeing that the Linux kernel paging daemon does not trigger unexpected page faults while accessing memory buffers.
+- **Aligned Transfer Buffers & Lockless Read-Only Mode**:
+  - Small single transfers ($\le 256$ bytes) use an 8-byte aligned `AlignedStackBuf`, while large reads, writes, and scan loops use reusable 8-byte aligned heap buffers (`AlignedHeapBuf` / `KpmReadBuffer`).
+  - When `mm_struct->mmap_lock` is unavailable on a kernel, HMKPM activates Lockless read-only mode (`is_lockless = 1`, `HMKPM_FEATURE_LOCKLESS`), preserving read, scan, V2P, and enumeration operations while returning `-EOPNOTSUPP` on writes.

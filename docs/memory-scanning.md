@@ -21,30 +21,30 @@ Mask extraction is performed efficiently using bitwise reduction (`vmaxvq_u8` / 
 
 ---
 
-## 🧩 2. Robust Chunked Memory Reader
+## 🧩 2. V2P-Guided Chunked Memory Reader
 
-Process memory on Android often contains sparse, unmapped, or guard pages within mapped virtual ranges.
+Process memory on Android often contains sparse, uncommitted, or guard pages within mapped virtual ranges.
 
-### The 4MB → 64KB Subdivision Pipeline
+### The V2P Resident-Range & 4 MiB Chunk Pipeline
 
 ```mermaid
 graph TD
-    A["Target Memory Region"] --> B["Attempt 4 MB Block Read via HMKPM"]
-    B -->|Success| C["Process SIMD Scan on 4 MB Buffer"]
-    B -->|Failure / Sparse Page| D["Subdivide into 64 KB Sub-blocks"]
-    D --> E["Read individual 64 KB chunks"]
-    E -->|Valid chunk| F["Scan valid sub-block"]
-    E -->|Unmapped page| G["Skip non-resident chunk safely"]
+    A["Target Memory Region"] --> B["Split into 4 KiB-aligned ScanTasks (up to 4 MiB + overlap)"]
+    B --> C["Query V2pReader::get_present_ranges (HMKPM_MAGIC_V2P_BATCH)"]
+    C --> D["Coalesce contiguous PAGE_FLAG_PRESENT & hugepage spans"]
+    D --> E["Read resident spans into 8-byte aligned KpmReadBuffer"]
+    E --> F["Execute ARM64 NEON SIMD scan (or HMKPM_MAGIC_SCAN_KERNEL)"]
 ```
 
-1. Memory regions are read in **4 MB chunks** to minimize kernel syscall transitions.
-2. If a 4 MB block read fails due to non-resident or guard pages, the engine automatically falls back to **64 KB sub-chunks**, extracting all accessible data while ignoring faulting pages.
+1. `build_scan_tasks` partitions target regions into 4 KiB-aligned `ScanTask` slices of up to **`CHUNK_SIZE` (4 MiB)** with a boundary overlap window (`max_step - 1`) to preserve matches spanning slice boundaries.
+2. Worker threads (up to 8 via `std::thread::scope`) query `V2pReader::get_present_ranges` (`HMKPM_MAGIC_V2P_BATCH`, 4096 pages per batch) to coalesce contiguous `PAGE_FLAG_PRESENT` pages and hugepage blocks into resident `(start_addr, end_addr)` intervals.
+3. Only resident intervals are read into reusable 8-byte aligned `KpmReadBuffer` buffers and scanned via ARM64 NEON SIMD intrinsics, or dispatched directly to kernel space via `HMKPM_MAGIC_SCAN_KERNEL` when `ScanEngineMode` selects in-kernel scanning.
 
 ---
 
 ## 🗺️ 3. Memory Region Classification & Filtering
 
-Memory regions are parsed from `/proc/[pid]/maps` and matched against physical presence in `/proc/[pid]/pagemap`.
+Memory regions are streamed from `/proc/<pid>/maps` (with `HMKPM_MAGIC_ENUM_REGIONS` fallback when `/proc/<pid>/maps` is inaccessible) and filtered for physical residency via `V2pReader` (`HMKPM_MAGIC_V2P_BATCH`).
 
 ### Memory Region Types
 
@@ -58,7 +58,6 @@ Memory regions are parsed from `/proc/[pid]/maps` and matched against physical p
 | **`[JH]`** | Java Heap | `/dev/ashmem/dalvik*`, `[anon:dalvik-*]`, `[anon:art_*]`, `[anon:main space]`, `[anon:region space]` |
 | **`[S]`** | Stack | `[stack]`, `[stack:*]` |
 | **`[AS]`** | Ashmem | `/dev/ashmem*`, `[anon:ashmem]` |
-| **`[XA]`** | Libraries / Code | `*.so`, `*.apk`, `*.dex`, `*.odex`, `*.oat`, `*.vdex`, `*.art`, `*.jar` |
 | **`[NL]`** | Native Libs | `*.so` native shared libraries |
 | **`[F]`** | Files | Mapped filesystem files (`/data/*`, `/system/*`, etc.) |
 | **`[CUSTOM]`** | Custom Filter | Regex or substring match against path names |
@@ -66,11 +65,11 @@ Memory regions are parsed from `/proc/[pid]/maps` and matched against physical p
 ### Contiguous Region Consolidation (`merged_count`)
 Contiguous adjacent memory mappings sharing identical permissions, paths, and continuous file offsets are automatically consolidated into single unified entries with a `merged_count` indicator, significantly reducing memory table clutter and kernel scan dispatch overhead.
 
-### Pagemap Residency & Memory Safety Rules
-- **Non-File Regions**: Verified against `/proc/[pid]/pagemap` using `PM_PRESENT` (bit 63) to ensure memory is resident in physical RAM before reading.
-- **Data & Libs (`CD`, `XA`)**: Supports both `PM_PRESENT` and `PM_SWAP` (bit 62) to handle Android zram-compressed pages.
-- **Memory Write Verification**: All memory writing operations (`write_value`, `write_obscured`, `write_big_double`, `batch_write`, `write_xor_value`, Lua scripts, and `FreezeEngine`) validate `PM_PRESENT` for starting and ending boundary pages before issuing kernel syscalls.
-- **Chunk Boundary Overlap**: Scans across 4 MB chunks use an overlap rewind window (`max_step - 1`) with deduplication to guarantee multi-byte values crossing chunk boundaries are never split or missed.
+### V2P Residency & Memory Safety Rules
+- **Non-File Anonymous Regions**: Checked through `V2pReader` (`HMKPM_MAGIC_V2P_BATCH`) using `PAGE_FLAG_PRESENT` before reading, skipping uncommitted virtual allocations without opening procfs page-map file descriptors.
+- **Swappable Regions (`include_swapped`)**: Regions matching `region_supports_swap` (such as `[heap]`, `[stack]`, allocators, `.bss`, Dalvik/ART spaces, and `ashmem`) are preserved during map enumeration when `MapsOptions::include_swapped` is enabled.
+- **Memory Write Verification**: Write paths (`write_raw_bytes`, `write_value`, `write_obscured`, `write_big_double`, `batch_write_binary`, Lua writes, and `FreezeEngine`) validate `PAGE_FLAG_PRESENT` via `v2p::is_page_present` on boundary pages before dispatching kernel writes.
+- **Chunk Boundary Overlap**: `ScanTask` slices across 4 MiB chunks use an overlap window (`max_step - 1`) gated by `[emit_start, emit_end)` so multi-byte values crossing chunk boundaries are never split or duplicated.
 
 ---
 
@@ -129,16 +128,16 @@ To eliminate JSON serialization and garbage collection pauses across the JNI bri
 
 ## 🔐 7. Obscured Types & Scientific Notations
 
-### Obscured XOR Keypairs (Anti-Cheat Toolkit / ACTk)
-Many games store sensitive variables (e.g., gold, health) as XOR-encrypted pairs:
-$$\text{hiddenValue} = \text{targetValue} \oplus \text{cryptoKey}$$
-- **`ObscuredInt` / `ObscuredFloat`** (8 bytes: 4-byte key + 4-byte encrypted value).
-- **`ObscuredDouble` / `ObscuredLong`** (16 bytes: 8-byte key + 8-byte encrypted value).
+### Obscured XOR Keypairs
+Some runtimes store numeric variables (e.g., counters, telemetry metrics) as XOR-encoded key-value pairs:
+$$\text{hiddenValue} = \text{targetValue} \oplus \text{xorKey}$$
+- **`ObscuredInt` / `ObscuredFloat`** (8 bytes: 4-byte key + 4-byte XOR-encoded value).
+- **`ObscuredDouble` / `ObscuredLong`** (16 bytes: 8-byte key + 8-byte XOR-encoded value).
 
-HuntMemory detects, decodes, and writes obscured types directly, automatically handling random key rotation or key preservation.
+HuntMemory scans, decodes, and writes obscured types directly, automatically handling random key rotation or key preservation.
 
 ### BigDouble Scientific Structs (BreakInfinity / Decimal)
-Idle and incremental games frequently utilize large number libraries represented as mantissa and exponent structs:
+Simulation and scientific runtimes frequently utilize extended-range numeric libraries represented as mantissa and exponent structs:
 $$\text{Value} = \text{mantissa} \times 10^{\text{exponent}}$$
 - **16-byte format**: `{ mantissa: f64, exponent: i64 }`
 - **12-byte format**: `{ mantissa: f64, exponent: i32 }`
@@ -151,5 +150,5 @@ Format parsing supports scientific notation directly (e.g., `1.5e12` or `1.5,12`
 
 - **Native Background Worker**: Managed via a dedicated thread in `editor.rs` synchronized with `Arc<(Mutex<FreezeState>, Condvar)>`.
 - **Atomic Registration**: Addresses are registered with their target value and partitioned by `(pid, address)`.
-- **Physical Page Validation**: Verifies `PM_PRESENT` on each target page prior to writing.
+- **Physical Page Validation**: Verifies `PAGE_FLAG_PRESENT` via `v2p::is_page_present` prior to dispatching writes.
 - **Configurable Tick Rate**: Operates at configurable tick intervals (default: **100ms**) using batched kernel writes to minimize CPU wakeups.

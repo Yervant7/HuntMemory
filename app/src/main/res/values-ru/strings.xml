@@ -132,7 +132,7 @@
     <string name="memory_menu_preset_reset">СБРОС</string>
     <string name="memory_menu_syntax_help_title">Методы Поиска и Синтаксис</string>
     <string name="memory_menu_syntax_help_button_cd">Справка по синтаксису поиска</string>
-    <string name="memory_menu_syntax_help_text"><b>1. Мантисса / Экспонента (Научная / BigDouble):</b>\n• <i>1.5e6</i> или <i>1.5,6</i> или <i>1.5:6</i>\n• Тип: Выберите BigDouble или введите <i>bigdouble:1.5,6</i>\n\n<b>2. Обфусцированные / Зашифрованные (Anti-Cheat XOR):</b>\n• Выберите Obscured Int или Obscured Float\n• Или префикс: <i>xor:1000</i> или <i>obscured:1000</i>\n\n<b>3. Допуск Float / Эпсилон:</b>\n• Абсолютная погрешность: <i>100.0 +- 0.5</i>\n• Процентная погрешность: <i>100 +- 2%</i>\n\n<b>4. Масштабированная Фиксированная Точка:</b>\n• Формула: <i>10.5 * 1000</i> (поиск 10500)\n• Или префикс: <i>scaled:10.5:1000</i>\n\n<b>5. Гетерогенная Группа Структур:</b>\n• Смешанные типы: <i>f64:1.5; i64:6 : 16</i>\n• Или: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_syntax_help_text"><b>1. Мантисса / Экспонента (Научная / BigDouble):</b>\n• <i>1.5e6</i> или <i>1.5,6</i> или <i>1.5:6</i>\n• Тип: Выберите BigDouble или введите <i>bigdouble:1.5,6</i>\n\n<b>2. Обфусцированные / Зашифрованные (Пара XOR):</b>\n• Выберите Obscured Int или Obscured Float\n• Или префикс: <i>xor:1000</i> или <i>obscured:1000</i>\n\n<b>3. Допуск Float / Эпсилон:</b>\n• Абсолютная погрешность: <i>100.0 +- 0.5</i>\n• Процентная погрешность: <i>100 +- 2%</i>\n\n<b>4. Масштабированная Фиксированная Точка:</b>\n• Формула: <i>10.5 * 1000</i> (поиск 10500)\n• Или префикс: <i>scaled:10.5:1000</i>\n\n<b>5. Гетерогенная Группа Структур:</b>\n• Смешанные типы: <i>f64:1.5; i64:6 : 16</i>\n• Или: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
     <string name="memory_menu_new_scan_button">Новый Поиск</string>
     <string name="memory_menu_new_search_button_initial">Новый Поиск</string>
     <string name="memory_menu_refine_button">Отсеять</string>
@@ -168,7 +168,7 @@
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">Отказ от Ответственности</string>
-    <string name="disclaimer_text">Добро пожаловать в HuntMemory.\n\nЭто инструмент для чтения и редактирования памяти, предназначенный для разработки, отладки и обучения в ваших собственных приложениях и процессах.\n\nСтрого запрещено использовать это приложение в противоправных целях, таких как читерство в онлайн-играх, несанкционированная модификация сторонних приложений или любые действия, нарушающие условия обслуживания третьих лиц или действующее законодательство.\n\nПродолжая, вы признаете и соглашаетесь с тем, что несете полную ответственность за свои действия. Разработчики не несут ответственности за неправомерное использование, ущерб или любые негативные последствия использования этого инструмента.</string>
+    <string name="disclaimer_text">Добро пожаловать в HuntMemory.\n\nЭто инструмент для чтения и редактирования памяти, предназначенный для разработки, отладки и обучения в ваших собственных приложениях и процессах.\n\nСтрого запрещено использовать это приложение в противоправных целях, для несанкционированной модификации сторонних приложений или любых действий, нарушающих условия обслуживания третьих лиц или действующее законодательство.\n\nПродолжая, вы признаете и соглашаетесь с тем, что несете полную ответственность за свои действия. Разработчики не несут ответственности за неправомерное использование, ущерб или любые негативные последствия использования этого инструмента.</string>
     <string name="disclaimer_accept_button">Принять и Продолжить</string>
     <string name="disclaimer_scroll_down_hint">Прокрутите вниз, чтобы прочитать больше</string>
 
@@ -233,10 +233,10 @@
     <string name="search_help_try_hint">Совет: Нажмите на любой пример, чтобы вставить его в строку поиска.</string>
     <string name="search_help_cat_basic_title">Точное значение и допуск Float</string>
     <string name="search_help_cat_basic_desc">Поиск точных чисел или значений с плавающей запятой с абсолютным или процентным допуском.</string>
-    <string name="search_help_cat_obscured_title">Маскированные и Античит (XOR)</string>
-    <string name="search_help_cat_obscured_desc">Сканирует зашифрованные переменные, защищенные античитами (например, ACTk) с динамическими XOR-ключами.</string>
+    <string name="search_help_cat_obscured_title">Маскированные и Пара XOR</string>
+    <string name="search_help_cat_obscured_desc">Сканирует маскированные переменные, закодированные с помощью динамических пар ключей XOR.</string>
     <string name="search_help_cat_bigdouble_title">Экспоненциальный и BigDouble</string>
-    <string name="search_help_cat_bigdouble_desc">Огромные числа, хранящиеся как мантисса и экспонента (характерно для idle/кликер игр).</string>
+    <string name="search_help_cat_bigdouble_desc">Большие числа, хранящиеся как мантисса и экспонента (используются в научных и высокодиапазонных числовых средах).</string>
     <string name="search_help_cat_scaled_title">Масштабированное фиксированное число</string>
     <string name="search_help_cat_scaled_desc">Десятичные дроби, хранящиеся как масштабированные целые (напр., 10.5 с множителем 1000 ищет 10500).</string>
     <string name="search_help_cat_group_title">Структуры и групповой поиск</string>
@@ -279,7 +279,7 @@
     <string name="main_screen_status_popup_permission_missing">Нет всплывающих окон</string>
     <string name="oem_compat_banner_title">Оптимизация %1$s</string>
     <string name="oem_compat_hyperos_desc">Обнаружена кастомная прошивка. Разрешите «Всплывающие окна» и «Автозапуск», чтобы оверлей не закрывался.</string>
-    <string name="oem_compat_battery_desc">Ограничения батареи могут принудительно закрыть оверлей во время игры.</string>
+    <string name="oem_compat_battery_desc">Ограничения батареи могут принудительно закрыть оверлей при интенсивной работе приложений на переднем плане.</string>
     <string name="oem_compat_status_granted">Разрешено</string>
     <string name="oem_compat_status_missing">Отсутствует</string>
     <string name="oem_compat_status_unrestricted">Без ограничений</string>

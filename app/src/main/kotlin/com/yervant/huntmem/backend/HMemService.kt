@@ -25,14 +25,53 @@ import android.os.IBinder
 import android.util.Log
 import com.topjohnwu.superuser.ipc.RootService
 import com.yervant.huntmem.IHMemService
+import com.yervant.huntmem.ILuaUiCallback
+import org.json.JSONObject
 
 class HMemService : RootService() {
     companion object {
         private const val TAG = "HMemService"
+
+        private inline fun <T> safeNativeCall(methodName: String, fallback: T, block: () -> T): T {
+            if (!NativeBridge.isLoaded) {
+                Log.e(TAG, "$methodName skipped: native library is not loaded")
+                return fallback
+            }
+            return try {
+                block()
+            } catch (e: Throwable) {
+                Log.e(TAG, "$methodName error in root process: ${e.message}", e)
+                fallback
+            }
+        }
+
+        private inline fun safeNativeVoidCall(methodName: String, block: () -> Unit) {
+            if (!NativeBridge.isLoaded) {
+                Log.e(TAG, "$methodName skipped: native library is not loaded")
+                return
+            }
+            try {
+                block()
+            } catch (e: Throwable) {
+                Log.e(TAG, "$methodName error in root process: ${e.message}", e)
+            }
+        }
+
+        private fun hmkpmErrorJson(message: String): String =
+            JSONObject().put("available", false).put("error", message).toString()
+
+        private fun luaErrorJson(message: String): String =
+            JSONObject()
+                .put("success", false)
+                .put("output", "")
+                .put("error", message)
+                .put("result", JSONObject.NULL)
+                .toString()
     }
 
     override fun onBind(intent: Intent): IBinder {
         val customLibDir = intent.getStringExtra("NATIVE_LIB_DIR")
+        val sandboxDumpsDir = intent.getStringExtra("SANDBOX_DUMPS_DIR")
         Log.i(TAG, "onBind in root daemon. NATIVE_LIB_DIR = $customLibDir")
 
         // Load the JNI library in the root process Context with explicit path fallback
@@ -41,40 +80,43 @@ class HMemService : RootService() {
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to load native library in HMemService: ${e.message}", e)
         }
-        return object : IHMemService.Stub() {
-            override fun nativeIsHmkpmAvailable(): Boolean {
-                return try {
-                    NativeBridge.nativeIsHmkpmAvailable()
-                } catch (e: Throwable) {
-                    Log.e(TAG, "nativeIsHmkpmAvailable error in root process: ${e.message}", e)
-                    false
-                }
+
+        if (NativeBridge.isLoaded && !sandboxDumpsDir.isNullOrBlank()) {
+            safeNativeVoidCall("nativeSetSandboxDumpDir") {
+                NativeBridge.nativeSetSandboxDumpDir(sandboxDumpsDir)
             }
+        }
+
+        return object : IHMemService.Stub() {
+            override fun nativeIsHmkpmAvailable(): Boolean =
+                safeNativeCall("nativeIsHmkpmAvailable", false) {
+                    NativeBridge.nativeIsHmkpmAvailable()
+                }
 
             override fun nativeGetHmkpmVersionInfo(): String {
+                if (!NativeBridge.isLoaded) {
+                    Log.e(TAG, "nativeGetHmkpmVersionInfo skipped: native library is not loaded")
+                    return hmkpmErrorJson("Native library not loaded")
+                }
                 return try {
                     NativeBridge.nativeGetHmkpmVersionInfo()
                 } catch (e: Throwable) {
                     Log.e(TAG, "nativeGetHmkpmVersionInfo error in root process: ${e.message}", e)
-                    "{\"available\":false,\"error\":\"${e.message}\"}"
+                    hmkpmErrorJson(e.message ?: "Native error")
                 }
             }
 
-            override fun nativeTranslateV2P(pid: Int, addresses: LongArray): LongArray? {
-                return try {
+            override fun nativeTranslateV2P(pid: Int, addresses: LongArray): LongArray? =
+                safeNativeCall("nativeTranslateV2P", null) {
                     NativeBridge.nativeTranslateV2P(pid, addresses)
-                } catch (e: Throwable) {
-                    Log.e(TAG, "nativeTranslateV2P error in root process: ${e.message}", e)
-                    null
                 }
-            }
 
             override fun nativeReadMemory(
                 pid: Int,
                 address: Long,
                 valueType: String
-            ): String {
-                return NativeBridge.nativeReadMemory(pid, address, valueType)
+            ): String = safeNativeCall("nativeReadMemory", "error") {
+                NativeBridge.nativeReadMemory(pid, address, valueType)
             }
 
             override fun nativeWriteMemory(
@@ -82,88 +124,21 @@ class HMemService : RootService() {
                 address: Long,
                 value: String,
                 valueType: String
-            ): Int {
-                return NativeBridge.nativeWriteMemory(pid, address, value, valueType)
-            }
-
-            override fun nativeGetMemoryMaps(
-                pid: Int,
-                requireRead: Boolean,
-                requireWrite: Boolean,
-                includeSwapped: Boolean,
-                minSize: Long,
-                filterTypes: String,
-                custom: String
-            ): String {
-                return NativeBridge.nativeGetMemoryMaps(pid, requireRead, requireWrite, includeSwapped, minSize, filterTypes, custom)
-            }
-
-            override fun nativeScanMemory(
-                pid: Int,
-                sessionId: String,
-                value: String,
-                valueType: String,
-                regionsJson: String,
-                operator: String
-            ): String {
-                return NativeBridge.nativeScanMemory(pid, sessionId, value, valueType, regionsJson, operator)
-            }
-
-            override fun nativeScanRange(
-                pid: Int,
-                sessionId: String,
-                minValue: String,
-                maxValue: String,
-                valueType: String,
-                regionsJson: String
-            ): String {
-                return NativeBridge.nativeScanRange(pid, sessionId, minValue, maxValue, valueType, regionsJson)
-            }
-
-            override fun nativeScanGroup(
-                pid: Int,
-                sessionId: String,
-                groupSpec: String,
-                valueType: String,
-                regionsJson: String
-            ): String {
-                return NativeBridge.nativeScanGroup(pid, sessionId, groupSpec, valueType, regionsJson)
-            }
-
-            override fun nativeFilterMatches(
-                pid: Int,
-                sessionId: String,
-                targetValue: String,
-                operator: String
-            ): String {
-                return NativeBridge.nativeFilterMatches(pid, sessionId, targetValue, operator)
-            }
-
-            override fun nativeFilterRangeMatches(
-                pid: Int,
-                sessionId: String,
-                minValue: String,
-                maxValue: String
-            ): String {
-                return NativeBridge.nativeFilterRangeMatches(pid, sessionId, minValue, maxValue)
+            ): Int = safeNativeCall("nativeWriteMemory", -1) {
+                NativeBridge.nativeWriteMemory(pid, address, value, valueType)
             }
 
             override fun nativeClearSession(sessionId: String) {
-                NativeBridge.nativeClearSession(sessionId)
-            }
-
-            override fun nativeBatchWrite(
-                pid: Int,
-                writesJson: String
-            ): Int {
-                return NativeBridge.nativeBatchWrite(pid, writesJson)
+                safeNativeVoidCall("nativeClearSession") {
+                    NativeBridge.nativeClearSession(sessionId)
+                }
             }
 
             override fun nativeBatchWriteBinary(
                 pid: Int,
                 payload: ByteArray
-            ): Int {
-                return NativeBridge.nativeBatchWriteBinary(pid, payload)
+            ): Int = safeNativeCall("nativeBatchWriteBinary", 0) {
+                NativeBridge.nativeBatchWriteBinary(pid, payload)
             }
 
             override fun nativeFreezeAddress(
@@ -171,90 +146,70 @@ class HMemService : RootService() {
                 address: Long,
                 value: String,
                 valueType: String
-            ): Int {
-                return NativeBridge.nativeFreezeAddress(pid, address, value, valueType)
+            ): Int = safeNativeCall("nativeFreezeAddress", -1) {
+                NativeBridge.nativeFreezeAddress(pid, address, value, valueType)
             }
 
-            override fun nativeUnfreezeAddress(pid: Int, address: Long): Boolean {
-                return NativeBridge.nativeUnfreezeAddress(pid, address)
-            }
+            override fun nativeUnfreezeAddress(pid: Int, address: Long): Boolean =
+                safeNativeCall("nativeUnfreezeAddress", false) {
+                    NativeBridge.nativeUnfreezeAddress(pid, address)
+                }
 
-            override fun nativeUnfreezeAll(): Int {
-                return NativeBridge.nativeUnfreezeAll()
-            }
-
-            override fun nativeScanObscured(
-                pid: Int,
-                sessionId: String,
-                value: String,
-                obscuredType: String,
-                regionsJson: String
-            ): String {
-                return NativeBridge.nativeScanObscured(pid, sessionId, value, obscuredType, regionsJson)
-            }
-
-            override fun nativeScanBigDouble(
-                pid: Int,
-                sessionId: String,
-                value: String,
-                regionsJson: String
-            ): String {
-                return NativeBridge.nativeScanBigDouble(pid, sessionId, value, regionsJson)
-            }
-
-            override fun nativeFilterObscuredMatches(
-                pid: Int,
-                sessionId: String,
-                targetValue: String,
-                obscuredType: String
-            ): String {
-                return NativeBridge.nativeFilterObscuredMatches(pid, sessionId, targetValue, obscuredType)
-            }
-
-            override fun nativeFilterBigDoubleMatches(
-                pid: Int,
-                sessionId: String,
-                targetValue: String
-            ): String {
-                return NativeBridge.nativeFilterBigDoubleMatches(pid, sessionId, targetValue)
-            }
+            override fun nativeUnfreezeAll(): Int =
+                safeNativeCall("nativeUnfreezeAll", 0) {
+                    NativeBridge.nativeUnfreezeAll()
+                }
 
             override fun nativeWriteObscured(
                 pid: Int,
                 address: Long,
                 value: String,
                 obscuredType: String
-            ): Int {
-                return NativeBridge.nativeWriteObscured(pid, address, value, obscuredType)
+            ): Int = safeNativeCall("nativeWriteObscured", -1) {
+                NativeBridge.nativeWriteObscured(pid, address, value, obscuredType)
             }
 
             override fun nativeWriteBigDouble(
                 pid: Int,
                 address: Long,
                 value: String
-            ): Int {
-                return NativeBridge.nativeWriteBigDouble(pid, address, value)
+            ): Int = safeNativeCall("nativeWriteBigDouble", -1) {
+                NativeBridge.nativeWriteBigDouble(pid, address, value)
             }
 
-            override fun nativeIsAddressFrozen(pid: Int, address: Long): Boolean {
-                return NativeBridge.nativeIsAddressFrozen(pid, address)
-            }
+            override fun nativeIsAddressFrozen(pid: Int, address: Long): Boolean =
+                safeNativeCall("nativeIsAddressFrozen", false) {
+                    NativeBridge.nativeIsAddressFrozen(pid, address)
+                }
 
-            override fun nativeRunLuaScript(pid: Int, script: String, callback: com.yervant.huntmem.ILuaUiCallback?): String {
-                return NativeBridge.nativeRunLuaScript(pid, script, callback)
+            override fun nativeRunLuaScript(pid: Int, script: String, callback: ILuaUiCallback?): String {
+                if (!NativeBridge.isLoaded) {
+                    Log.e(TAG, "nativeRunLuaScript skipped: native library is not loaded")
+                    return luaErrorJson("Native library not loaded in root service")
+                }
+                return try {
+                    NativeBridge.nativeRunLuaScript(pid, script, callback)
+                } catch (e: Throwable) {
+                    Log.e(TAG, "nativeRunLuaScript error in root process: ${e.message}", e)
+                    luaErrorJson("Root service native error: ${e.message ?: "unknown"}")
+                }
             }
 
             override fun nativeCancelLuaScript() {
-                NativeBridge.nativeCancelLuaScript()
+                safeNativeVoidCall("nativeCancelLuaScript") {
+                    NativeBridge.nativeCancelLuaScript()
+                }
             }
 
-            override fun nativeGetModuleBase(pid: Int, moduleName: String): Long {
-                return NativeBridge.nativeGetModuleBase(pid, moduleName)
-            }
+            override fun nativeGetModuleBase(pid: Int, moduleName: String): Long =
+                safeNativeCall("nativeGetModuleBase", 0L) {
+                    NativeBridge.nativeGetModuleBase(pid, moduleName)
+                }
 
-            override fun nativeResolvePointerChain(pid: Int, baseExpr: String, offsetsJson: String): Long {
-                return NativeBridge.nativeResolvePointerChain(pid, baseExpr, offsetsJson)
-            }
+            override fun nativeResolvePointerChain(pid: Int, baseExpr: String, offsetsJson: String): Long =
+                safeNativeCall("nativeResolvePointerChain", 0L) {
+                    NativeBridge.nativeResolvePointerChain(pid, baseExpr, offsetsJson)
+                }
 
             override fun nativeGetMemoryMapsBinary(
                 pid: Int,
@@ -264,17 +219,24 @@ class HMemService : RootService() {
                 min_size: Long,
                 filter_types: String,
                 custom: String
-            ): ByteArray? {
-                return NativeBridge.nativeGetMemoryMapsBinary(pid, require_read, require_write, include_swapped, min_size, filter_types, custom)
+            ): ByteArray? = safeNativeCall("nativeGetMemoryMapsBinary", null) {
+                NativeBridge.nativeGetMemoryMapsBinary(pid, require_read, require_write, include_swapped, min_size, filter_types, custom)
             }
 
-            override fun nativeGetResultsCount(sessionId: String): Int {
-                return NativeBridge.nativeGetResultsCount(sessionId)
-            }
+            override fun nativeGetResultsCount(sessionId: String): Int =
+                safeNativeCall("nativeGetResultsCount", 0) {
+                    NativeBridge.nativeGetResultsCount(sessionId)
+                }
 
-            override fun nativeGetResultsPage(sessionId: String, offset: Int, limit: Int): ByteArray? {
-                return NativeBridge.nativeGetResultsPage(sessionId, offset, limit)
-            }
+            override fun nativeGetResultsPage(sessionId: String, offset: Int, limit: Int): ByteArray? =
+                safeNativeCall("nativeGetResultsPage", null) {
+                    NativeBridge.nativeGetResultsPage(sessionId, offset, limit)
+                }
+
+            override fun nativeRefreshResultsPage(pid: Int, sessionId: String, offset: Int, limit: Int): ByteArray? =
+                safeNativeCall("nativeRefreshResultsPage", null) {
+                    NativeBridge.nativeRefreshResultsPage(pid, sessionId, offset, limit)
+                }
 
             override fun nativeScanMemoryFast(
                 pid: Int,
@@ -283,9 +245,13 @@ class HMemService : RootService() {
                 valueType: String,
                 filterTypes: String,
                 customFilter: String,
-                operator: String
-            ): Int {
-                return NativeBridge.nativeScanMemoryFast(pid, sessionId, value, valueType, filterTypes, customFilter, operator)
+                operator: String,
+                mapFlags: Int,
+                minSize: Long
+            ): Int = safeNativeCall("nativeScanMemoryFast", -1) {
+                NativeBridge.nativeScanMemoryFast(
+                    pid, sessionId, value, valueType, filterTypes, customFilter, operator, mapFlags, minSize
+                )
             }
 
             override fun nativeScanRangeFast(
@@ -295,9 +261,13 @@ class HMemService : RootService() {
                 maxValue: String,
                 valueType: String,
                 filterTypes: String,
-                customFilter: String
-            ): Int {
-                return NativeBridge.nativeScanRangeFast(pid, sessionId, minValue, maxValue, valueType, filterTypes, customFilter)
+                customFilter: String,
+                mapFlags: Int,
+                minSize: Long
+            ): Int = safeNativeCall("nativeScanRangeFast", -1) {
+                NativeBridge.nativeScanRangeFast(
+                    pid, sessionId, minValue, maxValue, valueType, filterTypes, customFilter, mapFlags, minSize
+                )
             }
 
             override fun nativeScanGroupFast(
@@ -306,9 +276,13 @@ class HMemService : RootService() {
                 groupSpec: String,
                 valueType: String,
                 filterTypes: String,
-                customFilter: String
-            ): Int {
-                return NativeBridge.nativeScanGroupFast(pid, sessionId, groupSpec, valueType, filterTypes, customFilter)
+                customFilter: String,
+                mapFlags: Int,
+                minSize: Long
+            ): Int = safeNativeCall("nativeScanGroupFast", -1) {
+                NativeBridge.nativeScanGroupFast(
+                    pid, sessionId, groupSpec, valueType, filterTypes, customFilter, mapFlags, minSize
+                )
             }
 
             override fun nativeScanObscuredFast(
@@ -317,9 +291,13 @@ class HMemService : RootService() {
                 value: String,
                 obscuredType: String,
                 filterTypes: String,
-                customFilter: String
-            ): Int {
-                return NativeBridge.nativeScanObscuredFast(pid, sessionId, value, obscuredType, filterTypes, customFilter)
+                customFilter: String,
+                mapFlags: Int,
+                minSize: Long
+            ): Int = safeNativeCall("nativeScanObscuredFast", -1) {
+                NativeBridge.nativeScanObscuredFast(
+                    pid, sessionId, value, obscuredType, filterTypes, customFilter, mapFlags, minSize
+                )
             }
 
             override fun nativeScanBigDoubleFast(
@@ -327,9 +305,13 @@ class HMemService : RootService() {
                 sessionId: String,
                 value: String,
                 filterTypes: String,
-                customFilter: String
-            ): Int {
-                return NativeBridge.nativeScanBigDoubleFast(pid, sessionId, value, filterTypes, customFilter)
+                customFilter: String,
+                mapFlags: Int,
+                minSize: Long
+            ): Int = safeNativeCall("nativeScanBigDoubleFast", -1) {
+                NativeBridge.nativeScanBigDoubleFast(
+                    pid, sessionId, value, filterTypes, customFilter, mapFlags, minSize
+                )
             }
 
             override fun nativeFilterMatchesFast(
@@ -337,8 +319,8 @@ class HMemService : RootService() {
                 sessionId: String,
                 targetValue: String,
                 operator: String
-            ): Int {
-                return NativeBridge.nativeFilterMatchesFast(pid, sessionId, targetValue, operator)
+            ): Int = safeNativeCall("nativeFilterMatchesFast", -1) {
+                NativeBridge.nativeFilterMatchesFast(pid, sessionId, targetValue, operator)
             }
 
             override fun nativeFilterRangeMatchesFast(
@@ -346,8 +328,8 @@ class HMemService : RootService() {
                 sessionId: String,
                 minValue: String,
                 maxValue: String
-            ): Int {
-                return NativeBridge.nativeFilterRangeMatchesFast(pid, sessionId, minValue, maxValue)
+            ): Int = safeNativeCall("nativeFilterRangeMatchesFast", -1) {
+                NativeBridge.nativeFilterRangeMatchesFast(pid, sessionId, minValue, maxValue)
             }
 
             override fun nativeFilterObscuredMatchesFast(
@@ -355,24 +337,66 @@ class HMemService : RootService() {
                 sessionId: String,
                 targetValue: String,
                 obscuredType: String
-            ): Int {
-                return NativeBridge.nativeFilterObscuredMatchesFast(pid, sessionId, targetValue, obscuredType)
+            ): Int = safeNativeCall("nativeFilterObscuredMatchesFast", -1) {
+                NativeBridge.nativeFilterObscuredMatchesFast(pid, sessionId, targetValue, obscuredType)
             }
 
             override fun nativeFilterBigDoubleMatchesFast(
                 pid: Int,
                 sessionId: String,
                 targetValue: String
-            ): Int {
-                return NativeBridge.nativeFilterBigDoubleMatchesFast(pid, sessionId, targetValue)
+            ): Int = safeNativeCall("nativeFilterBigDoubleMatchesFast", -1) {
+                NativeBridge.nativeFilterBigDoubleMatchesFast(pid, sessionId, targetValue)
             }
 
             override fun nativeSetScanEngineMode(mode: Int) {
-                NativeBridge.nativeSetScanEngineMode(mode)
+                safeNativeVoidCall("nativeSetScanEngineMode") {
+                    NativeBridge.nativeSetScanEngineMode(mode)
+                }
             }
 
-            override fun nativeGetScanEngineMode(): Int {
-                return NativeBridge.nativeGetScanEngineMode()
+            override fun nativeGetScanEngineMode(): Int =
+                safeNativeCall("nativeGetScanEngineMode", 0) {
+                    NativeBridge.nativeGetScanEngineMode()
+                }
+
+            override fun nativeCancelScan() {
+                safeNativeVoidCall("nativeCancelScan") {
+                    NativeBridge.nativeCancelScan()
+                }
+            }
+
+            override fun nativeSaveSessionCheckpoint(sessionId: String): Boolean =
+                safeNativeCall("nativeSaveSessionCheckpoint", false) {
+                    NativeBridge.nativeSaveSessionCheckpoint(sessionId)
+                }
+
+            override fun nativeUndoSession(sessionId: String): Int =
+                safeNativeCall("nativeUndoSession", -1) {
+                    NativeBridge.nativeUndoSession(sessionId)
+                }
+
+            override fun nativeGetSessionUndoCount(sessionId: String): Int =
+                safeNativeCall("nativeGetSessionUndoCount", 0) {
+                    NativeBridge.nativeGetSessionUndoCount(sessionId)
+                }
+
+            override fun nativeIsSessionSaved(sessionId: String): Boolean =
+                safeNativeCall("nativeIsSessionSaved", false) {
+                    NativeBridge.nativeIsSessionSaved(sessionId)
+                }
+
+            override fun nativeCloneSession(sourceSessionId: String, targetSessionId: String): Int =
+                safeNativeCall("nativeCloneSession", -1) {
+                    NativeBridge.nativeCloneSession(sourceSessionId, targetSessionId)
+                }
+
+            override fun nativeCopyMatchesToSession(
+                sourceSessionId: String,
+                targetSessionId: String,
+                addresses: LongArray
+            ): Int = safeNativeCall("nativeCopyMatchesToSession", -1) {
+                NativeBridge.nativeCopyMatchesToSession(sourceSessionId, targetSessionId, addresses)
             }
         }
     }

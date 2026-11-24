@@ -132,7 +132,7 @@
     <string name="memory_menu_preset_reset">REDEFINIR</string>
     <string name="memory_menu_syntax_help_title">Técnicas de Busca &amp; Sintaxe</string>
     <string name="memory_menu_syntax_help_button_cd">Ajuda de sintaxe de busca</string>
-    <string name="memory_menu_syntax_help_text"><b>1. Mantissa / Expoente (Notação Científica / BigDouble):</b>\n• <i>1.5e6</i> ou <i>1.5,6</i> ou <i>1.5:6</i>\n• Tipo: Selecione BigDouble ou use <i>bigdouble:1.5,6</i>\n\n<b>2. Valores Ofuscados (Anti-Cheat XOR):</b>\n• Selecione Obscured Int ou Obscured Float\n• Ou use o prefixo: <i>xor:1000</i> ou <i>obscured:1000</i>\n\n<b>3. Tolerância de Float / Epsilon:</b>\n• Margem absoluta: <i>100.0 +- 0.5</i>\n• Margem percentual: <i>100 +- 2%</i>\n\n<b>4. Ponto Fixo Escalonado:</b>\n• Fórmula com multiplicador: <i>10.5 * 1000</i> (busca 10500)\n• Ou prefixo: <i>scaled:10.5:1000</i>\n\n<b>5. Grupo Heterogêneo de Estruturas:</b>\n• Tipos mistos: <i>f64:1.5; i64:6 : 16</i>\n• Ou: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_syntax_help_text"><b>1. Mantissa / Expoente (Notação Científica / BigDouble):</b>\n• <i>1.5e6</i> ou <i>1.5,6</i> ou <i>1.5:6</i>\n• Tipo: Selecione BigDouble ou use <i>bigdouble:1.5,6</i>\n\n<b>2. Valores Ofuscados (Par XOR):</b>\n• Selecione Obscured Int ou Obscured Float\n• Ou use o prefixo: <i>xor:1000</i> ou <i>obscured:1000</i>\n\n<b>3. Tolerância de Float / Epsilon:</b>\n• Margem absoluta: <i>100.0 +- 0.5</i>\n• Margem percentual: <i>100 +- 2%</i>\n\n<b>4. Ponto Fixo Escalonado:</b>\n• Fórmula com multiplicador: <i>10.5 * 1000</i> (busca 10500)\n• Ou prefixo: <i>scaled:10.5:1000</i>\n\n<b>5. Grupo Heterogêneo de Estruturas:</b>\n• Tipos mistos: <i>f64:1.5; i64:6 : 16</i>\n• Ou: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
     <string name="memory_menu_new_scan_button">Nova Busca</string>
     <string name="memory_menu_new_search_button_initial">Nova Busca</string>
     <string name="memory_menu_refine_button">Refinar</string>
@@ -166,7 +166,7 @@
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">Aviso de Isenção de Responsabilidade</string>
-    <string name="disclaimer_text">Bem-vindo ao HuntMemory.\n\nEsta é uma ferramenta de leitura e edição de memória destinada a fins de desenvolvimento, depuração e aprendizado em seus próprios aplicativos e processos.\n\nÉ estritamente proibido o uso deste aplicativo para atividades ilegais, como trapaças em jogos online, modificação não autorizada de outros aplicativos ou qualquer outra ação que viole os termos de serviço de terceiros ou a legislação vigente.\n\nAo continuar, você reconhece e concorda que é o único responsável por suas ações. Os desenvolvedores deste aplicativo não se responsabilizam por qualquer uso indevido, dano ou consequência negativa resultante da utilização desta ferramenta.</string>
+    <string name="disclaimer_text">Bem-vindo ao HuntMemory.\n\nEsta é uma ferramenta de leitura e edição de memória destinada a fins de desenvolvimento, depuração e aprendizado em seus próprios aplicativos e processos.\n\nÉ estritamente proibido o uso deste aplicativo para atividades ilícitas, modificação não autorizada de outros aplicativos ou qualquer outra ação que viole os termos de serviço de terceiros ou a legislação vigente.\n\nAo continuar, você reconhece e concorda que é o único responsável por suas ações. Os desenvolvedores deste aplicativo não se responsabilizam por qualquer uso indevido, dano ou consequência negativa resultante da utilização desta ferramenta.</string>
     <string name="disclaimer_accept_button">Aceitar e Continuar</string>
     <string name="disclaimer_scroll_down_hint">Role para baixo para ver mais</string>
 
@@ -231,10 +231,10 @@
     <string name="search_help_try_hint">Dica: Toque em qualquer exemplo para preenchê-lo diretamente na barra de busca.</string>
     <string name="search_help_cat_basic_title">Exato &amp; Tolerância Float</string>
     <string name="search_help_cat_basic_desc">Busque números exatos ou valores de ponto flutuante com margem absoluta ou percentual.</string>
-    <string name="search_help_cat_obscured_title">Ofuscado &amp; Anti-Cheat (XOR)</string>
-    <string name="search_help_cat_obscured_desc">Escaneia variáveis criptografadas protegidas por mecanismos anti-cheat (como ACTk) com chaves XOR dinâmicas.</string>
+    <string name="search_help_cat_obscured_title">Ofuscado &amp; Par XOR</string>
+    <string name="search_help_cat_obscured_desc">Escaneia variáveis ofuscadas codificadas com pares de chaves XOR dinâmicas.</string>
     <string name="search_help_cat_bigdouble_title">Científico &amp; BigDouble</string>
-    <string name="search_help_cat_bigdouble_desc">Valores gigantescos armazenados como mantissa e expoente (comuns em jogos incrementais/idle).</string>
+    <string name="search_help_cat_bigdouble_desc">Valores grandes armazenados como mantissa e expoente (usados em ambientes científicos e numéricos de grande escala).</string>
     <string name="search_help_cat_scaled_title">Ponto Fixo Escalonado</string>
     <string name="search_help_cat_scaled_desc">Decimais armazenados internamente como inteiros escalonados (ex: 10.5 com escala 1000 busca 10500).</string>
     <string name="search_help_cat_group_title">Estruturas &amp; Busca em Grupo</string>
@@ -259,8 +259,17 @@
     <string name="hmkpm_dialog_feature_write">Escrita Direta na Memória</string>
     <string name="hmkpm_dialog_feature_v2p">Tradução de Endereços V2P</string>
     <string name="hmkpm_dialog_feature_kernel_scan">Varredura MMU no Kernel</string>
+    <string name="hmkpm_dialog_feature_scan_ext">Varredura Estendida (Valores e Cursor)</string>
+    <string name="hmkpm_dialog_feature_scan_refine">Refinamento no Kernel</string>
+    <string name="hmkpm_dialog_feature_read_chain">Cadeias de Ponteiros no Kernel</string>
+    <string name="hmkpm_dialog_feature_enum_regions">Enumeração de Regiões MMU</string>
+    <string name="hmkpm_dialog_feature_fsnotify">Filtro Fsnotify (/proc)</string>
     <string name="hmkpm_dialog_feature_lockless">Guarda de Segurança Lockless</string>
     <string name="hmkpm_dialog_mmap_offset">Offset do mmap_lock</string>
+    <string name="hmkpm_dialog_kernel_version">Versão do Kernel</string>
+    <string name="hmkpm_dialog_mmu_geometry">Geometria MMU</string>
+    <string name="hmkpm_dialog_sw_pan_mode">Modo SW PAN</string>
+    <string name="hmkpm_dialog_fsnotify_mode">Modo Fsnotify</string>
     <string name="hmkpm_dialog_status_enabled">Ativo</string>
     <string name="hmkpm_dialog_status_disabled">Desativado</string>
     <string name="hmkpm_dialog_status_active">Ativo</string>
@@ -276,7 +285,7 @@
     <string name="main_screen_status_popup_permission_missing">Pop-up Ausente</string>
     <string name="oem_compat_banner_title">Otimização %1$s</string>
     <string name="oem_compat_hyperos_desc">ROM customizada detectada. Permita \"Janelas pop-up em segundo plano\" e \"Início automático\" para evitar fechamento da sobreposição.</string>
-    <string name="oem_compat_battery_desc">Restrições de bateria em segundo plano podem encerrar a sobreposição e a varredura durante jogos.</string>
+    <string name="oem_compat_battery_desc">Restrições de bateria em segundo plano podem encerrar a sobreposição e a varredura durante sessões intensivas em primeiro plano.</string>
     <string name="oem_compat_status_granted">Concedido</string>
     <string name="oem_compat_status_missing">Ausente</string>
     <string name="oem_compat_status_unrestricted">Sem restrições</string>
@@ -288,12 +297,82 @@
     <string name="oem_compat_btn_autostart">Início Automático</string>
     <string name="oem_compat_btn_battery">Sem Restrições</string>
     <string name="oem_compat_dialog_title">Guia de Compatibilidade OEM</string>
-    <string name="oem_compat_dialog_desc_1">Sistemas muito modificados (Xiaomi HyperOS, MIUI, ColorOS, OriginOS, EMUI) possuem gerenciadores agressivos de bateria e camadas proprietárias de permissão que podem encerrar a sobreposição ou interromper a conexão Root durante jogos.</string>
+    <string name="oem_compat_dialog_desc_1">Sistemas muito modificados (Xiaomi HyperOS, MIUI, ColorOS, OriginOS, EMUI) possuem gerenciadores agressivos de bateria e camadas proprietárias de permissão que podem encerrar a sobreposição ou interromper a conexão Root sob alta carga de memória.</string>
     <string name="oem_compat_dialog_item_overlay_title">1. Janelas Pop-up / Sobreposição</string>
     <string name="oem_compat_dialog_item_overlay_desc">No HyperOS/MIUI, a permissão \"Exibir janelas pop-up em segundo plano\" deve ser concedida no app Segurança.</string>
     <string name="oem_compat_dialog_item_autostart_title">2. Início Automático em Segundo Plano</string>
-    <string name="oem_compat_dialog_item_autostart_desc">Permitir o Início Automático impede que o limpador de memória do sistema encerre o HuntMemory quando jogos pesados consomem RAM.</string>
+    <string name="oem_compat_dialog_item_autostart_desc">Permitir o Início Automático impede que o limpador de memória do sistema encerre o HuntMemory quando aplicativos em primeiro plano consomem muita RAM.</string>
     <string name="oem_compat_dialog_item_battery_title">3. Economia de Bateria Sem Restrições</string>
     <string name="oem_compat_dialog_item_battery_desc">Defina a economia de bateria do app para \"Sem restrições\" para que a busca e congelamento de valores funcionem continuamente.</string>
     <string name="oem_compat_dialog_dismiss">Entendido</string>
+
+    <!-- Guided Process Banner -->
+    <string name="no_process_banner_title">Nenhum Processo Alvo Anexado</string>
+    <string name="no_process_banner_desc">Selecione um aplicativo em execução na aba Processos antes de pesquisar ou editar a memória.</string>
+    <string name="no_process_banner_action">Selecionar Processo</string>
+
+    <!-- Operator Explanations & Smart Input -->
+    <string name="memory_menu_value_not_required_placeholder">Nenhum valor necessário para este operador</string>
+    <string name="memory_menu_op_hint_equal">Busca endereços com valor exato igual ao informado</string>
+    <string name="memory_menu_op_hint_not_equal">Busca endereços com valor diferente do informado</string>
+    <string name="memory_menu_op_hint_greater">Busca endereços com valor maior que o informado</string>
+    <string name="memory_menu_op_hint_less">Busca endereços com valor menor que o informado</string>
+    <string name="memory_menu_op_hint_greater_equal">Busca endereços com valor maior ou igual ao informado</string>
+    <string name="memory_menu_op_hint_less_equal">Busca endereços com valor menor ou igual ao informado</string>
+    <string name="memory_menu_op_hint_unknown">Captura todos os endereços residentes para comparar mudanças no próximo refinamento (não requer valor)</string>
+    <string name="memory_menu_op_hint_increased">Mantém endereços cujo valor aumentou desde a última leitura (não requer valor)</string>
+    <string name="memory_menu_op_hint_decreased">Mantém endereços cujo valor diminuiu desde a última leitura (não requer valor)</string>
+    <string name="memory_menu_op_hint_changed">Mantém endereços cujo valor mudou desde a última leitura (não requer valor)</string>
+    <string name="memory_menu_op_hint_unchanged">Mantém endereços cujo valor permaneceu inalterado (não requer valor)</string>
+    <string name="memory_menu_op_hint_increased_by">Mantém endereços que aumentaram exatamente pela diferença informada</string>
+    <string name="memory_menu_op_hint_decreased_by">Mantém endereços que diminuíram exatamente pela diferença informada</string>
+
+    <!-- Checkpoints, Undo, Copy to Tab, Multi-Select & Pagination -->
+    <string name="memory_menu_save_checkpoint_button">Salvar</string>
+    <string name="memory_menu_checkpoint_saved_button">Salvo ✓</string>
+    <string name="memory_menu_checkpoint_saved_snackbar">Estado da pesquisa salvo! Você pode voltar a ele usando Desfazer.</string>
+    <string name="memory_menu_undo_button">Desfazer</string>
+    <string name="memory_menu_undo_button_with_count">Desfazer (%1$d)</string>
+    <string name="memory_menu_undo_restored_snackbar">Refinamento anterior restaurado (%1$d resultados)</string>
+    <string name="memory_menu_copy_to_tab_button">P/ Aba</string>
+    <string name="memory_menu_copy_to_tab_dialog_title">Copiar Resultados para Aba de Pesquisa</string>
+    <string name="memory_menu_copy_to_tab_dialog_desc_all">Clonar todos os %1$d resultados da pesquisa atual para outra aba de pesquisa para testar refinamentos em paralelo.</string>
+    <string name="memory_menu_copy_to_tab_dialog_desc_items">Copiar %1$d resultado(s) selecionado(s) para uma nova aba ou aba de pesquisa existente.</string>
+    <string name="memory_menu_copy_to_new_tab_option">+ Nova Aba de Pesquisa</string>
+    <string name="memory_menu_copy_to_new_tab_subtitle">Cria uma nova aba de pesquisa independente com estes resultados</string>
+    <string name="memory_menu_copy_to_existing_tab_option">%1$s (%2$d resultados)</string>
+    <string name="memory_menu_copy_to_existing_tab_subtitle">Mescla nesta aba sem duplicar endereços já presentes</string>
+    <string name="memory_menu_copied_to_tab_snackbar">Resultados copiados para %1$s</string>
+    <string name="memory_menu_copy_item_to_tab_cd">Copiar resultado para outra aba de pesquisa</string>
+    <string name="memory_menu_select_mode_button">Selecionar</string>
+    <string name="memory_menu_select_mode_cancel">Concluir</string>
+    <string name="memory_menu_select_all_visible">Todos</string>
+    <string name="memory_menu_selected_count_label">%1$d selecionado(s)</string>
+    <string name="memory_menu_send_selected_to_editor">P/ Editor</string>
+    <string name="memory_menu_added_selected_to_address_table_snackbar">%1$d resultado(s) selecionado(s) adicionado(s) à Tabela de Endereços.</string>
+    <string name="memory_menu_load_more_button">Carregar mais (+%1$d) • Exibindo %2$d de %3$d</string>
+    <string name="memory_menu_step_badge">Passo %1$d</string>
+    <string name="memory_menu_checkpoints_badge">%1$d salvo(s)</string>
+    <string name="memory_menu_previous_value_badge">ant: %1$s</string>
+
+    <!-- Friendly Scan Errors & Editor Ergonomics -->
+    <string name="memory_menu_friendly_error_empty_input">Informe um valor para o operador selecionado ou escolha um operador relativo/desconhecido.</string>
+    <string name="memory_menu_friendly_error_invalid_number">O valor \"%1$s\" não é válido para o tipo selecionado (%2$s). Toque no ícone (?) para ver exemplos.</string>
+    <string name="memory_menu_friendly_error_scan_failed">Não foi possível concluir a busca na memória. Verifique se o processo alvo ainda está em execução e se o HMKPM está ativo.</string>
+    <string name="memory_menu_friendly_error_no_process">Nenhum processo alvo está anexado. Selecione um aplicativo na aba Processos primeiro.</string>
+    <string name="memory_menu_friendly_error_process_stopped">O processo anexado não está mais em execução. Anexe novamente na aba Processos.</string>
+    <string name="memory_menu_friendly_error_hmkpm_unavailable">O módulo de kernel HMKPM não está disponível ou não respondeu.</string>
+    <string name="memory_menu_friendly_error_goto_failed">Não foi possível resolver a expressão de endereço \"%1$s\". Verifique o endereço hexadecimal, nome do módulo ou sintaxe de ponteiro.</string>
+    <string name="address_table_header_actions">Ações</string>
+    <string name="address_table_edit_hint">Toque na linha ou valor para editar</string>
+    <string name="address_table_delete_item_cd">Excluir endereço</string>
+
+    <!-- Bundled HMKPM Module Export -->
+    <string name="hmkpm_export_card_title">Módulo HMKPM (v%1$s)</string>
+    <string name="hmkpm_export_card_missing_desc">Exporte o módulo .kpm v%1$s embutido para o armazenamento interno para instalação via KernelPatch, APatch ou KPM-Manager.</string>
+    <string name="hmkpm_export_card_mismatch_desc">Fixado no HMKPM v%1$s. Exporte e carregue o módulo .kpm embutido para corresponder à ABI do motor nativo.</string>
+    <string name="hmkpm_export_card_ready_desc">O módulo HMKPM v%1$s embutido está pronto. Exporte uma cópia para o armazenamento interno caso precise reinstalar.</string>
+    <string name="hmkpm_export_button">Exportar .kpm</string>
+    <string name="hmkpm_export_success">%1$s exportado para o armazenamento interno.</string>
+    <string name="hmkpm_export_error">Falha ao exportar módulo .kpm: %1$s</string>
 </resources>

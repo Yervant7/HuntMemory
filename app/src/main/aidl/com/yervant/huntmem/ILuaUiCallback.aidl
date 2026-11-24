@@ -53,9 +53,6 @@ interface ILuaUiCallback {
     /** Asynchronously renders binary draw commands on the real-time canvas overlay */
     oneway void canvasDrawBinary(in byte[] bytes);
 
-    /** Asynchronously renders JSON draw commands on the real-time canvas overlay */
-    oneway void canvasDraw(String commandsJson);
-
     /** Asynchronously clears all real-time canvas overlay drawings */
     oneway void canvasClear();
 

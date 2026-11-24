@@ -52,15 +52,91 @@ impl Default for MapsOptions {
     }
 }
 
+/// Converts hardware page-table region entries returned by `HMKPM_MAGIC_ENUM_REGIONS`
+/// into `MemoryRegion` descriptors honoring `MapsOptions`.
+pub fn enum_regions_to_memory_regions(
+    entries: &[crate::kpm::HmkpmRegionEntry],
+    opts: &MapsOptions,
+) -> Vec<MemoryRegion> {
+    let mut regions = Vec::with_capacity(entries.len());
+    for entry in entries {
+        if entry.size == 0 {
+            continue;
+        }
+        let has_read = (entry.flags & crate::kpm::HMKPM_REGION_FLAG_READ) != 0;
+        let has_write = (entry.flags & crate::kpm::HMKPM_REGION_FLAG_WRITE) != 0;
+        let has_exec = (entry.flags & crate::kpm::HMKPM_REGION_FLAG_EXEC) != 0;
+
+        if opts.require_read && !has_read {
+            continue;
+        }
+        if opts.require_write && !has_write {
+            continue;
+        }
+        if opts.min_size > 0 && entry.size < opts.min_size {
+            continue;
+        }
+
+        let start = entry.start_va;
+        let end = start.saturating_add(entry.size);
+        if end <= start {
+            continue;
+        }
+
+        let mut perms = [b'-'; 4];
+        if has_read {
+            perms[0] = b'r';
+        }
+        if has_write {
+            perms[1] = b'w';
+        }
+        if has_exec {
+            perms[2] = b'x';
+        }
+        perms[3] = b'p';
+
+        regions.push(MemoryRegion {
+            start,
+            end,
+            permissions: String::from_utf8_lossy(&perms).into_owned(),
+            offset: 0,
+            path: String::new(),
+            merged_count: 1,
+        });
+    }
+
+    if opts.merge_adjacent {
+        merge_adjacent_regions(regions)
+    } else {
+        regions
+    }
+}
+
 /// Configurable streaming parser for `/proc/<pid>/maps`.
 /// Implemented with minimal heap allocations per line and resilient lossy UTF-8 decoding.
+/// Falls back to `HMKPM_MAGIC_ENUM_REGIONS` when `/proc/<pid>/maps` is inaccessible.
 pub fn parse_maps(pid: u32, opts: &MapsOptions) -> Result<Vec<MemoryRegion>, String> {
     if pid == 0 {
         return Err("PID cannot be 0".to_string());
     }
 
     let maps_path = format!("/proc/{pid}/maps");
-    let file = File::open(&maps_path).map_err(|e| format!("Cannot read {maps_path}: {e}"))?;
+    let file = match File::open(&maps_path) {
+        Ok(f) => f,
+        Err(open_err) => {
+            if crate::kpm::is_feature_supported(crate::kpm::HMKPM_FEATURE_ENUM_REGIONS) {
+                let enum_flags = if opts.require_write {
+                    crate::kpm::HMKPM_ENUM_FLAG_WRITABLE_ONLY
+                } else {
+                    0
+                };
+                if let Ok(entries) = crate::kpm::enum_regions(pid, enum_flags, 0, 0) {
+                    return Ok(enum_regions_to_memory_regions(&entries, opts));
+                }
+            }
+            return Err(format!("Cannot read {maps_path}: {open_err}"));
+        }
+    };
     let mut reader = BufReader::with_capacity(64 * 1024, file);
 
     let mut regions = Vec::with_capacity(1024);
@@ -625,7 +701,7 @@ mod tests {
 
         // File-backed regions: must return true
         assert!(is_file_backed("/data/app/~~xyz==/base.apk"));
-        assert!(is_file_backed("/data/data/com.example/databases/game.db"));
+        assert!(is_file_backed("/data/data/com.example/databases/app.db"));
         assert!(is_file_backed("/system/lib64/libc.so"));
         assert!(is_file_backed(
             "/apex/com.android.runtime/lib64/bionic/libc.so"
@@ -672,30 +748,30 @@ mod tests {
     #[test]
     fn test_path_matches_module() {
         assert!(path_matches_module(
-            "/system/lib64/libunity.so",
-            "libunity.so"
+            "/system/lib64/libcore.so",
+            "libcore.so"
         ));
-        assert!(path_matches_module("/system/lib64/libunity.so", "libunity"));
+        assert!(path_matches_module("/system/lib64/libcore.so", "libcore"));
         assert!(path_matches_module(
-            "/system/lib64/libunity.so (deleted)",
-            "libunity"
+            "/system/lib64/libcore.so (deleted)",
+            "libcore"
         ));
         assert!(path_matches_module("/data/app/base.apk", "base.apk"));
         assert!(!path_matches_module(
-            "/system/lib64/libunity_extra.so",
-            "libunity"
+            "/system/lib64/libcore_extra.so",
+            "libcore"
         ));
         // Android Split APK '!'-separated paths
         assert!(path_matches_module(
-            "/data/app/~~pkg/base.apk!libil2cpp.so",
-            "libil2cpp.so"
+            "/data/app/~~pkg/base.apk!libnative.so",
+            "libnative.so"
         ));
         assert!(path_matches_module(
-            "/data/app/~~pkg/split_config.arm64_v8a.apk!/lib/arm64-v8a/libil2cpp.so",
-            "libil2cpp"
+            "/data/app/~~pkg/split_config.arm64_v8a.apk!/lib/arm64-v8a/libnative.so",
+            "libnative"
         ));
         // Bidirectional .so matching
-        assert!(path_matches_module("/data/app/libil2cpp", "libil2cpp.so"));
+        assert!(path_matches_module("/data/app/libnative", "libnative.so"));
     }
 
     #[test]
@@ -833,5 +909,38 @@ mod tests {
         let opts = MapsOptions::default();
         assert!(parse_maps(0, &opts).is_err());
         assert!(get_module_base_opt(0, "libc.so").is_err());
+    }
+
+    #[test]
+    fn test_enum_regions_to_memory_regions_conversion() {
+        let entries = vec![
+            crate::kpm::HmkpmRegionEntry {
+                start_va: 0x1000,
+                size: 0x2000,
+                flags: crate::kpm::HMKPM_REGION_FLAG_READ | crate::kpm::HMKPM_REGION_FLAG_WRITE,
+                _pad: 0,
+            },
+            crate::kpm::HmkpmRegionEntry {
+                start_va: 0x3000,
+                size: 0x1000,
+                flags: crate::kpm::HMKPM_REGION_FLAG_READ | crate::kpm::HMKPM_REGION_FLAG_EXEC,
+                _pad: 0,
+            },
+        ];
+
+        let all_opts = MapsOptions::default();
+        let all = enum_regions_to_memory_regions(&entries, &all_opts);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].permissions, "rw-p");
+        assert_eq!(all[1].permissions, "r-xp");
+
+        let write_opts = MapsOptions {
+            require_write: true,
+            ..MapsOptions::default()
+        };
+        let writable = enum_regions_to_memory_regions(&entries, &write_opts);
+        assert_eq!(writable.len(), 1);
+        assert_eq!(writable[0].start, 0x1000);
+        assert_eq!(writable[0].end, 0x3000);
     }
 }

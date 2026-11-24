@@ -22,24 +22,327 @@
 //!
 //! Provides a sandboxed, high-performance scripting runtime exposing
 //! memory editing, vectorized scanning, address freezing, batch writes,
-//! dynamic Compose overlay menus, interactive dialogs, and GameGuardian API compatibility.
+//! dynamic Compose overlay menus, interactive dialogs, and 2D Canvas rendering.
 
+use std::collections::VecDeque;
+use std::fs::OpenOptions;
+use std::io::{BufWriter, Write};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use mlua::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::editor;
-use crate::get_sessions;
 use crate::kpm;
 use crate::logger;
 use crate::maps;
 use crate::scanner;
 use crate::types::*;
+use crate::{get_session, insert_session, remove_session};
+
+/// Maximum heap memory a single Lua 5.4 VM instance may allocate (64 MiB).
+const LUA_MEMORY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
+/// Maximum retained lines in the script execution result buffer returned over Binder.
+const MAX_LOG_BUFFER_LINES: usize = 500;
+/// Maximum retained UTF-8 bytes in the script execution result buffer returned over Binder.
+const MAX_LOG_BUFFER_BYTES: usize = 64 * 1024;
+/// Maximum bytes a single `hmem.dump_memory` invocation may dump (50 MiB).
+const DUMP_MEMORY_MAX_BYTES: usize = 50 * 1024 * 1024;
+/// Chunk size for `hmem.dump_memory` reads (4 MiB).
+const DUMP_MEMORY_CHUNK_BYTES: usize = 4 * 1024 * 1024;
+/// Maximum filename length permitted for sandboxed dump outputs.
+const MAX_DUMP_FILENAME_LEN: usize = 128;
 
 static SCRIPT_CANCELLED: AtomicBool = AtomicBool::new(false);
+static SANDBOX_DUMP_DIR: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+/// Configures the dedicated sandbox directory where `hmem.dump_memory` may write files.
+/// Passing `None` or an empty path disables `hmem.dump_memory` (fail-closed).
+pub fn set_sandbox_dump_dir(dir: Option<String>) {
+    let parsed = dir
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && !s.contains('\0'))
+        .map(PathBuf::from);
+    let mut guard = SANDBOX_DUMP_DIR.write().unwrap_or_else(|e| e.into_inner());
+    *guard = parsed;
+}
+
+fn resolve_safe_dump_path(requested_name: &str) -> Result<PathBuf, String> {
+    let base_dir = {
+        let guard = SANDBOX_DUMP_DIR.read().unwrap_or_else(|e| e.into_inner());
+        guard.clone().ok_or_else(|| {
+            "dump_memory is disabled: sandbox dump directory is not configured".to_string()
+        })?
+    };
+
+    let trimmed = requested_name.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > MAX_DUMP_FILENAME_LEN
+        || trimmed.contains('\0')
+        || trimmed.contains('/')
+        || trimmed.contains('\\')
+        || trimmed.contains(':')
+        || trimmed.starts_with('.')
+        || trimmed.starts_with('-')
+    {
+        return Err(
+            "dump_memory path rejected: only a plain filename without path separators or traversal is allowed"
+                .to_string(),
+        );
+    }
+
+    let mut components = Path::new(trimmed).components();
+    match (components.next(), components.next()) {
+        (Some(Component::Normal(_)), None) => {}
+        _ => {
+            return Err(
+                "dump_memory path rejected: filename must be a single normal path component"
+                    .to_string(),
+            );
+        }
+    }
+
+    std::fs::create_dir_all(&base_dir)
+        .map_err(|e| format!("Failed to prepare sandbox dump directory: {e}"))?;
+    let canonical_base = std::fs::canonicalize(&base_dir)
+        .map_err(|e| format!("Failed to resolve sandbox dump directory: {e}"))?;
+
+    let target = canonical_base.join(trimmed);
+    if target.parent() != Some(canonical_base.as_path()) {
+        return Err("dump_memory path rejected: resolved path escaped sandbox".to_string());
+    }
+    if let Ok(meta) = std::fs::symlink_metadata(&target)
+        && meta.file_type().is_symlink()
+    {
+        return Err("dump_memory path rejected: target cannot be a symbolic link".to_string());
+    }
+
+    Ok(target)
+}
+
+fn open_safe_dump_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut opts = OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW).mode(0o644);
+    }
+    opts.open(path)
+}
+
+/// Bounded FIFO buffer preventing unbounded memory growth and Android Binder
+/// `TransactionTooLargeException` when returning script output JSON.
+struct BoundedLogBuffer {
+    lines: VecDeque<String>,
+    total_bytes: usize,
+    truncated: bool,
+}
+
+impl BoundedLogBuffer {
+    fn new() -> Self {
+        Self {
+            lines: VecDeque::new(),
+            total_bytes: 0,
+            truncated: false,
+        }
+    }
+
+    fn push(&mut self, mut line: String) {
+        if line.len() > MAX_LOG_BUFFER_BYTES {
+            let mut end = MAX_LOG_BUFFER_BYTES;
+            while end > 0 && !line.is_char_boundary(end) {
+                end -= 1;
+            }
+            line.truncate(end);
+            self.truncated = true;
+        }
+        let line_bytes = line.len().saturating_add(1);
+        while self.lines.len() >= MAX_LOG_BUFFER_LINES
+            || self.total_bytes.saturating_add(line_bytes) > MAX_LOG_BUFFER_BYTES
+        {
+            if let Some(removed) = self.lines.pop_front() {
+                self.total_bytes = self
+                    .total_bytes
+                    .saturating_sub(removed.len().saturating_add(1));
+                self.truncated = true;
+            } else {
+                break;
+            }
+        }
+        self.total_bytes = self.total_bytes.saturating_add(line_bytes);
+        self.lines.push_back(line);
+    }
+
+    fn join(&self) -> String {
+        let mut out = String::with_capacity(self.total_bytes.saturating_add(36));
+        if self.truncated {
+            out.push_str("[... earlier logs truncated ...]\n");
+        }
+        for (idx, line) in self.lines.iter().enumerate() {
+            if idx > 0 {
+                out.push('\n');
+            }
+            out.push_str(line);
+        }
+        out
+    }
+}
+
+fn unix_secs_to_utc_parts(secs: i64) -> (i64, u32, u32, u32, u32, u32, u32, u32) {
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400) as u32;
+    let hour = rem / 3600;
+    let min = (rem % 3600) / 60;
+    let sec = rem % 60;
+
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let year = if m <= 2 { y + 1 } else { y };
+
+    // Lua wday: Sunday = 1 .. Saturday = 7 (1970-01-01 was Thursday = 5).
+    let wday = ((days + 4).rem_euclid(7) + 1) as u32;
+    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    let month_offsets: [u32; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    let yday = month_offsets[(m - 1) as usize] + d + u32::from(is_leap && m > 2);
+
+    (year, m, d, hour, min, sec, wday, yday)
+}
+
+fn format_utc_date(fmt: &str, secs: i64) -> String {
+    let (year, month, day, hour, min, sec, _wday, _yday) = unix_secs_to_utc_parts(secs);
+    let mut out = String::with_capacity(fmt.len().saturating_add(16));
+    let mut chars = fmt.chars();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            match chars.next() {
+                Some('Y') => out.push_str(&format!("{year:04}")),
+                Some('m') => out.push_str(&format!("{month:02}")),
+                Some('d') => out.push_str(&format!("{day:02}")),
+                Some('H') => out.push_str(&format!("{hour:02}")),
+                Some('M') => out.push_str(&format!("{min:02}")),
+                Some('S') => out.push_str(&format!("{sec:02}")),
+                Some('F') => out.push_str(&format!("{year:04}-{month:02}-{day:02}")),
+                Some('T') => out.push_str(&format!("{hour:02}:{min:02}:{sec:02}")),
+                Some('c') => out.push_str(&format!(
+                    "{year:04}-{month:02}-{day:02} {hour:02}:{min:02}:{sec:02}"
+                )),
+                Some('%') => out.push('%'),
+                Some(other) => {
+                    out.push('%');
+                    out.push(other);
+                }
+                None => out.push('%'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn create_sandboxed_lua() -> mlua::Result<Lua> {
+    // Load strictly non-privileged standard libraries: exclude IO, OS, PACKAGE, DEBUG.
+    let allowed_libs = mlua::StdLib::COROUTINE
+        | mlua::StdLib::TABLE
+        | mlua::StdLib::STRING
+        | mlua::StdLib::UTF8
+        | mlua::StdLib::MATH;
+    let lua = Lua::new_with(allowed_libs, mlua::LuaOptions::default())?;
+    let _ = lua.set_memory_limit(LUA_MEMORY_LIMIT_BYTES);
+
+    let globals = lua.globals();
+    // Strip filesystem chunk loaders from base library.
+    globals.set("dofile", mlua::Value::Nil)?;
+    globals.set("loadfile", mlua::Value::Nil)?;
+
+    // Restrict `load()` to text mode ("t") to block crafted binary bytecode execution.
+    lua.load(
+        r#"
+        do
+            local _raw_load = load
+            if type(_raw_load) == "function" then
+                load = function(chunk, chunkname, _mode, ...)
+                    if select('#', ...) > 0 then
+                        return _raw_load(chunk, chunkname, "t", ...)
+                    else
+                        return _raw_load(chunk, chunkname, "t")
+                    end
+                end
+            end
+        end
+        "#,
+    )
+    .exec()?;
+
+    // Expose a minimal, read-only time-only `os` subset (no execute/remove/rename/getenv/exit).
+    let start_instant = Instant::now();
+    let safe_os = lua.create_table()?;
+    safe_os.set(
+        "clock",
+        lua.create_function(move |_lua, ()| Ok(start_instant.elapsed().as_secs_f64()))?,
+    )?;
+    safe_os.set(
+        "time",
+        lua.create_function(|_lua, ()| {
+            let secs = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            Ok(secs)
+        })?,
+    )?;
+    safe_os.set(
+        "difftime",
+        lua.create_function(|_lua, (t2, t1): (f64, f64)| Ok(t2 - t1))?,
+    )?;
+    safe_os.set(
+        "date",
+        lua.create_function(
+            |lua_ctx, (fmt_opt, time_opt): (Option<String>, Option<i64>)| {
+                let secs = time_opt.unwrap_or_else(|| {
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64
+                });
+                let raw_fmt = fmt_opt.as_deref().unwrap_or("%Y-%m-%d %H:%M:%S");
+                let fmt = raw_fmt.strip_prefix('!').unwrap_or(raw_fmt);
+                if fmt == "*t" {
+                    let (year, month, day, hour, min, sec, wday, yday) =
+                        unix_secs_to_utc_parts(secs);
+                    let tbl = lua_ctx.create_table()?;
+                    tbl.set("year", year)?;
+                    tbl.set("month", month)?;
+                    tbl.set("day", day)?;
+                    tbl.set("hour", hour)?;
+                    tbl.set("min", min)?;
+                    tbl.set("sec", sec)?;
+                    tbl.set("wday", wday)?;
+                    tbl.set("yday", yday)?;
+                    tbl.set("isdst", false)?;
+                    Ok(mlua::Value::Table(tbl))
+                } else {
+                    let formatted = format_utc_date(fmt, secs);
+                    Ok(mlua::Value::String(lua_ctx.create_string(&formatted)?))
+                }
+            },
+        )?,
+    )?;
+    globals.set("os", safe_os)?;
+
+    Ok(lua)
+}
 
 /// Signals the active Lua script execution to interrupt and terminate immediately.
 pub fn cancel_script() {
@@ -74,8 +377,6 @@ pub trait ScriptUiCallback: Send + Sync {
     fn set_dynamic_menu(&self, menu_json: &str);
     fn clear_dynamic_menu(&self);
     fn post_log(&self, line: &str);
-    #[allow(dead_code)]
-    fn canvas_draw(&self, commands_json: &str);
     fn canvas_draw_binary(&self, bytes: &[u8]);
     fn canvas_clear(&self);
     fn canvas_set_visible(&self, visible: bool);
@@ -109,7 +410,6 @@ impl ScriptUiCallback for NoOpUiCallback {
     fn set_dynamic_menu(&self, _menu_json: &str) {}
     fn clear_dynamic_menu(&self) {}
     fn post_log(&self, _line: &str) {}
-    fn canvas_draw(&self, _commands_json: &str) {}
     fn canvas_draw_binary(&self, _bytes: &[u8]) {}
     fn canvas_clear(&self) {}
     fn canvas_set_visible(&self, _visible: bool) {}
@@ -129,28 +429,45 @@ pub const CANVAS_CMD_LINE: u8 = 2;
 pub const CANVAS_CMD_RECT: u8 = 3;
 pub const CANVAS_CMD_CIRCLE: u8 = 4;
 
-/// Helper to convert a Lua color representation (hex string, integer, or table) into a standardized hex string (`#AARRGGBB` or `#RRGGBB`).
-#[allow(dead_code)]
-pub fn parse_lua_color(val: mlua::Value) -> String {
-    match val {
-        mlua::Value::String(s) => s.to_string_lossy(),
-        mlua::Value::Integer(i) => format!("#{:08X}", i as u32),
-        mlua::Value::Number(n) => format!("#{:08X}", n as u64 as u32),
-        mlua::Value::Table(t) => {
-            if let (Ok(r), Ok(g), Ok(b)) = (t.get::<u32>("r"), t.get::<u32>("g"), t.get::<u32>("b"))
-            {
-                let a = t.get::<u32>("a").unwrap_or(255);
-                format!("#{:02X}{:02X}{:02X}{:02X}", a, r, g, b)
-            } else if let (Ok(r), Ok(g), Ok(b)) =
-                (t.get::<u32>(1), t.get::<u32>(2), t.get::<u32>(3))
-            {
-                let a = t.get::<u32>(4).unwrap_or(255);
-                format!("#{:02X}{:02X}{:02X}{:02X}", a, r, g, b)
-            } else {
-                "#FFFFFFFF".to_string()
-            }
+struct CanvasFrameBuffer {
+    in_frame: bool,
+    packet: Vec<u8>,
+    count: u16,
+}
+
+impl CanvasFrameBuffer {
+    fn new() -> Self {
+        Self {
+            in_frame: false,
+            packet: Vec::new(),
+            count: 0,
         }
-        _ => "#FFFFFFFF".to_string(),
+    }
+
+    fn begin_frame(&mut self) {
+        self.in_frame = true;
+        self.reset_packet();
+    }
+
+    fn reset_packet(&mut self) {
+        self.packet.clear();
+        self.packet.push(CANVAS_MODE_REPLACE);
+        self.packet.extend_from_slice(&0u16.to_le_bytes());
+        self.count = 0;
+    }
+
+    fn take_flush_packet(&mut self) -> Option<Vec<u8>> {
+        if !self.in_frame {
+            return None;
+        }
+        self.in_frame = false;
+        let count_bytes = self.count.to_le_bytes();
+        if self.packet.len() >= 3 {
+            self.packet[1] = count_bytes[0];
+            self.packet[2] = count_bytes[1];
+        }
+        self.count = 0;
+        Some(std::mem::take(&mut self.packet))
     }
 }
 
@@ -326,19 +643,6 @@ fn lua_table_to_regions(table: &mlua::Table) -> mlua::Result<Vec<MemoryRegion>> 
     Ok(regions)
 }
 
-/// Helper to convert a `ValueType` string to GameGuardian numeric type flags.
-pub fn value_type_to_gg_flag(vt: &str) -> u32 {
-    match vt.to_ascii_lowercase().as_str() {
-        "byte" | "i8" | "u8" => 1,
-        "short" | "i16" | "u16" | "word" => 2,
-        "int" | "i32" | "u32" | "dword" => 4,
-        "float" | "f32" => 16,
-        "long" | "i64" | "u64" | "qword" => 32,
-        "double" | "f64" => 64,
-        _ => 4,
-    }
-}
-
 /// Helper to convert a `ScanSession` into a Lua table of matches
 fn session_to_lua_table(
     lua: &Lua,
@@ -355,7 +659,6 @@ fn session_to_lua_table(
         m_table.set("value", m.value.clone())?;
         m_table.set("value_type", m.value_type.clone())?;
         m_table.set("type", m.value_type.clone())?;
-        m_table.set("flags", value_type_to_gg_flag(&m.value_type))?;
         m_table.set("region_start", m.region_start)?;
         m_table.set("region_end", m.region_end)?;
         m_table.set("permissions", m.permissions.clone())?;
@@ -428,6 +731,10 @@ pub fn parse_aob_pattern(pattern_str: &str) -> Result<Vec<(u8, u8)>, String> {
 }
 
 /// Performs an AoB signature scan across memory regions.
+///
+/// Uses `HMKPM_MAGIC_SCAN_KERNEL` (`HMKPM_SCAN_TYPE_BYTES`) when `ScanEngineMode` is
+/// `Kernel` or `Auto`, pattern length `<= HMKPM_MAX_PATTERN_LEN`, and `HMKPM_FEATURE_SCAN_KERNEL`
+/// is supported; falls back to userspace chunk scanning otherwise.
 pub fn scan_aob_in_regions(
     pid: u32,
     regions: &[MemoryRegion],
@@ -436,8 +743,86 @@ pub fn scan_aob_in_regions(
 ) -> Vec<u64> {
     let mut matches = Vec::new();
     let pat_len = pattern.len();
-    if pat_len == 0 {
+    if pat_len == 0 || max_results == 0 || regions.is_empty() {
         return matches;
+    }
+
+    let engine_mode = scanner::get_scan_engine_mode();
+    if (engine_mode == scanner::ScanEngineMode::Kernel as u8
+        || engine_mode == scanner::ScanEngineMode::Auto as u8)
+        && pat_len <= kpm::HMKPM_MAX_PATTERN_LEN
+        && kpm::is_feature_supported(kpm::HMKPM_FEATURE_SCAN_KERNEL)
+    {
+        let pat_bytes: Vec<u8> = pattern.iter().map(|&(b, _)| b).collect();
+        let has_wildcards = pattern.iter().any(|&(_, m)| m != 0xFF);
+        let mask_bytes: Option<Vec<u8>> = if has_wildcards {
+            Some(pattern.iter().map(|&(_, m)| m).collect())
+        } else {
+            None
+        };
+        let op = if has_wildcards {
+            kpm::HMKPM_SCAN_OP_MASK
+        } else {
+            kpm::HMKPM_SCAN_OP_EXACT
+        };
+        let criteria = kpm::HmkpmScanCriteria {
+            exact: kpm::HmkpmScanCriteriaExact { val: 0, mask: 0 },
+        };
+        let prepared = scanner::prepare_scan_ranges(regions);
+        let mut kernel_ok = true;
+
+        'batch_loop: for batch in prepared.chunks(kpm::HMKPM_MAX_SCAN_RANGES) {
+            let mut resume_cursor: Option<kpm::HmkpmScanCursor> = None;
+            loop {
+                if is_script_cancelled() || matches.len() >= max_results {
+                    break 'batch_loop;
+                }
+                let remaining = max_results - matches.len();
+                match kpm::scan_kernel_addrs(
+                    pid,
+                    kpm::HMKPM_SCAN_TYPE_BYTES,
+                    op,
+                    1,
+                    0,
+                    criteria,
+                    Some(&pat_bytes),
+                    mask_bytes.as_deref(),
+                    batch,
+                    remaining,
+                    resume_cursor,
+                ) {
+                    Ok(outcome) => {
+                        matches.extend(outcome.matches);
+                        if matches.len() >= max_results {
+                            matches.truncate(max_results);
+                            break 'batch_loop;
+                        }
+                        if outcome.status == kpm::HMKPM_SCAN_STATUS_TRUNCATED
+                            && (outcome.next_cursor.range_idx as usize) < batch.len()
+                        {
+                            if let Some(prev) = resume_cursor
+                                && (outcome.next_cursor.range_idx, outcome.next_cursor.va)
+                                    <= (prev.range_idx, prev.va)
+                            {
+                                break;
+                            }
+                            resume_cursor = Some(outcome.next_cursor);
+                        } else {
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        kernel_ok = false;
+                        break 'batch_loop;
+                    }
+                }
+            }
+        }
+
+        if kernel_ok {
+            return matches;
+        }
+        matches.clear();
     }
 
     let first_byte = pattern[0].0;
@@ -539,16 +924,26 @@ fn b64_decode(input: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Executes a Lua script with a dedicated sandbox containing `hmem` and `gg` APIs.
+/// Executes a Lua script with a dedicated sandbox containing `hmem` and `canvas` APIs.
 pub fn run_script(
     pid: u32,
     script_code: &str,
     ui_callback: Arc<dyn ScriptUiCallback>,
 ) -> ScriptExecutionResult {
     SCRIPT_CANCELLED.store(false, Ordering::SeqCst);
-    let lua = Lua::new();
+    let lua = match create_sandboxed_lua() {
+        Ok(instance) => instance,
+        Err(e) => {
+            return ScriptExecutionResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Failed to create sandboxed Lua VM: {e}")),
+                result: None,
+            };
+        }
+    };
 
-    let log_buffer = Arc::new(Mutex::new(Vec::<String>::new()));
+    let log_buffer = Arc::new(Mutex::new(BoundedLogBuffer::new()));
     let target_pid = Arc::new(Mutex::new(pid));
 
     if let Err(e) = setup_environment(&lua, log_buffer.clone(), target_pid, ui_callback) {
@@ -573,9 +968,12 @@ pub fn run_script(
         Ok(mlua::VmState::Continue)
     });
 
-    let eval_res = lua.load(script_code).eval::<mlua::Value>();
+    let eval_res = lua
+        .load(script_code)
+        .set_mode(mlua::chunk::ChunkMode::Text)
+        .eval::<mlua::Value>();
 
-    let logs = log_buffer.lock().unwrap().join("\n");
+    let logs = log_buffer.lock().unwrap_or_else(|e| e.into_inner()).join();
 
     match eval_res {
         Ok(val) => {
@@ -609,7 +1007,7 @@ pub fn run_script(
 
 fn setup_environment(
     lua: &Lua,
-    logs: Arc<Mutex<Vec<String>>>,
+    logs: Arc<Mutex<BoundedLogBuffer>>,
     target_pid: Arc<Mutex<u32>>,
     ui: Arc<dyn ScriptUiCallback>,
 ) -> mlua::Result<()> {
@@ -702,8 +1100,14 @@ fn setup_environment(
         "alert",
         lua.create_function(
             move |_lua, (message, title_opt): (String, Option<String>)| {
+                if is_script_cancelled() {
+                    return Err(mlua::Error::runtime("Script execution stopped by user"));
+                }
                 let title = title_opt.unwrap_or_else(|| "Alert".to_string());
                 ui_alert.show_alert(&title, &message);
+                if is_script_cancelled() {
+                    return Err(mlua::Error::runtime("Script execution stopped by user"));
+                }
                 Ok(())
             },
         )?,
@@ -728,9 +1132,16 @@ fn setup_environment(
                 Option<String>,
                 Option<String>,
             )| {
+                if is_script_cancelled() {
+                    return Err(mlua::Error::runtime("Script execution stopped by user"));
+                }
                 let def = default_opt.unwrap_or_default();
                 let kb = type_opt.unwrap_or_else(|| "qwerty".to_string());
-                Ok(ui_prompt.show_prompt(&title, &def, &kb))
+                let res = ui_prompt.show_prompt(&title, &def, &kb);
+                if is_script_cancelled() {
+                    return Err(mlua::Error::runtime("Script execution stopped by user"));
+                }
+                Ok(res)
             },
         )?,
     )?;
@@ -739,6 +1150,9 @@ fn setup_environment(
     hmem.set(
         "choice",
         lua.create_function(move |_lua, (title, items_table): (String, mlua::Table)| {
+            if is_script_cancelled() {
+                return Err(mlua::Error::runtime("Script execution stopped by user"));
+            }
             let mut items = Vec::new();
             for val in items_table.sequence_values::<mlua::Value>() {
                 let v = val?;
@@ -749,7 +1163,11 @@ fn setup_environment(
                     _ => items.push(format!("{v:?}")),
                 }
             }
-            Ok(ui_choice.show_choice(&title, &items))
+            let res = ui_choice.show_choice(&title, &items);
+            if is_script_cancelled() {
+                return Err(mlua::Error::runtime("Script execution stopped by user"));
+            }
+            Ok(res)
         })?,
     )?;
 
@@ -763,6 +1181,9 @@ fn setup_environment(
                 mlua::Table,
                 Option<mlua::Table>,
             )| {
+                if is_script_cancelled() {
+                    return Err(mlua::Error::runtime("Script execution stopped by user"));
+                }
                 let mut items = Vec::new();
                 for val in items_table.sequence_values::<mlua::Value>() {
                     let v = val?;
@@ -781,7 +1202,12 @@ fn setup_environment(
                     }
                 }
 
-                match ui_multi.show_multi_choice(&title, &items, &initial) {
+                let choice_res = ui_multi.show_multi_choice(&title, &items, &initial);
+                if is_script_cancelled() {
+                    return Err(mlua::Error::runtime("Script execution stopped by user"));
+                }
+
+                match choice_res {
                     Some(results) => {
                         let res_table = lua_ctx.create_table()?;
                         for (idx, b) in results.into_iter().enumerate() {
@@ -884,18 +1310,47 @@ fn setup_environment(
 
     // --- Canvas Overlay Subsystem ---
     let canvas_table = lua.create_table()?;
+    let canvas_frame_buf = Arc::new(Mutex::new(CanvasFrameBuffer::new()));
+
+    // canvas.begin_frame() / hmem.canvas_begin_frame()
+    let fb_begin = canvas_frame_buf.clone();
+    let begin_frame_fn = lua.create_function(move |_lua, ()| {
+        let mut fb = fb_begin.lock().unwrap_or_else(|e| e.into_inner());
+        fb.begin_frame();
+        Ok(())
+    })?;
+    canvas_table.set("begin_frame", begin_frame_fn.clone())?;
+    hmem.set("canvas_begin_frame", begin_frame_fn)?;
 
     // canvas.clear() / hmem.canvas_clear()
     let ui_cc = ui.clone();
+    let fb_clear = canvas_frame_buf.clone();
     let clear_fn = lua.create_function(move |_lua, ()| {
-        ui_cc.canvas_clear();
+        let mut fb = fb_clear.lock().unwrap_or_else(|e| e.into_inner());
+        if fb.in_frame {
+            fb.reset_packet();
+        } else {
+            drop(fb);
+            ui_cc.canvas_clear();
+        }
         Ok(())
     })?;
     canvas_table.set("clear", clear_fn.clone())?;
     hmem.set("canvas_clear", clear_fn)?;
 
     // canvas.flush() / hmem.canvas_flush()
-    let flush_fn = lua.create_function(|_lua, ()| Ok(()))?;
+    let ui_flush = ui.clone();
+    let fb_flush = canvas_frame_buf.clone();
+    let flush_fn = lua.create_function(move |_lua, ()| {
+        let packet_opt = {
+            let mut fb = fb_flush.lock().unwrap_or_else(|e| e.into_inner());
+            fb.take_flush_packet()
+        };
+        if let Some(packet) = packet_opt {
+            ui_flush.canvas_draw_binary(&packet);
+        }
+        Ok(())
+    })?;
     canvas_table.set("flush", flush_fn.clone())?;
     hmem.set("canvas_flush", flush_fn)?;
 
@@ -980,6 +1435,7 @@ fn setup_environment(
 
     // canvas.draw_text(text, x, y, size_opt, color_opt, align_opt)
     let ui_txt = ui.clone();
+    let fb_txt = canvas_frame_buf.clone();
     let draw_text_fn = lua.create_function(
         move |_lua,
               (text, x, y, size_opt, color_opt, align_opt): (
@@ -993,6 +1449,14 @@ fn setup_environment(
             let color = color_opt.map(parse_lua_color_to_argb).unwrap_or(0xFFFFFFFF);
             let size = size_opt.unwrap_or(14.0);
             let align = align_opt.as_deref().map(parse_align_str_to_u8).unwrap_or(0);
+
+            let mut fb = fb_txt.lock().unwrap_or_else(|e| e.into_inner());
+            if fb.in_frame {
+                encode_canvas_text(&mut fb.packet, &text, x, y, size, color, align);
+                fb.count = fb.count.saturating_add(1);
+                return Ok(());
+            }
+            drop(fb);
 
             let mut packet = Vec::with_capacity(32 + text.len());
             packet.push(CANVAS_MODE_APPEND);
@@ -1008,6 +1472,7 @@ fn setup_environment(
 
     // canvas.draw_line(x1, y1, x2, y2, stroke_opt, color_opt)
     let ui_line = ui.clone();
+    let fb_line = canvas_frame_buf.clone();
     let draw_line_fn = lua.create_function(
         move |_lua,
               (x1, y1, x2, y2, stroke_opt, color_opt): (
@@ -1020,6 +1485,14 @@ fn setup_environment(
         )| {
             let color = color_opt.map(parse_lua_color_to_argb).unwrap_or(0xFFFFFFFF);
             let stroke = stroke_opt.unwrap_or(2.0);
+
+            let mut fb = fb_line.lock().unwrap_or_else(|e| e.into_inner());
+            if fb.in_frame {
+                encode_canvas_line(&mut fb.packet, x1, y1, x2, y2, stroke, color);
+                fb.count = fb.count.saturating_add(1);
+                return Ok(());
+            }
+            drop(fb);
 
             let mut packet = Vec::with_capacity(32);
             packet.push(CANVAS_MODE_APPEND);
@@ -1035,6 +1508,7 @@ fn setup_environment(
 
     // canvas.draw_rect(x, y, w, h, stroke_opt, color_opt, filled_opt)
     let ui_rect = ui.clone();
+    let fb_rect = canvas_frame_buf.clone();
     let draw_rect_fn = lua.create_function(
         move |_lua,
               (x, y, width, height, stroke_opt, color_opt, filled_opt): (
@@ -1050,6 +1524,14 @@ fn setup_environment(
             let stroke = stroke_opt.unwrap_or(2.0);
             let filled = filled_opt.unwrap_or(false);
 
+            let mut fb = fb_rect.lock().unwrap_or_else(|e| e.into_inner());
+            if fb.in_frame {
+                encode_canvas_rect(&mut fb.packet, x, y, width, height, stroke, color, filled);
+                fb.count = fb.count.saturating_add(1);
+                return Ok(());
+            }
+            drop(fb);
+
             let mut packet = Vec::with_capacity(32);
             packet.push(CANVAS_MODE_APPEND);
             packet.extend_from_slice(&1u16.to_le_bytes());
@@ -1064,6 +1546,7 @@ fn setup_environment(
 
     // canvas.draw_circle(cx, cy, radius, stroke_opt, color_opt, filled_opt)
     let ui_circ = ui.clone();
+    let fb_circ = canvas_frame_buf.clone();
     let draw_circle_fn = lua.create_function(
         move |_lua,
               (cx, cy, radius, stroke_opt, color_opt, filled_opt): (
@@ -1077,6 +1560,14 @@ fn setup_environment(
             let color = color_opt.map(parse_lua_color_to_argb).unwrap_or(0xFFFFFFFF);
             let stroke = stroke_opt.unwrap_or(2.0);
             let filled = filled_opt.unwrap_or(false);
+
+            let mut fb = fb_circ.lock().unwrap_or_else(|e| e.into_inner());
+            if fb.in_frame {
+                encode_canvas_circle(&mut fb.packet, cx, cy, radius, stroke, color, filled);
+                fb.count = fb.count.saturating_add(1);
+                return Ok(());
+            }
+            drop(fb);
 
             let mut packet = Vec::with_capacity(32);
             packet.push(CANVAS_MODE_APPEND);
@@ -2002,10 +2493,7 @@ fn setup_environment(
                 let session = scanner::scan_regions(pid, &regions, &val_str, &vtypes, op)
                     .map_err(mlua::Error::runtime)?;
 
-                if let Ok(mut map) = get_sessions().lock() {
-                    map.insert(session_id, session.clone());
-                }
-
+                let session = insert_session(session_id, session);
                 session_to_lua_table(lua_ctx, &session, 100)
             },
         )?,
@@ -2036,10 +2524,7 @@ fn setup_environment(
                 let session = scanner::scan_range(pid, &regions, &min_str, &max_str, &vtypes)
                     .map_err(mlua::Error::runtime)?;
 
-                if let Ok(mut map) = get_sessions().lock() {
-                    map.insert(session_id, session.clone());
-                }
-
+                let session = insert_session(session_id, session);
                 session_to_lua_table(lua_ctx, &session, 100)
             },
         )?,
@@ -2069,10 +2554,7 @@ fn setup_environment(
                 let session = scanner::scan_group(pid, &regions, &group_spec, vtype)
                     .map_err(mlua::Error::runtime)?;
 
-                if let Ok(mut map) = get_sessions().lock() {
-                    map.insert(session_id, session.clone());
-                }
-
+                let session = insert_session(session_id, session);
                 session_to_lua_table(lua_ctx, &session, 100)
             },
         )?,
@@ -2102,10 +2584,7 @@ fn setup_environment(
                 let session = scanner::scan_obscured(pid, &regions, &val_str, otype)
                     .map_err(mlua::Error::runtime)?;
 
-                if let Ok(mut map) = get_sessions().lock() {
-                    map.insert(session_id, session.clone());
-                }
-
+                let session = insert_session(session_id, session);
                 session_to_lua_table(lua_ctx, &session, 100)
             },
         )?,
@@ -2133,10 +2612,7 @@ fn setup_environment(
                 let session = scanner::scan_big_double(pid, &regions, &val_str)
                     .map_err(mlua::Error::runtime)?;
 
-                if let Ok(mut map) = get_sessions().lock() {
-                    map.insert(session_id, session.clone());
-                }
-
+                let session = insert_session(session_id, session);
                 session_to_lua_table(lua_ctx, &session, 100)
             },
         )?,
@@ -2149,10 +2625,8 @@ fn setup_environment(
         lua.create_function(
             move |lua_ctx, (session_id, val_str, op_str): (String, String, Option<String>)| {
                 let pid = *p_refine.lock().unwrap();
-                let session = match get_sessions().lock().unwrap().get(&session_id) {
-                    Some(s) => s.clone(),
-                    None => return Err(mlua::Error::runtime("Session not found")),
-                };
+                let session = get_session(&session_id)
+                    .ok_or_else(|| mlua::Error::runtime("Session not found"))?;
 
                 let op = op_str
                     .as_deref()
@@ -2162,10 +2636,7 @@ fn setup_environment(
                 let filtered = scanner::filter_matches(pid, &session, &val_str, op)
                     .map_err(mlua::Error::runtime)?;
 
-                if let Ok(mut map) = get_sessions().lock() {
-                    map.insert(session_id, filtered.clone());
-                }
-
+                let filtered = insert_session(session_id, filtered);
                 session_to_lua_table(lua_ctx, &filtered, 100)
             },
         )?,
@@ -2177,18 +2648,13 @@ fn setup_environment(
         lua.create_function(
             move |lua_ctx, (session_id, min_str, max_str): (String, String, String)| {
                 let pid = *p_rrange.lock().unwrap();
-                let session = match get_sessions().lock().unwrap().get(&session_id) {
-                    Some(s) => s.clone(),
-                    None => return Err(mlua::Error::runtime("Session not found")),
-                };
+                let session = get_session(&session_id)
+                    .ok_or_else(|| mlua::Error::runtime("Session not found"))?;
 
                 let filtered = scanner::filter_range_matches(pid, &session, &min_str, &max_str)
                     .map_err(mlua::Error::runtime)?;
 
-                if let Ok(mut map) = get_sessions().lock() {
-                    map.insert(session_id, filtered.clone());
-                }
-
+                let filtered = insert_session(session_id, filtered);
                 session_to_lua_table(lua_ctx, &filtered, 100)
             },
         )?,
@@ -2200,20 +2666,15 @@ fn setup_environment(
         lua.create_function(
             move |lua_ctx, (session_id, val_str, obscured_str): (String, String, String)| {
                 let pid = *p_robs.lock().unwrap();
-                let session = match get_sessions().lock().unwrap().get(&session_id) {
-                    Some(s) => s.clone(),
-                    None => return Err(mlua::Error::runtime("Session not found")),
-                };
+                let session = get_session(&session_id)
+                    .ok_or_else(|| mlua::Error::runtime("Session not found"))?;
 
                 let otype = ObscuredType::from_str(&obscured_str).map_err(mlua::Error::runtime)?;
 
                 let filtered = scanner::filter_obscured_matches(pid, &session, &val_str, otype)
                     .map_err(mlua::Error::runtime)?;
 
-                if let Ok(mut map) = get_sessions().lock() {
-                    map.insert(session_id, filtered.clone());
-                }
-
+                let filtered = insert_session(session_id, filtered);
                 session_to_lua_table(lua_ctx, &filtered, 100)
             },
         )?,
@@ -2224,18 +2685,13 @@ fn setup_environment(
         "refine_big_double",
         lua.create_function(move |lua_ctx, (session_id, val_str): (String, String)| {
             let pid = *p_rbig.lock().unwrap();
-            let session = match get_sessions().lock().unwrap().get(&session_id) {
-                Some(s) => s.clone(),
-                None => return Err(mlua::Error::runtime("Session not found")),
-            };
+            let session = get_session(&session_id)
+                .ok_or_else(|| mlua::Error::runtime("Session not found"))?;
 
             let filtered = scanner::filter_big_double_matches(pid, &session, &val_str)
                 .map_err(mlua::Error::runtime)?;
 
-            if let Ok(mut map) = get_sessions().lock() {
-                map.insert(session_id, filtered.clone());
-            }
-
+            let filtered = insert_session(session_id, filtered);
             session_to_lua_table(lua_ctx, &filtered, 100)
         })?,
     )?;
@@ -2244,10 +2700,8 @@ fn setup_environment(
         "get_results",
         lua.create_function(
             move |lua_ctx, (session_id, max_count): (String, Option<usize>)| {
-                let session = match get_sessions().lock().unwrap().get(&session_id) {
-                    Some(s) => s.clone(),
-                    None => return Err(mlua::Error::runtime("Session not found")),
-                };
+                let session = get_session(&session_id)
+                    .ok_or_else(|| mlua::Error::runtime("Session not found"))?;
                 session_to_lua_table(lua_ctx, &session, max_count.unwrap_or(100))
             },
         )?,
@@ -2256,9 +2710,7 @@ fn setup_environment(
     hmem.set(
         "clear_session",
         lua.create_function(|_lua, session_id: String| {
-            if let Ok(mut map) = get_sessions().lock() {
-                map.remove(&session_id);
-            }
+            remove_session(&session_id);
             Ok(())
         })?,
     )?;
@@ -2302,10 +2754,7 @@ fn setup_environment(
                     active_types: vec![ValueType::Byte],
                 };
 
-                if let Ok(mut map) = get_sessions().lock() {
-                    map.insert(session_id, session.clone());
-                }
-
+                let session = insert_session(session_id, session);
                 session_to_lua_table(lua_ctx, &session, 100)
             },
         )?,
@@ -2381,25 +2830,116 @@ fn setup_environment(
     )?;
 
     let p_dmp = target_pid.clone();
+    let ui_dmp = ui.clone();
     hmem.set(
         "dump_memory",
         lua.create_function(
-            move |_lua, (from_addr, to_addr, file_path): (u64, u64, String)| {
-                let pid = *p_dmp.lock().unwrap();
+            move |_lua, (from_addr, to_addr, file_name): (u64, u64, String)| {
+                let target_path = match resolve_safe_dump_path(&file_name) {
+                    Ok(p) => p,
+                    Err(msg) => {
+                        ui_dmp.post_log(&format!("[Sandbox] {msg}"));
+                        return Err(mlua::Error::runtime(msg));
+                    }
+                };
                 if to_addr <= from_addr {
                     return Ok(false);
                 }
-                let size = ((to_addr - from_addr) as usize).min(50 * 1024 * 1024);
-                let mut buf = vec![0u8; size];
-                if kpm::read_memory(pid, from_addr, &mut buf).is_err() {
-                    return Ok(false);
+                let pid = *p_dmp.lock().unwrap_or_else(|e| e.into_inner());
+                let total_size = ((to_addr - from_addr) as usize).min(DUMP_MEMORY_MAX_BYTES);
+                let file = match open_safe_dump_file(&target_path) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        ui_dmp.post_log(&format!("[Sandbox] dump_memory open failed: {e}"));
+                        return Ok(false);
+                    }
+                };
+                let mut writer = BufWriter::new(file);
+                let chunk_cap = total_size.min(DUMP_MEMORY_CHUNK_BYTES);
+                let mut buf = vec![0u8; chunk_cap];
+                let mut offset = 0usize;
+                while offset < total_size {
+                    if is_script_cancelled() {
+                        return Err(mlua::Error::runtime("Script execution stopped by user"));
+                    }
+                    let read_len = (total_size - offset).min(buf.len());
+                    let cur_addr = from_addr.saturating_add(offset as u64);
+                    if kpm::read_memory(pid, cur_addr, &mut buf[..read_len]).is_err() {
+                        return Ok(false);
+                    }
+                    if writer.write_all(&buf[..read_len]).is_err() {
+                        return Ok(false);
+                    }
+                    offset += read_len;
                 }
-                match std::fs::write(&file_path, &buf) {
-                    Ok(_) => Ok(true),
-                    Err(_) => Ok(false),
-                }
+                Ok(writer.flush().is_ok())
             },
         )?,
+    )?;
+
+    // Hardware Page-Table Region Enumeration (HMKPM v3.0.0 ENUM_REGIONS)
+    let p_enum = target_pid.clone();
+    hmem.set(
+        "enum_regions",
+        lua.create_function(
+            move |lua_ctx, (writable_only, exec_only): (Option<bool>, Option<bool>)| {
+                let pid = *p_enum.lock().unwrap_or_else(|e| e.into_inner());
+                let mut flags = 0u32;
+                if writable_only.unwrap_or(false) {
+                    flags |= kpm::HMKPM_ENUM_FLAG_WRITABLE_ONLY;
+                }
+                if exec_only.unwrap_or(false) {
+                    flags |= kpm::HMKPM_ENUM_FLAG_EXEC_ONLY;
+                }
+                let entries = kpm::enum_regions(pid, flags, 0, 0).map_err(mlua::Error::runtime)?;
+                let out = lua_ctx.create_table()?;
+                for (idx, e) in entries.iter().enumerate() {
+                    let t = lua_ctx.create_table()?;
+                    let r = (e.flags & kpm::HMKPM_REGION_FLAG_READ) != 0;
+                    let w = (e.flags & kpm::HMKPM_REGION_FLAG_WRITE) != 0;
+                    let x = (e.flags & kpm::HMKPM_REGION_FLAG_EXEC) != 0;
+                    let has_block = (e.flags & kpm::HMKPM_REGION_FLAG_HAS_BLOCK) != 0;
+                    let perms = format!(
+                        "{}{}{}p",
+                        if r { 'r' } else { '-' },
+                        if w { 'w' } else { '-' },
+                        if x { 'x' } else { '-' }
+                    );
+                    t.set("start", e.start_va)?;
+                    t.set("end", e.start_va.saturating_add(e.size))?;
+                    t.set("size", e.size)?;
+                    t.set("readable", r)?;
+                    t.set("writable", w)?;
+                    t.set("executable", x)?;
+                    t.set("has_block", has_block)?;
+                    t.set("permissions", perms)?;
+                    out.set(idx + 1, t)?;
+                }
+                Ok(out)
+            },
+        )?,
+    )?;
+
+    // HMKPM v3.0.0 Runtime Telemetry & Feature Discovery
+    hmem.set(
+        "get_kpm_info",
+        lua.create_function(|lua_ctx, ()| {
+            let info = kpm::probe_version().map_err(mlua::Error::runtime)?;
+            let t = lua_ctx.create_table()?;
+            t.set("version", info.version_string())?;
+            t.set("version_code", info.version_code)?;
+            t.set("is_lockless", info.is_lockless_mode())?;
+            t.set("lock_source", info.lock_source_str())?;
+            t.set("mmap_lock_offset", info.mmap_lock_offset)?;
+            t.set("page_size", info.page_size)?;
+            t.set("kver", info.kver_string())?;
+            t.set("va_bits", info.va_bits)?;
+            t.set("tbi0", info.tbi0 != 0)?;
+            t.set("sw_pan_mode", info.sw_pan_mode_str())?;
+            t.set("fsnotify_mode", info.fsnotify_mode_str())?;
+            t.set("features", info.features)?;
+            Ok(t)
+        })?,
     )?;
 
     hmem.set(
@@ -2416,121 +2956,8 @@ fn setup_environment(
 
     lua.globals().set("hmem", hmem.clone())?;
 
-    // 3. Register `gg.*` GameGuardian API compatibility layer
-    let gg_chunk = r##"
-        gg = {}
-        
-        -- Type Constants
-        gg.TYPE_BYTE = 1
-        gg.TYPE_WORD = 2
-        gg.TYPE_DWORD = 4
-        gg.TYPE_QWORD = 32
-        gg.TYPE_FLOAT = 16
-        gg.TYPE_DOUBLE = 64
-        gg.TYPE_AUTO = 127
-
-        -- Region Constants
-        gg.REGION_ALL = 0xFFFFFFFF
-        gg.REGION_C_HEAP = 1
-        gg.REGION_JAVA_HEAP = 2
-        gg.REGION_C_ALLOC = 4
-        gg.REGION_C_BSS = 8
-        gg.REGION_C_DATA = 16
-        gg.REGION_ANONYMOUS = 32
-        gg.REGION_STACK = 64
-        gg.REGION_ASHMEM = 524288
-        gg.REGION_CODE_APP = 16384
-        gg.REGION_CODE_SYS = 32768
-        gg.REGION_BAD = 131072
-        gg.REGION_OTHER = 0x80000000
-
-        -- Sign Constants
-        gg.SIGN_EQUAL = 0
-        gg.SIGN_NOT_EQUAL = 1
-        gg.SIGN_GREATER_OR_EQUAL = 2
-        gg.SIGN_LESS_OR_EQUAL = 3
-        gg.SIGN_GREATER = 4
-        gg.SIGN_LESS = 5
-
-        -- Freeze Constants
-        gg.FREEZE_NORMAL = 0
-        gg.FREEZE_MAY_INCREASE = 1
-        gg.FREEZE_MAY_DECREASE = 2
-
-        -- Prot Constants
-        gg.PROT_READ = 1
-        gg.PROT_WRITE = 2
-        gg.PROT_EXEC = 4
-
-        -- Build & Version Constants
-        gg.BUILD = 16142
-        gg.VERSION = "101.1"
-        gg.VERSION_INT = 10101
-        gg.PACKAGE = "com.yervant.huntmem"
-
-        -- Active search configuration
-        gg._active_ranges = nil
-        gg._saved_list = {}
-
-        gg._type_to_str = function(t)
-            if t == gg.TYPE_BYTE or t == "byte" or t == "i8" or t == "u8" then return "byte"
-            elseif t == gg.TYPE_WORD or t == "short" or t == "word" or t == "i16" or t == "u16" then return "short"
-            elseif t == gg.TYPE_DWORD or t == "int" or t == "dword" or t == "i32" or t == "u32" then return "int"
-            elseif t == gg.TYPE_QWORD or t == "long" or t == "qword" or t == "i64" or t == "u64" then return "long"
-            elseif t == gg.TYPE_FLOAT or t == "float" or t == "f32" then return "float"
-            elseif t == gg.TYPE_DOUBLE or t == "double" or t == "f64" then return "double"
-            elseif t == "float16" or t == "f16" or t == "half" then return "float16"
-            else return "auto" end
-        end
-
-        gg.alert = function(msg, ok)
-            hmem.alert(tostring(msg), "Alert")
-        end
-
-        gg.toast = function(msg)
-            hmem.toast(tostring(msg))
-        end
-
-        gg.prompt = function(prompts, defaults, types)
-            local res = {}
-            if type(prompts) == "table" then
-                for i, p in ipairs(prompts) do
-                    local def = (defaults and defaults[i]) or ""
-                    local t = (types and types[i]) or "qwerty"
-                    res[i] = hmem.prompt(tostring(p), tostring(def), tostring(t))
-                end
-            else
-                local val = hmem.prompt(tostring(prompts), tostring(defaults or ""), tostring(types or "qwerty"))
-                return { val }
-            end
-            return res
-        end
-
-        gg.choice = function(items, selected, title)
-            return hmem.choice(title or "Select Option", items)
-        end
-
-        gg.multiChoice = function(items, selected, title)
-            return hmem.multi_choice(title or "Select Options", items, selected)
-        end
-
-        gg.setRanges = function(ranges)
-            gg._active_ranges = ranges
-        end
-
-        gg.getRanges = function()
-            return gg._active_ranges or gg.REGION_ALL
-        end
-
-        gg.bytes = function(text, encoding)
-            if type(text) ~= "string" then return {} end
-            local t = {}
-            for i = 1, #text do
-                t[i] = string.byte(text, i)
-            end
-            return t
-        end
-
+    // 3. Register Lua table/string helpers and 2D Canvas compatibility shims
+    let lua_helpers_chunk = r##"
         -- Table Utilities
         table.json = function(json_str)
             return hmem.parse_json(tostring(json_str))
@@ -2597,129 +3024,7 @@ fn setup_environment(
             return table.concat(chars)
         end
 
-        -- Type Bitcast Conversions
-        gg.FTD = function(val)
-            return hmem.ftd(tonumber(val) or 0.0)
-        end
-
-        gg.ETD = function(val)
-            return hmem.etd(tonumber(val) or 0.0)
-        end
-
-        gg.WTD = function(addr, offset)
-            local w1 = tonumber(hmem.read(addr, "word")) or 0
-            local w2 = tonumber(hmem.read(addr + (offset or 2), "word")) or 0
-            return ((w2 * 65536) + w1) & 0xFFFFFFFF
-        end
-
-        gg.XTD = function(addr, key)
-            local d = tonumber(hmem.read(addr, "dword")) or 0
-            return (d ~ (key or 0)) & 0xFFFFFFFF
-        end
-
-        -- Pointer Calculations
-        gg.sumAddress = function(addr, offset, save, flags)
-            local target = (tonumber(addr) or 0) + (tonumber(offset) or 0)
-            local d_val = tonumber(hmem.read(target, "dword")) or 0
-            local f_val = tonumber(hmem.read(target, "float")) or 0.0
-            local q_val = tonumber(hmem.read(target, "qword")) or 0
-            local res = {
-                address = target,
-                value = tostring(d_val),
-                D = d_val,
-                F = f_val,
-                Q = q_val,
-                flags = flags or gg.TYPE_DWORD
-            }
-            if save == true then
-                gg.addListItems({ res })
-            end
-            return res
-        end
-
-        gg.sumAddressX = function(tbl, idx, offset, flags)
-            if type(tbl) ~= "table" then return nil end
-            local entry = tbl[idx] or tbl
-            local addr = entry.address or entry[1] or 0
-            return gg.sumAddress(addr, offset, false, flags)
-        end
-
-        gg.copyText = function(text)
-            hmem.toast("Copied: " .. tostring(text))
-        end
-
-        gg.isVPN = function()
-            return hmem.is_vpn()
-        end
-
-        -- Enhanced getRangesList supporting address lookup, string regex/substring, or table filters
-        gg.getRangesList = function(filter)
-            local all_maps = hmem.get_maps()
-            if not filter then
-                local list = {}
-                for i, r in ipairs(all_maps) do
-                    list[i] = {
-                        start = r.start,
-                        ['end'] = r['end'],
-                        type = r.permissions,
-                        state = "Ca",
-                        name = r.path,
-                        internalName = r.path
-                    }
-                end
-                return list
-            end
-
-            local list = {}
-            if type(filter) == "number" then
-                for _, r in ipairs(all_maps) do
-                    if filter >= r.start and filter < r['end'] then
-                        list[#list + 1] = {
-                            start = r.start,
-                            ['end'] = r['end'],
-                            type = r.permissions,
-                            state = "Ca",
-                            name = r.path,
-                            internalName = r.path
-                        }
-                        break
-                    end
-                end
-            elseif type(filter) == "string" then
-                for _, r in ipairs(all_maps) do
-                    if r.path and (r.path:find(filter) or filter == "") then
-                        list[#list + 1] = {
-                            start = r.start,
-                            ['end'] = r['end'],
-                            type = r.permissions,
-                            state = "Ca",
-                            name = r.path,
-                            internalName = r.path
-                        }
-                    end
-                end
-            elseif type(filter) == "table" then
-                for _, r in ipairs(all_maps) do
-                    local match = true
-                    if filter.internalName and (not r.path or not r.path:find(filter.internalName)) then match = false end
-                    if filter.name and (not r.path or not r.path:find(filter.name)) then match = false end
-                    if filter.type and (not r.permissions or not r.permissions:find(filter.type)) then match = false end
-                    if match then
-                        list[#list + 1] = {
-                            start = r.start,
-                            ['end'] = r['end'],
-                            type = r.permissions,
-                            state = filter.state or "Ca",
-                            name = r.path,
-                            internalName = r.path
-                        }
-                    end
-                end
-            end
-            return list
-        end
-
-        -- DrawTool / ESP Compatibility Shims
+        -- 2D Canvas Compatibility Shims
         disDrawAcc = function() end
         closeMTP = function() end
 
@@ -2774,13 +3079,15 @@ fn setup_environment(
                         local x1, y1, x2, y2 = rect[1] or rect.x1 or 0, rect[2] or rect.y1 or 0, rect[3] or rect.x2 or 0, rect[4] or rect.y2 or 0
                         local color = p and p._color or "#FFFFFFFF"
                         local w = p and p._width or 2.0
-                        local filled = p and (p._style == "填充" or p._style == "fill" or p._style == "描边并填充") or false
+                        local style = p and string.lower(tostring(p._style or "")) or ""
+                        local filled = (style == "fill" or style == "fill_and_stroke" or style == "both")
                         hmem.canvas.draw_rect(x1, y1, x2 - x1, y2 - y1, w, color, filled)
                     end
                     function canvas_proxy:drawCircle(cx, cy, r, p)
                         local color = p and p._color or "#FFFFFFFF"
                         local w = p and p._width or 2.0
-                        local filled = p and (p._style == "填充" or p._style == "fill" or p._style == "描边并填充") or false
+                        local style = p and string.lower(tostring(p._style or "")) or ""
+                        local filled = (style == "fill" or style == "fill_and_stroke" or style == "both")
                         hmem.canvas.draw_circle(cx, cy, r, w, color, filled)
                     end
                     function canvas_proxy:drawText(text, x, y, p)
@@ -2794,6 +3101,7 @@ fn setup_environment(
                     function canvas_proxy:rotate(deg, px, py) end
                     function canvas_proxy:clipRect(rect) end
 
+                    hmem.canvas.begin_frame()
                     onDraw(canvas_proxy)
                     hmem.canvas.flush()
                 end
@@ -2803,23 +3111,9 @@ fn setup_environment(
             function view:removeAllView() hmem.canvas.clear() end
             return view
         end
-
-        -- Module & Pointer Resolution Compatibility Aliases
-        gg.getModuleBase = function(mod_name, pid_opt)
-            return hmem.get_module_base(mod_name, pid_opt)
-        end
-        gg.resolvePointer = function(base_val, offsets)
-            return hmem.resolve_pointer(base_val, offsets)
-        end
-
-        -- Canvas Compatibility Aliases
-        gg.canvas = hmem.canvas
-        gg.getScreenSize = function() return hmem.canvas.get_screen_size() end
-        gg.getScreenWidth = function() return hmem.canvas.get_width() end
-        gg.getScreenHeight = function() return hmem.canvas.get_height() end
     "##;
 
-    lua.load(gg_chunk).exec()?;
+    lua.load(lua_helpers_chunk).exec()?;
 
     Ok(())
 }
@@ -2866,29 +3160,6 @@ mod tests {
     }
 
     #[test]
-    fn test_lua_gg_api() {
-        let res = run_script(1234, "return gg.TYPE_DWORD", Arc::new(NoOpUiCallback));
-        assert!(res.success);
-        assert_eq!(res.result.as_deref(), Some("4"));
-
-        let res_ranges = run_script(
-            1234,
-            "gg.setRanges(gg.REGION_ANONYMOUS)\nreturn gg.getRanges()",
-            Arc::new(NoOpUiCallback),
-        );
-        assert!(res_ranges.success);
-        assert_eq!(res_ranges.result.as_deref(), Some("32"));
-
-        let res_bytes = run_script(
-            1234,
-            "local t = gg.bytes('ABC')\nreturn t[1] .. ',' .. t[2] .. ',' .. t[3]",
-            Arc::new(NoOpUiCallback),
-        );
-        assert!(res_bytes.success);
-        assert_eq!(res_bytes.result.as_deref(), Some("65,66,67"));
-    }
-
-    #[test]
     fn test_lua_obscured_encode_decode() {
         let res = run_script(
             1234,
@@ -2907,7 +3178,7 @@ mod tests {
     fn test_lua_get_module_base_api_exists() {
         let res = run_script(
             1234,
-            "return type(hmem.get_module_base) == 'function' and type(gg.getModuleBase) == 'function'",
+            "return type(hmem.get_module_base) == 'function'",
             Arc::new(NoOpUiCallback),
         );
         assert!(res.success);
@@ -2918,7 +3189,7 @@ mod tests {
     fn test_lua_pointer_api_exists() {
         let res = run_script(
             1234,
-            "return type(hmem.resolve_pointer) == 'function' and type(gg.resolvePointer) == 'function'",
+            "return type(hmem.resolve_pointer) == 'function'",
             Arc::new(NoOpUiCallback),
         );
         assert!(res.success);
@@ -2937,7 +3208,6 @@ mod tests {
                 and type(hmem.canvas.draw_circle) == 'function'
                 and type(hmem.canvas.batch_draw) == 'function'
                 and type(hmem.canvas.clear) == 'function'
-                and type(gg.canvas) == 'table'
                 and type(canvas.draw_line) == 'function'
             return ok
             "#,
@@ -2953,7 +3223,7 @@ mod tests {
             1234,
             r##"
             canvas.clear()
-            canvas.draw_text("Player 1", 100, 150, 16, "#FF0000", "center")
+            canvas.draw_text("Node 1", 100, 150, 16, "#FF0000", "center")
             canvas.draw_line(0, 0, 100, 100, 2, "green")
             canvas.draw_rect(50, 50, 200, 100, 3, { r = 255, g = 255, b = 0, a = 200 }, true)
             canvas.draw_circle(150, 150, 40, 2, 0xFF00FFFF, false)
@@ -2993,8 +3263,8 @@ mod tests {
             r#"
             local parts = string.split("a;b;c;d", ";")
             local trimmed = string.trim("  hello world  ")
-            local sw = string.startsWith("libil2cpp.so", "lib")
-            local ew = string.endsWith("libil2cpp.so", ".so")
+            local sw = string.startsWith("libnative.so", "lib")
+            local ew = string.endsWith("libnative.so", ".so")
             local rep = string.replace("123-456-789", "-", "_")
             local b64 = string.base64("HuntMemory", "en")
             local dec = string.base64(b64, "de")
@@ -3012,23 +3282,22 @@ mod tests {
     }
 
     #[test]
-    fn test_lua_type_bitcasts_and_pointers() {
+    fn test_lua_type_bitcasts() {
         let res = run_script(
             1234,
             r#"
-            local ftd_val = gg.FTD(1.0)
-            local etd_val = gg.ETD(1.0)
-            local sum = gg.sumAddress(0x1000, 0x20, false, gg.TYPE_DWORD)
-            return tostring(ftd_val) .. "|" .. tostring(etd_val) .. "|" .. tostring(sum.address)
+            local ftd_val = hmem.ftd(1.0)
+            local etd_val = hmem.etd(1.0)
+            return tostring(ftd_val) .. "|" .. tostring(etd_val)
             "#,
             Arc::new(NoOpUiCallback),
         );
         assert!(res.success);
-        assert_eq!(res.result.as_deref(), Some("1065353216|1072693248|4128"));
+        assert_eq!(res.result.as_deref(), Some("1065353216|1072693248"));
     }
 
     #[test]
-    fn test_lua_drawtool_shims() {
+    fn test_lua_canvas_shims() {
         let res = run_script(
             1234,
             r##"
@@ -3037,7 +3306,7 @@ mod tests {
             local p = newPaint()
             p:setColor("#FF112233")
             p:setWidth(3.5)
-            p:setStyle("填充")
+            p:setStyle("fill")
             p:setTextSize(20)
 
             local v = newView()
@@ -3046,7 +3315,7 @@ mod tests {
                 c:drawLine(0, 0, 100, 100, p)
                 c:drawRect({10, 20, 30, 40}, p)
                 c:drawCircle(50, 50, 25, p)
-                c:drawText("ESP", 50, 50, p)
+                c:drawText("Overlay", 50, 50, p)
             end, 60)
             v:close()
             closeMTP()
@@ -3057,5 +3326,334 @@ mod tests {
         );
         assert!(res.success);
         assert_eq!(res.result.as_deref(), Some("1080x2400|#FF112233|3.5"));
+    }
+
+    static TEST_GLOBAL_STATE_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn test_lua_sandbox_blocks_dangerous_stdlib() {
+        let _guard = TEST_GLOBAL_STATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let res = run_script(
+            1234,
+            r#"
+            local blocked = {
+                io = io,
+                package = package,
+                require = require,
+                debug = debug,
+                dofile = dofile,
+                loadfile = loadfile,
+                os_execute = os and os.execute,
+                os_remove = os and os.remove,
+                os_rename = os and os.rename,
+                os_getenv = os and os.getenv,
+                os_exit = os and os.exit,
+                os_tmpname = os and os.tmpname,
+                os_setlocale = os and os.setlocale,
+            }
+            for k, v in pairs(blocked) do
+                if v ~= nil then
+                    return "EXPOSED:" .. k
+                end
+            end
+            return "SANDBOX_OK"
+            "#,
+            Arc::new(NoOpUiCallback),
+        );
+        assert!(res.success, "unexpected error: {:?}", res.error);
+        assert_eq!(res.result.as_deref(), Some("SANDBOX_OK"));
+    }
+
+    #[test]
+    fn test_lua_sandbox_allows_safe_os_subset() {
+        let _guard = TEST_GLOBAL_STATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let res = run_script(
+            1234,
+            r#"
+            local c = os.clock()
+            local t = os.time()
+            local d = os.difftime(200, 150)
+            local epoch = os.date("!%Y-%m-%d %H:%M:%S", 0)
+            local known = os.date("!%F %T", 1700000000)
+            local tbl = os.date("!*t", 0)
+            assert(type(c) == "number" and c >= 0)
+            assert(type(t) == "number" and t > 0)
+            assert(d == 50)
+            assert(tbl.year == 1970 and tbl.month == 1 and tbl.day == 1 and tbl.wday == 5 and tbl.yday == 1)
+            return epoch .. "|" .. known
+            "#,
+            Arc::new(NoOpUiCallback),
+        );
+        assert!(res.success, "unexpected error: {:?}", res.error);
+        assert_eq!(
+            res.result.as_deref(),
+            Some("1970-01-01 00:00:00|2023-11-14 22:13:20")
+        );
+    }
+
+    #[test]
+    fn test_lua_sandbox_blocks_binary_bytecode_load() {
+        let _guard = TEST_GLOBAL_STATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let res = run_script(
+            1234,
+            r#"
+            local ok_fn = load("return 40 + 2")
+            assert(ok_fn() == 42)
+            local bad_fn, err = load("\27LuaT\0\0\0", "evil", "b")
+            assert(bad_fn == nil)
+            assert(type(err) == "string")
+            return "TEXT_ONLY_OK"
+            "#,
+            Arc::new(NoOpUiCallback),
+        );
+        assert!(res.success, "unexpected error: {:?}", res.error);
+        assert_eq!(res.result.as_deref(), Some("TEXT_ONLY_OK"));
+    }
+
+    #[test]
+    fn test_lua_sandbox_dump_memory_path_validation() {
+        let _guard = TEST_GLOBAL_STATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        // Fail-closed when unconfigured
+        set_sandbox_dump_dir(None);
+        assert!(resolve_safe_dump_path("dump.bin").is_err());
+
+        let temp_dir =
+            std::env::temp_dir().join(format!("hmem_sandbox_dump_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        set_sandbox_dump_dir(Some(temp_dir.to_string_lossy().into_owned()));
+
+        // Reject traversal, absolute paths, separators, hidden/dash names, NUL bytes
+        assert!(resolve_safe_dump_path("").is_err());
+        assert!(resolve_safe_dump_path("../escape.bin").is_err());
+        assert!(resolve_safe_dump_path("sub/file.bin").is_err());
+        assert!(resolve_safe_dump_path("sub\\file.bin").is_err());
+        assert!(resolve_safe_dump_path("/data/local/tmp/evil.sh").is_err());
+        assert!(resolve_safe_dump_path(".hidden").is_err());
+        assert!(resolve_safe_dump_path("-flag").is_err());
+        assert!(resolve_safe_dump_path("a\0b.bin").is_err());
+
+        // Valid plain filename resolves strictly inside sandbox directory
+        let resolved = resolve_safe_dump_path("region_dump.bin").expect("valid filename");
+        let canonical_base = std::fs::canonicalize(&temp_dir).expect("canonical base");
+        assert_eq!(resolved.parent(), Some(canonical_base.as_path()));
+        assert_eq!(
+            resolved.file_name().and_then(|s| s.to_str()),
+            Some("region_dump.bin")
+        );
+
+        // Lua invocation with traversal path must fail with sandbox error
+        let lua_res = run_script(
+            1234,
+            r#"return hmem.dump_memory(0x1000, 0x1010, "/data/local/tmp/evil.bin")"#,
+            Arc::new(NoOpUiCallback),
+        );
+        assert!(!lua_res.success);
+        assert!(
+            lua_res
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("dump_memory path rejected")
+        );
+
+        set_sandbox_dump_dir(None);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_lua_bounded_log_buffer() {
+        let _guard = TEST_GLOBAL_STATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let streamed_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        struct CountingCallback(Arc<std::sync::atomic::AtomicUsize>);
+        impl ScriptUiCallback for CountingCallback {
+            fn show_alert(&self, _t: &str, _m: &str) {}
+            fn show_toast(&self, _m: &str) {}
+            fn show_prompt(&self, _t: &str, _d: &str, _k: &str) -> Option<String> {
+                None
+            }
+            fn show_choice(&self, _t: &str, _i: &[String]) -> Option<usize> {
+                None
+            }
+            fn show_multi_choice(
+                &self,
+                _t: &str,
+                _i: &[String],
+                _init: &[bool],
+            ) -> Option<Vec<bool>> {
+                None
+            }
+            fn set_dynamic_menu(&self, _j: &str) {}
+            fn clear_dynamic_menu(&self) {}
+            fn post_log(&self, _line: &str) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+            fn canvas_draw_binary(&self, _b: &[u8]) {}
+            fn canvas_clear(&self) {}
+            fn canvas_set_visible(&self, _v: bool) {}
+            fn get_screen_size(&self) -> (u32, u32) {
+                (1080, 2400)
+            }
+            fn poll_menu_event(&self) -> Option<String> {
+                None
+            }
+        }
+
+        let res = run_script(
+            1234,
+            r#"
+            for i = 1, 1500 do
+                print("log_line_" .. i .. "_" .. string.rep("A", 80))
+            end
+            return "DONE"
+            "#,
+            Arc::new(CountingCallback(streamed_count.clone())),
+        );
+        assert!(res.success, "unexpected error: {:?}", res.error);
+        assert_eq!(streamed_count.load(Ordering::Relaxed), 1500);
+        assert!(res.output.len() <= MAX_LOG_BUFFER_BYTES + 64);
+        assert!(res.output.contains("[... earlier logs truncated ...]"));
+        assert!(res.output.contains("log_line_1500_"));
+    }
+
+    #[test]
+    fn test_lua_dialog_cancellation_aborts_immediately() {
+        let _guard = TEST_GLOBAL_STATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        struct CancellingDialogCallback;
+        impl ScriptUiCallback for CancellingDialogCallback {
+            fn show_alert(&self, _t: &str, _m: &str) {
+                cancel_script();
+            }
+            fn show_toast(&self, _m: &str) {}
+            fn show_prompt(&self, _t: &str, _d: &str, _k: &str) -> Option<String> {
+                cancel_script();
+                None
+            }
+            fn show_choice(&self, _t: &str, _i: &[String]) -> Option<usize> {
+                cancel_script();
+                None
+            }
+            fn show_multi_choice(
+                &self,
+                _t: &str,
+                _i: &[String],
+                _init: &[bool],
+            ) -> Option<Vec<bool>> {
+                cancel_script();
+                None
+            }
+            fn set_dynamic_menu(&self, _j: &str) {}
+            fn clear_dynamic_menu(&self) {}
+            fn post_log(&self, _l: &str) {}
+            fn canvas_draw_binary(&self, _b: &[u8]) {}
+            fn canvas_clear(&self) {}
+            fn canvas_set_visible(&self, _v: bool) {}
+            fn get_screen_size(&self) -> (u32, u32) {
+                (1080, 2400)
+            }
+            fn poll_menu_event(&self) -> Option<String> {
+                None
+            }
+        }
+
+        let res = run_script(
+            1234,
+            r#"
+            local val = hmem.prompt("Enter value")
+            return "SHOULD_NOT_REACH:" .. tostring(val)
+            "#,
+            Arc::new(CancellingDialogCallback),
+        );
+        assert!(!res.success);
+        assert!(
+            res.error
+                .as_deref()
+                .unwrap_or("")
+                .contains("Script execution stopped by user")
+        );
+    }
+
+    #[test]
+    fn test_lua_canvas_frame_batching_and_newview() {
+        let _guard = TEST_GLOBAL_STATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        let packets: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+
+        struct PacketCaptureCallback(Arc<Mutex<Vec<Vec<u8>>>>);
+        impl ScriptUiCallback for PacketCaptureCallback {
+            fn show_alert(&self, _t: &str, _m: &str) {}
+            fn show_toast(&self, _m: &str) {}
+            fn show_prompt(&self, _t: &str, _d: &str, _k: &str) -> Option<String> {
+                None
+            }
+            fn show_choice(&self, _t: &str, _i: &[String]) -> Option<usize> {
+                None
+            }
+            fn show_multi_choice(
+                &self,
+                _t: &str,
+                _i: &[String],
+                _init: &[bool],
+            ) -> Option<Vec<bool>> {
+                None
+            }
+            fn set_dynamic_menu(&self, _j: &str) {}
+            fn clear_dynamic_menu(&self) {}
+            fn post_log(&self, _l: &str) {}
+            fn canvas_draw_binary(&self, b: &[u8]) {
+                self.0
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(b.to_vec());
+            }
+            fn canvas_clear(&self) {}
+            fn canvas_set_visible(&self, _v: bool) {}
+            fn get_screen_size(&self) -> (u32, u32) {
+                (1080, 2400)
+            }
+            fn poll_menu_event(&self) -> Option<String> {
+                None
+            }
+        }
+
+        let res = run_script(
+            1234,
+            r##"
+            canvas.begin_frame()
+            canvas.draw_line(0, 0, 10, 10, 2, "#FF00FF00")
+            canvas.draw_rect(10, 10, 50, 50, 2, "#FFFF0000", true)
+            canvas.draw_circle(30, 30, 12, 2, "#FF0000FF", false)
+            canvas.draw_text("Telemetry", 5, 15, 14, "#FFFFFFFF", "left")
+            canvas.flush()
+            return "BATCH_OK"
+            "##,
+            Arc::new(PacketCaptureCallback(packets.clone())),
+        );
+        assert!(res.success, "unexpected error: {:?}", res.error);
+        let captured = packets.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            captured.len(),
+            1,
+            "expected a single batched binary packet for the entire frame"
+        );
+        assert_eq!(captured[0][0], CANVAS_MODE_REPLACE);
+        let cmd_count = u16::from_le_bytes([captured[0][1], captured[0][2]]);
+        assert_eq!(cmd_count, 4);
     }
 }

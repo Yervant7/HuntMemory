@@ -59,10 +59,10 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "HMKPM (HuntMemory KernelPatch Module)",
-            version = "2.x.x",
+            version = BuildConfig.HMKPM_VERSION,
             category = DependencyCategory.KERNEL_SYSTEM,
             license = "GPL-2.0-only",
-            description = "KernelPatch module hooked via SYS_GETRESUID for high-speed direct kernel virtual and physical memory read/write operations.",
+            description = "KernelPatch module interfaced via SYS_GETRESUID for high-speed direct kernel virtual and physical memory read/write operations.",
             url = "https://github.com/Yervant7/HuntMemory-KPM",
             isCoreProject = true
         ),
@@ -71,7 +71,7 @@ object CreditsRepository {
             version = "0.11+",
             category = DependencyCategory.KERNEL_SYSTEM,
             license = "GPL-2.0-only",
-            description = "Universal Android kernel-space patching framework for ARM64 kernel runtime manipulation and module hooking.",
+            description = "Universal Android kernel module loading and runtime instrumentation framework for ARM64.",
             url = "https://github.com/bmax121/KernelPatch"
         ),
         DependencyCredit(
@@ -79,7 +79,7 @@ object CreditsRepository {
             version = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) / Linux ${System.getProperty("os.version") ?: "4.4+"}",
             category = DependencyCategory.KERNEL_SYSTEM,
             license = "GPL-2.0 / Apache-2.0",
-            description = "Linux kernel procfs memory subsystems (/proc/pid/maps, /proc/pid/pagemap).",
+            description = "Linux kernel virtual memory management and /proc/<pid>/maps region descriptors.",
             url = "https://source.android.com"
         ),
 
@@ -192,7 +192,7 @@ object CreditsRepository {
         // Rust Core Dependencies (app/src/main/hmem/hmem_jni)
         DependencyCredit(
             name = "hmem_jni (Rust Native Core)",
-            version = BuildConfig.RUST_VERSION_HMEM_JNI,
+            version = "0.2.0",
             category = DependencyCategory.RUST_CORE,
             license = "GPL-3.0-or-later",
             description = "Native ARM64 Rust 2024 core library implementing SIMD memory scanning, maps filtering, and JNI bridges.",
@@ -201,7 +201,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "jni crate",
-            version = BuildConfig.RUST_VERSION_JNI,
+            version = "0.22",
             category = DependencyCategory.RUST_CORE,
             license = "MIT OR Apache-2.0",
             description = "Type-safe Rust bindings to the Java Native Interface (JNI) for high-speed cross-boundary calls.",
@@ -209,7 +209,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "libc crate",
-            version = BuildConfig.RUST_VERSION_LIBC,
+            version = "0.2",
             category = DependencyCategory.RUST_CORE,
             license = "MIT OR Apache-2.0",
             description = "Raw Rust FFI bindings for Linux and Android bionic C library system calls and data structures.",
@@ -217,7 +217,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "mlua crate",
-            version = BuildConfig.RUST_VERSION_MLUA,
+            version = "0.12",
             category = DependencyCategory.RUST_CORE,
             license = "MIT",
             description = "Safe, high-level Lua 5.4 bindings for Rust powering memory search automation and custom scripting engine.",
@@ -225,7 +225,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "serde & serde_derive",
-            version = BuildConfig.RUST_VERSION_SERDE,
+            version = "1.x",
             category = DependencyCategory.RUST_CORE,
             license = "MIT OR Apache-2.0",
             description = "High-performance zero-copy serialization and deserialization framework for Rust.",
@@ -233,7 +233,7 @@ object CreditsRepository {
         ),
         DependencyCredit(
             name = "serde_json",
-            version = BuildConfig.RUST_VERSION_SERDE_JSON,
+            version = "1.x",
             category = DependencyCategory.RUST_CORE,
             license = "MIT OR Apache-2.0",
             description = "Fast JSON parser and serializer for exchanging complex memory scan metadata across JNI boundaries.",

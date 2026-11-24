@@ -129,7 +129,7 @@
     <string name="memory_menu_preset_reset">重置</string>
     <string name="memory_menu_syntax_help_title">搜索技巧与语法帮助</string>
     <string name="memory_menu_syntax_help_button_cd">搜索语法帮助</string>
-    <string name="memory_menu_syntax_help_text"><b>1. 尾数 / 指数 (科学计数法 / BigDouble)：</b>\n• <i>1.5e6</i> 或 <i>1.5,6</i> 或 <i>1.5:6</i>\n• 类型：选择 BigDouble 或输入 <i>bigdouble:1.5,6</i>\n\n<b>2. 混淆 / 加密值 (Anti-Cheat XOR)：</b>\n• 选择 Obscured Int 或 Obscured Float\n• 或使用前缀：<i>xor:1000</i> 或 <i>obscured:1000</i>\n\n<b>3. 浮点容差 / Epsilon：</b>\n• 绝对误差：<i>100.0 +- 0.5</i>\n• 百分比误差：<i>100 +- 2%</i>\n\n<b>4. 定点数缩放：</b>\n• 倍数公式：<i>10.5 * 1000</i> (搜索 10500)\n• 或前缀：<i>scaled:10.5:1000</i>\n\n<b>5. 异构结构体组：</b>\n• 混合类型：<i>f64:1.5; i64:6 : 16</i>\n• 或：<i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_syntax_help_text"><b>1. 尾数 / 指数 (科学计数法 / BigDouble)：</b>\n• <i>1.5e6</i> 或 <i>1.5,6</i> 或 <i>1.5:6</i>\n• 类型：选择 BigDouble 或输入 <i>bigdouble:1.5,6</i>\n\n<b>2. 混淆 / 加密值 (XOR 密钥对)：</b>\n• 选择 Obscured Int 或 Obscured Float\n• 或使用前缀：<i>xor:1000</i> 或 <i>obscured:1000</i>\n\n<b>3. 浮点容差 / Epsilon：</b>\n• 绝对误差：<i>100.0 +- 0.5</i>\n• 百分比误差：<i>100 +- 2%</i>\n\n<b>4. 定点数缩放：</b>\n• 倍数公式：<i>10.5 * 1000</i> (搜索 10500)\n• 或前缀：<i>scaled:10.5:1000</i>\n\n<b>5. 异构结构体组：</b>\n• 混合类型：<i>f64:1.5; i64:6 : 16</i>\n• 或：<i>f32:100.0; i32:50; byte:1 : 32</i></string>
     <string name="memory_menu_new_scan_button">新搜索</string>
     <string name="memory_menu_new_search_button_initial">新搜索</string>
     <string name="memory_menu_refine_button">改善</string>
@@ -159,7 +159,7 @@
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">免责声明</string>
-    <string name="disclaimer_text">欢迎使用 HuntMemory。\n\n这是一款内存读取和编辑工具，旨在用于您自己的应用程序和进程的开发、调试和学习目的。\n\n严禁将此应用程序用于非法活动，例如在线游戏作弊、未经授权修改其他应用程序，或任何违反第三方服务条款或现行法律的行为。\n\n继续操作即表示您承认并同意对自己的行为承担全部责任。对于因使用此工具而导致的任何不当使用、损害或负面后果，开发者概不负责。</string>
+    <string name="disclaimer_text">欢迎使用 HuntMemory。\n\n这是一款内存读取和编辑工具，旨在用于您自己的应用程序和进程的开发、调试和学习目的。\n\n严禁将此应用程序用于非法活动、未经授权修改其他应用程序，或任何违反第三方服务条款或现行法律的行为。\n\n继续操作即表示您承认并同意对自己的行为承担全部责任。对于因使用此工具而导致的任何不当使用、损害或负面后果，开发者概不负责。</string>
     <string name="disclaimer_accept_button">同意并继续</string>
     <string name="disclaimer_scroll_down_hint">向下滑动以阅读更多内容</string>
 
@@ -224,10 +224,10 @@
     <string name="search_help_try_hint">提示：点击任何示例即可将其直接填入搜索输入框。</string>
     <string name="search_help_cat_basic_title">精确匹配与浮点容差</string>
     <string name="search_help_cat_basic_desc">搜索精确数值或带绝对/百分比容差范围的浮点数。</string>
-    <string name="search_help_cat_obscured_title">混淆与反作弊加密 (XOR)</string>
-    <string name="search_help_cat_obscured_desc">扫描由反作弊引擎（如 ACTk）通过动态 XOR 密钥加密保护的内存变量。</string>
+    <string name="search_help_cat_obscured_title">混淆与 XOR 密钥对</string>
+    <string name="search_help_cat_obscured_desc">扫描使用动态 XOR 键值对编码的混淆变量。</string>
     <string name="search_help_cat_bigdouble_title">科学计数法与 BigDouble</string>
-    <string name="search_help_cat_bigdouble_desc">以尾数和指数形式存储的超大数值（广泛用于挂机和放置类游戏）。</string>
+    <string name="search_help_cat_bigdouble_desc">以尾数和指数形式存储的大数值（用于科学计算与大范围数值运行时）。</string>
     <string name="search_help_cat_scaled_title">定点缩放数值</string>
     <string name="search_help_cat_scaled_desc">在内存中作为缩放整数存储的小数（例如 10.5 乘以 1000 实际搜索 10500）。</string>
     <string name="search_help_cat_group_title">结构体与联合组搜索</string>
@@ -270,7 +270,7 @@
     <string name="main_screen_status_popup_permission_missing">缺少弹窗权限</string>
     <string name="oem_compat_banner_title">%1$s 优化</string>
     <string name="oem_compat_hyperos_desc">检测到定制系统。请允许“后台弹出界面”和“自启动”，以防止悬浮窗异常关闭。</string>
-    <string name="oem_compat_battery_desc">后台电池限制可能会在游戏过程中终止悬浮窗和内存扫描。</string>
+    <string name="oem_compat_battery_desc">后台电池限制可能会在高负载前台运行期间终止悬浮窗和内存扫描。</string>
     <string name="oem_compat_status_granted">已允许</string>
     <string name="oem_compat_status_missing">未允许</string>
     <string name="oem_compat_status_unrestricted">无限制</string>
@@ -286,7 +286,7 @@
     <string name="oem_compat_dialog_item_overlay_title">1. 悬浮窗与后台弹窗</string>
     <string name="oem_compat_dialog_item_overlay_desc">在 HyperOS/MIUI 上，必须在安全中心允许“后台弹出界面”。</string>
     <string name="oem_compat_dialog_item_autostart_title">2. 自启动与后台活动</string>
-    <string name="oem_compat_dialog_item_autostart_desc">允许自启动可防止高负载游戏时 HuntMemory 被系统终止。</string>
+    <string name="oem_compat_dialog_item_autostart_desc">允许自启动可防止前台应用占用大量内存时 HuntMemory 被系统终止。</string>
     <string name="oem_compat_dialog_item_battery_title">3. 省电策略无限制</string>
     <string name="oem_compat_dialog_item_battery_desc">将省电策略设置为“无限制”以保证扫描持续运行。</string>
     <string name="oem_compat_dialog_dismiss">知道了</string>

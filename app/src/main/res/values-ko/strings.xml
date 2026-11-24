@@ -129,7 +129,7 @@
     <string name="memory_menu_preset_reset">초기화</string>
     <string name="memory_menu_syntax_help_title">검색 기술 및 구문 도움말</string>
     <string name="memory_menu_syntax_help_button_cd">검색 구문 도움말</string>
-    <string name="memory_menu_syntax_help_text"><b>1. 가수 / 지수 (과학적 표기 / BigDouble):</b>\n• <i>1.5e6</i> 또는 <i>1.5,6</i> 또는 <i>1.5:6</i>\n• 유형: BigDouble 선택 또는 <i>bigdouble:1.5,6</i> 입력\n\n<b>2. 난독화 / 암호화 값 (Anti-Cheat XOR):</b>\n• Obscured Int 또는 Obscured Float 선택\n• 또는 접두사: <i>xor:1000</i> 또는 <i>obscured:1000</i>\n\n<b>3. 부동소수점 오차 허용 / 엡실론:</b>\n• 절대 범위: <i>100.0 +- 0.5</i>\n• 백분율 범위: <i>100 +- 2%</i>\n\n<b>4. 스케일 고정 소수점:</b>\n• 승수 공식: <i>10.5 * 1000</i> (10500 검색)\n• 또는 접두사: <i>scaled:10.5:1000</i>\n\n<b>5. 이종 구조체 그룹:</b>\n• 혼합 유형: <i>f64:1.5; i64:6 : 16</i>\n• 또는: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_syntax_help_text"><b>1. 가수 / 지수 (과학적 표기 / BigDouble):</b>\n• <i>1.5e6</i> 또는 <i>1.5,6</i> 또는 <i>1.5:6</i>\n• 유형: BigDouble 선택 또는 <i>bigdouble:1.5,6</i> 입력\n\n<b>2. 난독화 / 암호화 값 (XOR 키 쌍):</b>\n• Obscured Int 또는 Obscured Float 선택\n• 또는 접두사: <i>xor:1000</i> 또는 <i>obscured:1000</i>\n\n<b>3. 부동소수점 오차 허용 / 엡실론:</b>\n• 절대 범위: <i>100.0 +- 0.5</i>\n• 백분율 범위: <i>100 +- 2%</i>\n\n<b>4. 스케일 고정 소수점:</b>\n• 승수 공식: <i>10.5 * 1000</i> (10500 검색)\n• 또는 접두사: <i>scaled:10.5:1000</i>\n\n<b>5. 이종 구조체 그룹:</b>\n• 혼합 유형: <i>f64:1.5; i64:6 : 16</i>\n• 또는: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
     <string name="memory_menu_new_scan_button">새 스캔</string>
     <string name="memory_menu_new_search_button_initial">새 검색</string>
     <string name="memory_menu_refine_button">범위 좁히기</string>
@@ -159,7 +159,7 @@
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">면책 조항</string>
-    <string name="disclaimer_text">HuntMemory에 오신 것을 환영합니다.\n\n이 도구는 자체 애플리케이션 및 프로세스의 개발, 디버깅 및 학습 목적으로 제공되는 메모리 읽기 및 편집 도구입니다.\n\n온라인 게임 치팅, 타 애플리케이션 무단 수정, 제3자의 서비스 약관 또는 현행 법률을 위반하는 행위 등 불법적인 활동에 이 애플리케이션을 사용하는 것은 엄격히 금지됩니다.\n\n계속 진행함으로써 귀하는 자신의 행동에 대한 전적인 책임이 있음을 인정하고 동의합니다. 개발자는 이 도구의 사용으로 인해 발생하는 오용, 손상 또는 부정적인 결과에 대해 책임을 지지 않습니다.</string>
+    <string name="disclaimer_text">HuntMemory에 오신 것을 환영합니다.\n\n이 도구는 자체 애플리케이션 및 프로세스의 개발, 디버깅 및 학습 목적으로 제공되는 메모리 읽기 및 편집 도구입니다.\n\n불법적인 활동, 타 애플리케이션 무단 수정, 제3자의 서비스 약관 또는 현행 법률을 위반하는 행위에 이 애플리케이션을 사용하는 것은 엄격히 금지됩니다.\n\n계속 진행함으로써 귀하는 자신의 행동에 대한 전적인 책임이 있음을 인정하고 동의합니다. 개발자는 이 도구의 사용으로 인해 발생하는 오용, 손상 또는 부정적인 결과에 대해 책임을 지지 않습니다.</string>
     <string name="disclaimer_accept_button">동의하고 계속하기</string>
     <string name="disclaimer_scroll_down_hint">더 읽으려면 아래로 스크롤하세요</string>
 
@@ -224,10 +224,10 @@
     <string name="search_help_try_hint">팁: 예시를 탭하면 검색창에 바로 입력됩니다.</string>
     <string name="search_help_cat_basic_title">정확한 값 및 부동소수점 오차</string>
     <string name="search_help_cat_basic_desc">정확한 숫자 또는 절대/백분율 오차 범위가 있는 부동소수점 값을 검색합니다.</string>
-    <string name="search_help_cat_obscured_title">난독화 및 안티치트 (XOR)</string>
-    <string name="search_help_cat_obscured_desc">동적 XOR 키를 사용하여 안티치트 엔진(ACTk 등)으로 보호된 암호화 변수를 검색합니다.</string>
+    <string name="search_help_cat_obscured_title">난독화 및 XOR 키 쌍</string>
+    <string name="search_help_cat_obscured_desc">동적 XOR 키-값 쌍으로 인코딩된 난독화 변수를 검색합니다.</string>
     <string name="search_help_cat_bigdouble_title">지수 표기 및 BigDouble</string>
-    <string name="search_help_cat_bigdouble_desc">가수 및 지수 형태로 저장되는 매우 큰 수치 (방치형 및 인크리멘탈 게임에서 널리 사용).</string>
+    <string name="search_help_cat_bigdouble_desc">가수 및 지수 형태로 저장되는 큰 수치 (과학 계산 및 대범위 수치 런타임에서 사용).</string>
     <string name="search_help_cat_scaled_title">스케일 고정소수점</string>
     <string name="search_help_cat_scaled_desc">내부적으로 정수로 스케일링되어 저장되는 소수 (예: 10.5에 1000 배율 적용 시 10500 검색).</string>
     <string name="search_help_cat_group_title">구조체 및 그룹 검색</string>
@@ -270,7 +270,7 @@
     <string name="main_screen_status_popup_permission_missing">팝업 권한 없음</string>
     <string name="oem_compat_banner_title">%1$s 최적화</string>
     <string name="oem_compat_hyperos_desc">커스텀 ROM이 감지되었습니다. 플로팅 창 강제 종료를 방지하려면 \"팝업 창 표시\" 및 \"자동 시작\"을 허용하세요.</string>
-    <string name="oem_compat_battery_desc">백그라운드 배터리 제한으로 인해 게임 도중 오버레이가 종료될 수 있습니다.</string>
+    <string name="oem_compat_battery_desc">백그라운드 배터리 제한으로 인해 고부하 포그라운드 세션 도중 오버레이가 종료될 수 있습니다.</string>
     <string name="oem_compat_status_granted">허용됨</string>
     <string name="oem_compat_status_missing">미허용</string>
     <string name="oem_compat_status_unrestricted">제한 없음</string>

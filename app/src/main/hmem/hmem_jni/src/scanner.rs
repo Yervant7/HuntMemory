@@ -21,7 +21,7 @@
 use crate::kpm;
 use crate::logger;
 use crate::types::*;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -32,6 +32,10 @@ pub enum ScanEngineMode {
 }
 
 static SCAN_ENGINE_MODE: AtomicU8 = AtomicU8::new(ScanEngineMode::RustNeon as u8);
+static SCAN_CANCELLED: AtomicBool = AtomicBool::new(false);
+
+/// Hard memory safety cap for `ScanOperator::Unknown` initial scans (~96 MiB at 24 B/match).
+pub const MAX_UNKNOWN_SCAN_MATCHES: usize = 4_000_000;
 
 pub fn set_scan_engine_mode(mode: u8) {
     let m = match mode {
@@ -46,10 +50,146 @@ pub fn get_scan_engine_mode() -> u8 {
     SCAN_ENGINE_MODE.load(Ordering::Relaxed)
 }
 
+/// Signals any in-flight scan or filter operation to terminate cooperatively.
+pub fn cancel_scan() {
+    SCAN_CANCELLED.store(true, Ordering::Release);
+}
+
+/// Clears the cooperative scan cancellation flag at the start of a new scan/filter.
+pub fn reset_scan_cancel() {
+    SCAN_CANCELLED.store(false, Ordering::Release);
+}
+
+/// Returns true if cancellation has been requested for the active scan/filter.
+#[inline]
+pub fn is_scan_cancelled() -> bool {
+    SCAN_CANCELLED.load(Ordering::Acquire)
+}
+
 const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4MB chunks per read
 
+/// Builds a start-sorted index of `(start, end, original_index)` for O(log R) region lookups.
+pub(crate) fn build_sorted_region_index(regions: &[MemoryRegion]) -> Vec<(u64, u64, u32)> {
+    let mut idx: Vec<(u64, u64, u32)> = regions
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (r.start, r.end, i as u32))
+        .collect();
+    idx.sort_unstable_by_key(|&(start, _, _)| start);
+    idx
+}
+
+/// Resolves the original `MemoryRegion` index containing `addr` in O(log R) time.
+#[inline]
+pub(crate) fn find_region_idx(sorted_regions: &[(u64, u64, u32)], addr: u64) -> u32 {
+    let pos = sorted_regions.partition_point(|&(start, _, _)| start <= addr);
+    if pos > 0 {
+        let (start, end, orig_idx) = sorted_regions[pos - 1];
+        if addr >= start && addr < end {
+            return orig_idx;
+        }
+    }
+    0
+}
+
+/// A fixed-size work-stealing slice of a `MemoryRegion`.
+///
+/// Workers read `[read_start, read_end)` (bounded to `<= CHUNK_SIZE`) and only emit matches
+/// whose start address lies in `[emit_start, emit_end)`, preventing boundary duplicates and
+/// keeping consecutive chunks 4 KiB-aligned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScanTask {
+    pub region_idx: usize,
+    pub emit_start: u64,
+    pub emit_end: u64,
+    pub read_start: u64,
+    pub read_end: u64,
+}
+
+/// Splits memory regions into byte-balanced work-stealing tasks with exact boundary overlap.
+pub(crate) fn build_scan_tasks(
+    regions: &[MemoryRegion],
+    chunk_size: usize,
+    overlap: usize,
+) -> Vec<ScanTask> {
+    const PAGE_ALIGN: usize = 4096;
+    let effective_chunk = chunk_size.max(PAGE_ALIGN);
+    let effective_overlap = overlap.min(effective_chunk / 2);
+    let stride = if effective_overlap == 0 {
+        effective_chunk
+    } else {
+        let raw = effective_chunk - effective_overlap;
+        if raw >= PAGE_ALIGN {
+            raw & !(PAGE_ALIGN - 1)
+        } else {
+            raw.max(1)
+        }
+    } as u64;
+
+    let mut tasks = Vec::with_capacity(regions.len());
+    for (region_idx, region) in regions.iter().enumerate() {
+        if region.end <= region.start {
+            continue;
+        }
+        let mut emit_start = region.start;
+        while emit_start < region.end {
+            let emit_end = emit_start.saturating_add(stride).min(region.end);
+            let read_end = if emit_end < region.end {
+                emit_end
+                    .saturating_add(effective_overlap as u64)
+                    .min(region.end)
+            } else {
+                region.end
+            };
+            tasks.push(ScanTask {
+                region_idx,
+                emit_start,
+                emit_end,
+                read_start: emit_start,
+                read_end,
+            });
+            emit_start = emit_end;
+        }
+    }
+    tasks
+}
+
+/// Atomically reserves up to `requested` slots against a global `cap` in a lock-free CAS loop.
+#[inline]
+pub(crate) fn reserve_unknown_slots(counter: &AtomicUsize, requested: usize, cap: usize) -> usize {
+    if requested == 0 {
+        return 0;
+    }
+    let mut curr = counter.load(Ordering::Acquire);
+    loop {
+        if curr >= cap {
+            return 0;
+        }
+        let take = requested.min(cap - curr);
+        match counter.compare_exchange_weak(curr, curr + take, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(_) => return take,
+            Err(actual) => curr = actual,
+        }
+    }
+}
+
+/// Computes optimal worker thread count for a slice of work-stealing tasks.
+#[inline]
+fn optimal_worker_count(task_count: usize) -> usize {
+    if task_count <= 1 {
+        1
+    } else {
+        std::thread::available_parallelism()
+            .map(|p| p.get())
+            .unwrap_or(4)
+            .min(task_count)
+            .min(8)
+    }
+}
+
 /// Prepares, sorts, and merges memory regions into non-overlapping scan ranges for kernel scanning.
-fn prepare_scan_ranges(regions: &[MemoryRegion]) -> Vec<kpm::HmkpmScanRange> {
+pub(crate) fn prepare_scan_ranges(regions: &[MemoryRegion]) -> Vec<kpm::HmkpmScanRange> {
     let mut pending_ranges: Vec<kpm::HmkpmScanRange> = regions
         .iter()
         .filter(|r| r.end > r.start)
@@ -78,254 +218,725 @@ fn prepare_scan_ranges(regions: &[MemoryRegion]) -> Vec<kpm::HmkpmScanRange> {
     merged_ranges
 }
 
-/// Advances pending scan ranges by dropping fully scanned ranges and slicing partially scanned ones.
-fn advance_scan_ranges(
-    pending_ranges: &[kpm::HmkpmScanRange],
-    next_start: u64,
-) -> Vec<kpm::HmkpmScanRange> {
-    let mut updated_ranges = Vec::new();
-    for r in pending_ranges {
-        let r_end = r.start_va.saturating_add(r.size);
-        if r_end <= next_start {
-            // Already completely scanned
-            continue;
-        } else if r.start_va < next_start {
-            // Partially scanned: advance start_va to next_start
-            let new_size = r_end - next_start;
-            if new_size > 0 {
-                updated_ranges.push(kpm::HmkpmScanRange {
-                    start_va: next_start,
-                    size: new_size,
-                });
-            }
-        } else {
-            // Future range: untouched
-            updated_ranges.push(*r);
-        }
+/// Maps a `ValueType` to its signed/floating HMKPM v3.0.0 scan type code.
+pub(crate) fn value_type_to_kernel_scan_type(vt: ValueType) -> Result<u8, String> {
+    match vt {
+        ValueType::Byte => Ok(kpm::HMKPM_SCAN_TYPE_I8),
+        ValueType::Short => Ok(kpm::HMKPM_SCAN_TYPE_I16),
+        ValueType::Int => Ok(kpm::HMKPM_SCAN_TYPE_I32),
+        ValueType::Long => Ok(kpm::HMKPM_SCAN_TYPE_I64),
+        ValueType::Float => Ok(kpm::HMKPM_SCAN_TYPE_F32),
+        ValueType::Double => Ok(kpm::HMKPM_SCAN_TYPE_F64),
+        ValueType::Float16 => Err("Kernel scan does not support value type 'float16'".to_string()),
     }
-    updated_ranges
 }
 
-fn try_kernel_scan_exact(
-    pid: u32,
-    regions: &[MemoryRegion],
+/// Converts a scalar `(vt, target_bytes, operator)` into `(scan_type, scan_op, criteria)`
+/// for `HMKPM_MAGIC_SCAN_KERNEL`.
+///
+/// Returns `Ok(None)` when the comparison range is mathematically empty (e.g., `i32 > i32::MAX`
+/// or ordered float comparison against NaN), avoiding a wasted syscall.
+pub(crate) fn operator_to_kernel_criteria(
     vt: ValueType,
     target_bytes: &[u8],
-) -> Option<Vec<CompactMatch>> {
-    if !kpm::is_feature_supported(kpm::HMKPM_FEATURE_SCAN_KERNEL) {
-        return None;
-    }
+    op: ScanOperator,
+) -> Result<Option<(u8, u8, kpm::HmkpmScanCriteria)>, String> {
+    let scan_type = value_type_to_kernel_scan_type(vt)?;
 
-    let (scan_type, criteria) = match vt {
-        ValueType::Byte => {
-            let val = target_bytes.first().copied()? as u64;
-            (
-                kpm::HMKPM_SCAN_TYPE_U8,
+    match op {
+        ScanOperator::Equal | ScanOperator::NotEqual => {
+            let scan_op = if op == ScanOperator::Equal {
+                kpm::HMKPM_SCAN_OP_EXACT
+            } else {
+                kpm::HMKPM_SCAN_OP_NEQ
+            };
+
+            let raw_val = match vt {
+                ValueType::Byte => target_bytes
+                    .first()
+                    .copied()
+                    .ok_or_else(|| "Invalid Byte target bytes".to_string())?
+                    as u64,
+                ValueType::Short => u16::from_le_bytes(
+                    target_bytes
+                        .get(..2)
+                        .and_then(|s| s.try_into().ok())
+                        .ok_or_else(|| "Invalid Short target bytes".to_string())?,
+                ) as u64,
+                ValueType::Int => u32::from_le_bytes(
+                    target_bytes
+                        .get(..4)
+                        .and_then(|s| s.try_into().ok())
+                        .ok_or_else(|| "Invalid Int target bytes".to_string())?,
+                ) as u64,
+                ValueType::Long => u64::from_le_bytes(
+                    target_bytes
+                        .get(..8)
+                        .and_then(|s| s.try_into().ok())
+                        .ok_or_else(|| "Invalid Long target bytes".to_string())?,
+                ),
+                ValueType::Float => {
+                    let f = f32::from_le_bytes(
+                        target_bytes
+                            .get(..4)
+                            .and_then(|s| s.try_into().ok())
+                            .ok_or_else(|| "Invalid Float target bytes".to_string())?,
+                    );
+                    if f.is_nan() {
+                        if op == ScanOperator::Equal {
+                            return Ok(None);
+                        }
+                        return Err("Kernel float NEQ scan rejects NaN target".to_string());
+                    }
+                    f.to_bits() as u64
+                }
+                ValueType::Double => {
+                    let f = f64::from_le_bytes(
+                        target_bytes
+                            .get(..8)
+                            .and_then(|s| s.try_into().ok())
+                            .ok_or_else(|| "Invalid Double target bytes".to_string())?,
+                    );
+                    if f.is_nan() {
+                        if op == ScanOperator::Equal {
+                            return Ok(None);
+                        }
+                        return Err("Kernel double NEQ scan rejects NaN target".to_string());
+                    }
+                    f.to_bits()
+                }
+                ValueType::Float16 => unreachable!(),
+            };
+
+            Ok(Some((
+                scan_type,
+                scan_op,
                 kpm::HmkpmScanCriteria {
-                    exact: kpm::HmkpmScanCriteriaExact { val, mask: 0 },
+                    exact: kpm::HmkpmScanCriteriaExact {
+                        val: raw_val,
+                        mask: 0,
+                    },
                 },
-            )
+            )))
+        }
+        ScanOperator::Greater
+        | ScanOperator::Less
+        | ScanOperator::GreaterEqual
+        | ScanOperator::LessEqual => match vt {
+            ValueType::Byte => {
+                let v = target_bytes
+                    .first()
+                    .copied()
+                    .ok_or_else(|| "Invalid Byte target bytes".to_string())?
+                    as i8;
+                let (lo, hi) = match op {
+                    ScanOperator::Greater => match v.checked_add(1) {
+                        Some(lo) => (lo, i8::MAX),
+                        None => return Ok(None),
+                    },
+                    ScanOperator::GreaterEqual => (v, i8::MAX),
+                    ScanOperator::Less => match v.checked_sub(1) {
+                        Some(hi) => (i8::MIN, hi),
+                        None => return Ok(None),
+                    },
+                    ScanOperator::LessEqual => (i8::MIN, v),
+                    _ => unreachable!(),
+                };
+                Ok(Some((
+                    scan_type,
+                    kpm::HMKPM_SCAN_OP_RANGE,
+                    kpm::HmkpmScanCriteria {
+                        range_i: kpm::HmkpmScanCriteriaRangeI {
+                            min: lo as i64,
+                            max: hi as i64,
+                        },
+                    },
+                )))
+            }
+            ValueType::Short => {
+                let v = i16::from_le_bytes(
+                    target_bytes
+                        .get(..2)
+                        .and_then(|s| s.try_into().ok())
+                        .ok_or_else(|| "Invalid Short target bytes".to_string())?,
+                );
+                let (lo, hi) = match op {
+                    ScanOperator::Greater => match v.checked_add(1) {
+                        Some(lo) => (lo, i16::MAX),
+                        None => return Ok(None),
+                    },
+                    ScanOperator::GreaterEqual => (v, i16::MAX),
+                    ScanOperator::Less => match v.checked_sub(1) {
+                        Some(hi) => (i16::MIN, hi),
+                        None => return Ok(None),
+                    },
+                    ScanOperator::LessEqual => (i16::MIN, v),
+                    _ => unreachable!(),
+                };
+                Ok(Some((
+                    scan_type,
+                    kpm::HMKPM_SCAN_OP_RANGE,
+                    kpm::HmkpmScanCriteria {
+                        range_i: kpm::HmkpmScanCriteriaRangeI {
+                            min: lo as i64,
+                            max: hi as i64,
+                        },
+                    },
+                )))
+            }
+            ValueType::Int => {
+                let v = i32::from_le_bytes(
+                    target_bytes
+                        .get(..4)
+                        .and_then(|s| s.try_into().ok())
+                        .ok_or_else(|| "Invalid Int target bytes".to_string())?,
+                );
+                let (lo, hi) = match op {
+                    ScanOperator::Greater => match v.checked_add(1) {
+                        Some(lo) => (lo, i32::MAX),
+                        None => return Ok(None),
+                    },
+                    ScanOperator::GreaterEqual => (v, i32::MAX),
+                    ScanOperator::Less => match v.checked_sub(1) {
+                        Some(hi) => (i32::MIN, hi),
+                        None => return Ok(None),
+                    },
+                    ScanOperator::LessEqual => (i32::MIN, v),
+                    _ => unreachable!(),
+                };
+                Ok(Some((
+                    scan_type,
+                    kpm::HMKPM_SCAN_OP_RANGE,
+                    kpm::HmkpmScanCriteria {
+                        range_i: kpm::HmkpmScanCriteriaRangeI {
+                            min: lo as i64,
+                            max: hi as i64,
+                        },
+                    },
+                )))
+            }
+            ValueType::Long => {
+                let v = i64::from_le_bytes(
+                    target_bytes
+                        .get(..8)
+                        .and_then(|s| s.try_into().ok())
+                        .ok_or_else(|| "Invalid Long target bytes".to_string())?,
+                );
+                let (lo, hi) = match op {
+                    ScanOperator::Greater => match v.checked_add(1) {
+                        Some(lo) => (lo, i64::MAX),
+                        None => return Ok(None),
+                    },
+                    ScanOperator::GreaterEqual => (v, i64::MAX),
+                    ScanOperator::Less => match v.checked_sub(1) {
+                        Some(hi) => (i64::MIN, hi),
+                        None => return Ok(None),
+                    },
+                    ScanOperator::LessEqual => (i64::MIN, v),
+                    _ => unreachable!(),
+                };
+                Ok(Some((
+                    scan_type,
+                    kpm::HMKPM_SCAN_OP_RANGE,
+                    kpm::HmkpmScanCriteria {
+                        range_i: kpm::HmkpmScanCriteriaRangeI { min: lo, max: hi },
+                    },
+                )))
+            }
+            ValueType::Float => {
+                let v = f32::from_le_bytes(
+                    target_bytes
+                        .get(..4)
+                        .and_then(|s| s.try_into().ok())
+                        .ok_or_else(|| "Invalid Float target bytes".to_string())?,
+                );
+                if v.is_nan() {
+                    return Ok(None);
+                }
+                let (lo, hi) = match op {
+                    ScanOperator::Greater => {
+                        if v == f32::INFINITY {
+                            return Ok(None);
+                        }
+                        (v.next_up(), f32::INFINITY)
+                    }
+                    ScanOperator::GreaterEqual => (v, f32::INFINITY),
+                    ScanOperator::Less => {
+                        if v == f32::NEG_INFINITY {
+                            return Ok(None);
+                        }
+                        (f32::NEG_INFINITY, v.next_down())
+                    }
+                    ScanOperator::LessEqual => (f32::NEG_INFINITY, v),
+                    _ => unreachable!(),
+                };
+                Ok(Some((
+                    scan_type,
+                    kpm::HMKPM_SCAN_OP_RANGE,
+                    kpm::HmkpmScanCriteria {
+                        range_u: kpm::HmkpmScanCriteriaRangeU {
+                            min: lo.to_bits() as u64,
+                            max: hi.to_bits() as u64,
+                        },
+                    },
+                )))
+            }
+            ValueType::Double => {
+                let v = f64::from_le_bytes(
+                    target_bytes
+                        .get(..8)
+                        .and_then(|s| s.try_into().ok())
+                        .ok_or_else(|| "Invalid Double target bytes".to_string())?,
+                );
+                if v.is_nan() {
+                    return Ok(None);
+                }
+                let (lo, hi) = match op {
+                    ScanOperator::Greater => {
+                        if v == f64::INFINITY {
+                            return Ok(None);
+                        }
+                        (v.next_up(), f64::INFINITY)
+                    }
+                    ScanOperator::GreaterEqual => (v, f64::INFINITY),
+                    ScanOperator::Less => {
+                        if v == f64::NEG_INFINITY {
+                            return Ok(None);
+                        }
+                        (f64::NEG_INFINITY, v.next_down())
+                    }
+                    ScanOperator::LessEqual => (f64::NEG_INFINITY, v),
+                    _ => unreachable!(),
+                };
+                Ok(Some((
+                    scan_type,
+                    kpm::HMKPM_SCAN_OP_RANGE,
+                    kpm::HmkpmScanCriteria {
+                        range_u: kpm::HmkpmScanCriteriaRangeU {
+                            min: lo.to_bits(),
+                            max: hi.to_bits(),
+                        },
+                    },
+                )))
+            }
+            ValueType::Float16 => unreachable!(),
+        },
+        _ => Err(format!(
+            "Kernel scan does not support operator '{op:?}'; requires Auto or RustNeon mode"
+        )),
+    }
+}
+
+/// Converts inclusive `(min_bytes, max_bytes)` range endpoints into kernel scan criteria.
+pub(crate) fn range_bytes_to_kernel_criteria(
+    vt: ValueType,
+    min_bytes: &[u8],
+    max_bytes: &[u8],
+) -> Result<Option<(u8, kpm::HmkpmScanCriteria)>, String> {
+    let scan_type = value_type_to_kernel_scan_type(vt)?;
+    match vt {
+        ValueType::Byte => {
+            let min = min_bytes
+                .first()
+                .copied()
+                .ok_or_else(|| "Invalid Byte range min".to_string())? as i8
+                as i64;
+            let max = max_bytes
+                .first()
+                .copied()
+                .ok_or_else(|| "Invalid Byte range max".to_string())? as i8
+                as i64;
+            Ok(Some((
+                scan_type,
+                kpm::HmkpmScanCriteria {
+                    range_i: kpm::HmkpmScanCriteriaRangeI { min, max },
+                },
+            )))
         }
         ValueType::Short => {
-            let val = u16::from_le_bytes(target_bytes[..2].try_into().ok()?) as u64;
-            (
-                kpm::HMKPM_SCAN_TYPE_U16,
+            let min = i16::from_le_bytes(
+                min_bytes
+                    .get(..2)
+                    .and_then(|s| s.try_into().ok())
+                    .ok_or_else(|| "Invalid Short range min".to_string())?,
+            ) as i64;
+            let max = i16::from_le_bytes(
+                max_bytes
+                    .get(..2)
+                    .and_then(|s| s.try_into().ok())
+                    .ok_or_else(|| "Invalid Short range max".to_string())?,
+            ) as i64;
+            Ok(Some((
+                scan_type,
                 kpm::HmkpmScanCriteria {
-                    exact: kpm::HmkpmScanCriteriaExact { val, mask: 0 },
+                    range_i: kpm::HmkpmScanCriteriaRangeI { min, max },
                 },
-            )
+            )))
         }
         ValueType::Int => {
-            let val = u32::from_le_bytes(target_bytes[..4].try_into().ok()?) as u64;
-            (
-                kpm::HMKPM_SCAN_TYPE_U32,
+            let min = i32::from_le_bytes(
+                min_bytes
+                    .get(..4)
+                    .and_then(|s| s.try_into().ok())
+                    .ok_or_else(|| "Invalid Int range min".to_string())?,
+            ) as i64;
+            let max = i32::from_le_bytes(
+                max_bytes
+                    .get(..4)
+                    .and_then(|s| s.try_into().ok())
+                    .ok_or_else(|| "Invalid Int range max".to_string())?,
+            ) as i64;
+            Ok(Some((
+                scan_type,
                 kpm::HmkpmScanCriteria {
-                    exact: kpm::HmkpmScanCriteriaExact { val, mask: 0 },
+                    range_i: kpm::HmkpmScanCriteriaRangeI { min, max },
                 },
-            )
+            )))
         }
         ValueType::Long => {
-            let val = u64::from_le_bytes(target_bytes[..8].try_into().ok()?);
-            (
-                kpm::HMKPM_SCAN_TYPE_U64,
+            let min = i64::from_le_bytes(
+                min_bytes
+                    .get(..8)
+                    .and_then(|s| s.try_into().ok())
+                    .ok_or_else(|| "Invalid Long range min".to_string())?,
+            );
+            let max = i64::from_le_bytes(
+                max_bytes
+                    .get(..8)
+                    .and_then(|s| s.try_into().ok())
+                    .ok_or_else(|| "Invalid Long range max".to_string())?,
+            );
+            Ok(Some((
+                scan_type,
                 kpm::HmkpmScanCriteria {
-                    exact: kpm::HmkpmScanCriteriaExact { val, mask: 0 },
+                    range_i: kpm::HmkpmScanCriteriaRangeI { min, max },
                 },
-            )
+            )))
         }
         ValueType::Float => {
-            let val = u32::from_le_bytes(target_bytes[..4].try_into().ok()?) as u64;
-            (
-                kpm::HMKPM_SCAN_TYPE_F32,
+            let mn_f = f32::from_le_bytes(
+                min_bytes
+                    .get(..4)
+                    .and_then(|s| s.try_into().ok())
+                    .ok_or_else(|| "Invalid Float range min".to_string())?,
+            );
+            let mx_f = f32::from_le_bytes(
+                max_bytes
+                    .get(..4)
+                    .and_then(|s| s.try_into().ok())
+                    .ok_or_else(|| "Invalid Float range max".to_string())?,
+            );
+            if mn_f.is_nan() || mx_f.is_nan() {
+                return Ok(None);
+            }
+            Ok(Some((
+                scan_type,
                 kpm::HmkpmScanCriteria {
-                    exact: kpm::HmkpmScanCriteriaExact { val, mask: 0 },
+                    range_u: kpm::HmkpmScanCriteriaRangeU {
+                        min: mn_f.to_bits() as u64,
+                        max: mx_f.to_bits() as u64,
+                    },
                 },
-            )
+            )))
         }
         ValueType::Double => {
-            let val = u64::from_le_bytes(target_bytes[..8].try_into().ok()?);
-            (
-                kpm::HMKPM_SCAN_TYPE_F64,
+            let mn_f = f64::from_le_bytes(
+                min_bytes
+                    .get(..8)
+                    .and_then(|s| s.try_into().ok())
+                    .ok_or_else(|| "Invalid Double range min".to_string())?,
+            );
+            let mx_f = f64::from_le_bytes(
+                max_bytes
+                    .get(..8)
+                    .and_then(|s| s.try_into().ok())
+                    .ok_or_else(|| "Invalid Double range max".to_string())?,
+            );
+            if mn_f.is_nan() || mx_f.is_nan() {
+                return Ok(None);
+            }
+            Ok(Some((
+                scan_type,
                 kpm::HmkpmScanCriteria {
-                    exact: kpm::HmkpmScanCriteriaExact { val, mask: 0 },
+                    range_u: kpm::HmkpmScanCriteriaRangeU {
+                        min: mn_f.to_bits(),
+                        max: mx_f.to_bits(),
+                    },
                 },
-            )
+            )))
         }
-        ValueType::Float16 => return None,
-    };
+        ValueType::Float16 => unreachable!(),
+    }
+}
+
+/// Executes a v3.0.0 in-kernel scan across all prepared ranges using cursor-based resumption
+/// (`HMKPM_SCAN_FLAG_RESUME`) and zero-readback `(va, value)` output (`HMKPM_SCAN_FLAG_WITH_VALUES`).
+#[allow(clippy::too_many_arguments)]
+fn run_kernel_scan_batches(
+    pid: u32,
+    regions: &[MemoryRegion],
+    sorted_regions: &[(u64, u64, u32)],
+    vt: ValueType,
+    scan_type: u8,
+    scan_op: u8,
+    criteria: kpm::HmkpmScanCriteria,
+    known_exact_raw: Option<u64>,
+) -> Result<Vec<CompactMatch>, String> {
+    if !kpm::is_feature_supported(kpm::HMKPM_FEATURE_SCAN_KERNEL) {
+        return Err(
+            "HMKPM kernel scan feature (HMKPM_FEATURE_SCAN_KERNEL) is not supported by active module"
+                .to_string(),
+        );
+    }
+
+    let supports_ext = kpm::is_feature_supported(kpm::HMKPM_FEATURE_SCAN_EXT);
+    if (scan_op == kpm::HMKPM_SCAN_OP_NEQ || scan_op == kpm::HMKPM_SCAN_OP_NOT_RANGE)
+        && !supports_ext
+    {
+        return Err(
+            "HMKPM extended scan feature (HMKPM_FEATURE_SCAN_EXT) is required for NEQ/NOT_RANGE"
+                .to_string(),
+        );
+    }
+    if known_exact_raw.is_none() && !supports_ext {
+        return Err(
+            "HMKPM extended scan feature (HMKPM_FEATURE_SCAN_EXT) is required for WITH_VALUES"
+                .to_string(),
+        );
+    }
 
     let step = vt.size();
-    let raw_val = bytes_to_raw_u64(target_bytes, vt);
-
-    let mut all_matches = Vec::new();
     let max_per_call = kpm::HMKPM_MAX_SCAN_MATCHES;
-    let mut pending_ranges = prepare_scan_ranges(regions);
+    let prepared_ranges = prepare_scan_ranges(regions);
+    let mut all_matches = Vec::new();
 
-    while !pending_ranges.is_empty() {
-        let batch_len = pending_ranges.len().min(kpm::HMKPM_MAX_SCAN_RANGES);
-        let batch = &pending_ranges[..batch_len];
+    for batch in prepared_ranges.chunks(kpm::HMKPM_MAX_SCAN_RANGES) {
+        let mut resume_cursor: Option<kpm::HmkpmScanCursor> = None;
 
-        match kpm::scan_kernel(
-            pid,
-            scan_type,
-            kpm::HMKPM_SCAN_OP_EXACT,
-            step as u8,
-            criteria,
-            None,
-            None,
-            batch,
-            max_per_call,
-        ) {
-            Ok((addrs, total_matches_found)) => {
-                let addrs_count = addrs.len();
-                for &addr in &addrs {
-                    let region_idx = regions
-                        .iter()
-                        .position(|r| addr >= r.start && addr < r.end)
-                        .unwrap_or(0);
+        loop {
+            if is_scan_cancelled() {
+                return Err("Scan cancelled".to_string());
+            }
+
+            let (status, next_cursor) = if let Some(raw_val) = known_exact_raw {
+                let outcome = kpm::scan_kernel_addrs(
+                    pid,
+                    scan_type,
+                    scan_op,
+                    step as u8,
+                    0,
+                    criteria,
+                    None,
+                    None,
+                    batch,
+                    max_per_call,
+                    resume_cursor,
+                )?;
+                all_matches.reserve(outcome.matches.len());
+                for addr in outcome.matches {
+                    let region_idx = find_region_idx(sorted_regions, addr);
                     all_matches.push(CompactMatch {
                         address: addr,
                         raw_value: raw_val,
-                        region_idx: region_idx as u32,
+                        region_idx,
                         value_type: vt,
                     });
                 }
-
-                // If matches were truncated by the kernel buffer limit, resume from last_match_addr + step
-                if addrs_count >= max_per_call && total_matches_found > addrs_count as u64 {
-                    if let Some(&last_addr) = addrs.last() {
-                        let next_start = last_addr.saturating_add(step as u64);
-                        pending_ranges = advance_scan_ranges(&pending_ranges, next_start);
-                    } else {
-                        pending_ranges.drain(..batch_len);
-                    }
-                } else {
-                    pending_ranges.drain(..batch_len);
+                (outcome.status, outcome.next_cursor)
+            } else {
+                let outcome = kpm::scan_kernel_with_values(
+                    pid,
+                    scan_type,
+                    scan_op,
+                    step as u8,
+                    0,
+                    criteria,
+                    batch,
+                    max_per_call,
+                    resume_cursor,
+                )?;
+                all_matches.reserve(outcome.matches.len());
+                for pair in outcome.matches {
+                    let region_idx = find_region_idx(sorted_regions, pair.va);
+                    all_matches.push(CompactMatch {
+                        address: pair.va,
+                        raw_value: pair.value,
+                        region_idx,
+                        value_type: vt,
+                    });
                 }
-            }
-            Err(e) => {
-                logger::warn(
-                    "Scanner",
-                    &format!("Kernel scan failed ({e}), falling back to NEON SIMD"),
-                );
-                return None;
+                (outcome.status, outcome.next_cursor)
+            };
+
+            if status == kpm::HMKPM_SCAN_STATUS_TRUNCATED
+                && (next_cursor.range_idx as usize) < batch.len()
+            {
+                if let Some(prev) = resume_cursor
+                    && (next_cursor.range_idx, next_cursor.va) <= (prev.range_idx, prev.va)
+                {
+                    break;
+                }
+                resume_cursor = Some(next_cursor);
+            } else {
+                break;
             }
         }
     }
 
-    Some(all_matches)
+    Ok(all_matches)
 }
 
-fn scan_regions_chunk(
+fn try_kernel_scan_op(
     pid: u32,
-    chunk: &[(usize, &MemoryRegion)],
+    regions: &[MemoryRegion],
+    sorted_regions: &[(u64, u64, u32)],
+    vt: ValueType,
+    target_bytes: &[u8],
+    op: ScanOperator,
+) -> Result<Vec<CompactMatch>, String> {
+    let Some((scan_type, scan_op, criteria)) = operator_to_kernel_criteria(vt, target_bytes, op)?
+    else {
+        return Ok(Vec::new());
+    };
+    let known_exact_raw = if op == ScanOperator::Equal {
+        Some(bytes_to_raw_u64(target_bytes, vt))
+    } else {
+        None
+    };
+    run_kernel_scan_batches(
+        pid,
+        regions,
+        sorted_regions,
+        vt,
+        scan_type,
+        scan_op,
+        criteria,
+        known_exact_raw,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scan_regions_worker(
+    pid: u32,
+    tasks: &[ScanTask],
+    next_task: &AtomicUsize,
     valid_targets: &[(ValueType, Vec<u8>)],
     min_step: usize,
-    max_step: usize,
     operator: ScanOperator,
+    unknown_count: &AtomicUsize,
+    unknown_cap_warned: &AtomicBool,
 ) -> Result<Vec<CompactMatch>, String> {
     let mut matches = Vec::new();
     let mut offsets_buf: Vec<usize> = Vec::new();
-    let mut chunk_buf: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
+    let mut kpm_buf = kpm::KpmReadBuffer::with_capacity(CHUNK_SIZE);
     let mut v2p = crate::v2p::V2pReader::new(pid)
         .map_err(|e| format!("Failed to initialize V2P reader for PID {pid}: {e}"))?;
 
-    for &(region_idx, region) in chunk {
-        let mut addr = region.start;
-        while addr < region.end {
-            let chunk_len = ((region.end - addr) as usize).min(CHUNK_SIZE);
-            if chunk_len < min_step {
+    loop {
+        if is_scan_cancelled() {
+            return Err("Scan cancelled".to_string());
+        }
+        if operator == ScanOperator::Unknown
+            && unknown_count.load(Ordering::Acquire) >= MAX_UNKNOWN_SCAN_MATCHES
+        {
+            break;
+        }
+
+        let task_idx = next_task.fetch_add(1, Ordering::Relaxed);
+        let Some(&task) = tasks.get(task_idx) else {
+            break;
+        };
+
+        let read_len = (task.read_end - task.read_start) as usize;
+        if read_len < min_step {
+            continue;
+        }
+
+        let present_ranges = v2p.get_present_ranges(
+            task.read_start,
+            task.read_end,
+            crate::v2p::PAGE_FLAG_PRESENT,
+        )?;
+
+        for (start_addr, end_addr) in present_ranges {
+            if is_scan_cancelled() {
+                return Err("Scan cancelled".to_string());
+            }
+            if start_addr >= task.emit_end {
                 break;
             }
+            let range_len = (end_addr - start_addr) as usize;
+            if range_len < min_step {
+                continue;
+            }
 
-            let present_ranges = v2p.get_present_ranges(
-                addr,
-                addr + chunk_len as u64,
-                crate::v2p::PAGE_FLAG_PRESENT,
-            )?;
+            if let Ok(block_data) = kpm_buf.read(pid, start_addr, range_len) {
+                for (vt, target_bytes) in valid_targets {
+                    let step = vt.size();
+                    if range_len < step {
+                        continue;
+                    }
 
-            for (start_addr, end_addr) in present_ranges {
-                let range_len = (end_addr - start_addr) as usize;
-                if range_len < min_step {
-                    continue;
-                }
-
-                if chunk_buf.len() < range_len {
-                    chunk_buf.resize(range_len, 0);
-                }
-
-                if crate::kpm::read_memory(pid, start_addr, &mut chunk_buf[..range_len]).is_ok() {
-                    let block_data = &chunk_buf[..range_len];
-
-                    for (vt, target_bytes) in valid_targets {
-                        let step = vt.size();
-                        if range_len < step {
-                            continue;
+                    if operator == ScanOperator::Unknown {
+                        let emit_span = (task.emit_end.saturating_sub(start_addr) as usize)
+                            .min(range_len.saturating_sub(step) + 1);
+                        let candidate_count = emit_span.div_ceil(step);
+                        let allowed = reserve_unknown_slots(
+                            unknown_count,
+                            candidate_count,
+                            MAX_UNKNOWN_SCAN_MATCHES,
+                        );
+                        if allowed < candidate_count
+                            && !unknown_cap_warned.swap(true, Ordering::AcqRel)
+                        {
+                            logger::warn(
+                                "Scanner",
+                                &format!(
+                                    "Unknown scan reached safety cap of {MAX_UNKNOWN_SCAN_MATCHES} matches; truncating remaining regions to protect daemon memory"
+                                ),
+                            );
+                        }
+                        if allowed == 0 {
+                            return Ok(matches);
                         }
 
-                        if operator == ScanOperator::Unknown {
-                            let mut off = 0;
-                            while off + step <= range_len {
-                                let match_addr = start_addr + off as u64;
-                                let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
-                                matches.push(CompactMatch {
-                                    address: match_addr,
-                                    raw_value: raw_val,
-                                    region_idx: region_idx as u32,
-                                    value_type: *vt,
-                                });
-                                off += step;
+                        matches.reserve(allowed);
+                        let mut off = 0usize;
+                        let mut emitted = 0usize;
+                        while emitted < allowed && off + step <= range_len {
+                            let match_addr = start_addr + off as u64;
+                            if match_addr >= task.emit_end {
+                                break;
                             }
-                        } else {
-                            offsets_buf.clear();
-                            scan_buffer_to(
-                                block_data,
-                                target_bytes,
-                                *vt,
-                                operator,
-                                &mut offsets_buf,
-                            );
-                            for &off in &offsets_buf {
-                                let match_addr = start_addr + off as u64;
-                                let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
-                                matches.push(CompactMatch {
-                                    address: match_addr,
-                                    raw_value: raw_val,
-                                    region_idx: region_idx as u32,
-                                    value_type: *vt,
-                                });
+                            let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
+                            matches.push(CompactMatch {
+                                address: match_addr,
+                                raw_value: raw_val,
+                                region_idx: task.region_idx as u32,
+                                value_type: *vt,
+                            });
+                            off += step;
+                            emitted += 1;
+                        }
+                    } else {
+                        offsets_buf.clear();
+                        scan_buffer_to(block_data, target_bytes, *vt, operator, &mut offsets_buf);
+                        for &off in &offsets_buf {
+                            let match_addr = start_addr + off as u64;
+                            if match_addr >= task.emit_end {
+                                continue;
                             }
+                            let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
+                            matches.push(CompactMatch {
+                                address: match_addr,
+                                raw_value: raw_val,
+                                region_idx: task.region_idx as u32,
+                                value_type: *vt,
+                            });
                         }
                     }
                 }
             }
-
-            let overlap = if addr + (chunk_len as u64) < region.end {
-                max_step.saturating_sub(1)
-            } else {
-                0
-            };
-            addr += (chunk_len.saturating_sub(overlap).max(1)) as u64;
         }
     }
 
@@ -333,7 +944,7 @@ fn scan_regions_chunk(
 }
 
 /// First scan: read regions and find matching values across multiple types, returning compact matches.
-/// Distributes region chunks across available hardware CPU threads via scoped concurrency.
+/// Distributes byte-balanced 4 MiB chunk tasks across available hardware CPU threads via work-stealing.
 pub fn scan_regions(
     pid: u32,
     regions: &[MemoryRegion],
@@ -341,6 +952,8 @@ pub fn scan_regions(
     value_types: &[ValueType],
     operator: ScanOperator,
 ) -> Result<ScanSession, String> {
+    reset_scan_cancel();
+
     if value_types.is_empty() {
         return Err("No value types specified".into());
     }
@@ -366,21 +979,73 @@ pub fn scan_regions(
         ));
     }
 
-    // Try in-kernel direct scan if operator is Equal, engine mode is Kernel or Auto, and all targets are supported
+    let kernel_op_supported = matches!(
+        operator,
+        ScanOperator::Equal
+            | ScanOperator::NotEqual
+            | ScanOperator::Greater
+            | ScanOperator::Less
+            | ScanOperator::GreaterEqual
+            | ScanOperator::LessEqual
+    );
+
     let engine_mode = get_scan_engine_mode();
-    if (engine_mode == ScanEngineMode::Kernel as u8 || engine_mode == ScanEngineMode::Auto as u8)
-        && operator == ScanOperator::Equal
-        && !regions.is_empty()
-    {
+    if engine_mode == ScanEngineMode::Kernel as u8 {
+        if !kernel_op_supported {
+            return Err(format!(
+                "Strict Kernel scan mode does not support operator '{operator:?}'; requires Auto or RustNeon mode"
+            ));
+        }
+
+        if regions.is_empty() {
+            return Ok(ScanSession {
+                regions: Vec::new(),
+                matches: Vec::new(),
+                active_types: value_types.to_vec(),
+            });
+        }
+
+        let sorted_regions = build_sorted_region_index(regions);
+        let mut kernel_matches = Vec::new();
+        for (vt, target_bytes) in &valid_targets {
+            let partial =
+                try_kernel_scan_op(pid, regions, &sorted_regions, *vt, target_bytes, operator)?;
+            kernel_matches.extend(partial);
+        }
+
+        kernel_matches.sort_by(|a, b| {
+            a.address
+                .cmp(&b.address)
+                .then_with(|| a.value_type.cmp(&b.value_type))
+        });
+        kernel_matches.dedup_by(|a, b| a.address == b.address && a.value_type == b.value_type);
+
+        return Ok(ScanSession {
+            regions: regions.to_vec(),
+            matches: kernel_matches,
+            active_types: value_types.to_vec(),
+        });
+    }
+
+    if engine_mode == ScanEngineMode::Auto as u8 && kernel_op_supported && !regions.is_empty() {
+        let sorted_regions = build_sorted_region_index(regions);
         let mut kernel_matches = Vec::new();
         let mut kernel_success = true;
 
         for (vt, target_bytes) in &valid_targets {
-            if let Some(partial) = try_kernel_scan_exact(pid, regions, *vt, target_bytes) {
-                kernel_matches.extend(partial);
-            } else {
-                kernel_success = false;
-                break;
+            match try_kernel_scan_op(pid, regions, &sorted_regions, *vt, target_bytes, operator) {
+                Ok(partial) => kernel_matches.extend(partial),
+                Err(e) => {
+                    if is_scan_cancelled() {
+                        return Err("Scan cancelled".to_string());
+                    }
+                    logger::info(
+                        "Scanner",
+                        &format!("Auto mode falling back to NEON SIMD: {e}"),
+                    );
+                    kernel_success = false;
+                    break;
+                }
             }
         }
 
@@ -411,36 +1076,45 @@ pub fn scan_regions(
         .max()
         .unwrap_or(8);
 
-    let indexed_regions: Vec<(usize, &MemoryRegion)> = regions.iter().enumerate().collect();
-    let worker_count = if indexed_regions.len() <= 1 {
-        1
-    } else {
-        std::thread::available_parallelism()
-            .map(|p| p.get())
-            .unwrap_or(4)
-            .min(indexed_regions.len())
-            .min(8)
-    };
+    let tasks = build_scan_tasks(regions, CHUNK_SIZE, max_step.saturating_sub(1));
+    let worker_count = optimal_worker_count(tasks.len());
+    let next_task = AtomicUsize::new(0);
+    let unknown_count = AtomicUsize::new(0);
+    let unknown_cap_warned = AtomicBool::new(false);
 
-    let mut matches = if worker_count <= 1 {
-        scan_regions_chunk(
+    let mut matches = if tasks.is_empty() {
+        Vec::new()
+    } else if worker_count <= 1 {
+        scan_regions_worker(
             pid,
-            &indexed_regions,
+            &tasks,
+            &next_task,
             &valid_targets,
             min_step,
-            max_step,
             operator,
+            &unknown_count,
+            &unknown_cap_warned,
         )?
     } else {
-        let chunk_size = indexed_regions.len().div_ceil(worker_count);
-        let chunks: Vec<&[(usize, &MemoryRegion)]> = indexed_regions.chunks(chunk_size).collect();
-
         std::thread::scope(|s| {
-            let mut handles = Vec::with_capacity(chunks.len());
-            for chunk in chunks {
+            let mut handles = Vec::with_capacity(worker_count);
+            for _ in 0..worker_count {
+                let tasks_ref = &tasks;
+                let next_task_ref = &next_task;
                 let valid_targets_ref = &valid_targets;
+                let unknown_count_ref = &unknown_count;
+                let unknown_warn_ref = &unknown_cap_warned;
                 let handle = s.spawn(move || {
-                    scan_regions_chunk(pid, chunk, valid_targets_ref, min_step, max_step, operator)
+                    scan_regions_worker(
+                        pid,
+                        tasks_ref,
+                        next_task_ref,
+                        valid_targets_ref,
+                        min_step,
+                        operator,
+                        unknown_count_ref,
+                        unknown_warn_ref,
+                    )
                 });
                 handles.push(handle);
             }
@@ -619,6 +1293,8 @@ fn scan_buffer_i8_neon(data: &[u8], target_val: i8, op: NeonOp, results: &mut Ve
     let len = data.len();
     let mut offset = 0;
 
+    // SAFETY: AArch64 NEON is mandatory on ARMv8-A; every vector load checks `offset + 16 <= len`
+    // against `data`, and `vld1q_s8`/`vst1q_u8` support unaligned pointers.
     unsafe {
         let target_vec = vdupq_n_s8(target_val);
         while offset + 16 <= len {
@@ -670,6 +1346,8 @@ fn scan_buffer_i16_neon(data: &[u8], target_val: i16, op: NeonOp, results: &mut 
     let len = data.len();
     let mut offset = 0;
 
+    // SAFETY: AArch64 NEON is mandatory on ARMv8-A; every vector load checks `offset + 16 <= len`
+    // against `data`, and `vld1q_s16`/`vst1q_u16` support unaligned pointers.
     unsafe {
         let target_vec = vdupq_n_s16(target_val);
         while offset + 16 <= len {
@@ -721,6 +1399,8 @@ fn scan_buffer_i32_neon(data: &[u8], target_val: i32, op: NeonOp, results: &mut 
     let len = data.len();
     let mut offset = 0;
 
+    // SAFETY: AArch64 NEON is mandatory on ARMv8-A; every vector load checks `offset + 16 <= len`
+    // against `data`, and `vld1q_s32`/`vst1q_u32` support unaligned pointers.
     unsafe {
         let target_vec = vdupq_n_s32(target_val);
         while offset + 16 <= len {
@@ -772,6 +1452,8 @@ fn scan_buffer_i64_neon(data: &[u8], target_val: i64, op: NeonOp, results: &mut 
     let len = data.len();
     let mut offset = 0;
 
+    // SAFETY: AArch64 NEON is mandatory on ARMv8-A; every vector load checks `offset + 16 <= len`
+    // against `data`, and `vld1q_s64`/`vst1q_u64` support unaligned pointers.
     unsafe {
         let target_vec = vdupq_n_s64(target_val);
         while offset + 16 <= len {
@@ -824,6 +1506,8 @@ fn scan_buffer_f32_neon(data: &[u8], target_val: f32, op: NeonOp, results: &mut 
     let len = data.len();
     let mut offset = 0;
 
+    // SAFETY: AArch64 NEON is mandatory on ARMv8-A; every vector load checks `offset + 16 <= len`
+    // against `data`, and `vld1q_f32`/`vst1q_u32` support unaligned pointers.
     unsafe {
         let target_vec = vdupq_n_f32(target_val);
         let eps_vec = vdupq_n_f32(1e-5);
@@ -882,6 +1566,8 @@ fn scan_buffer_f64_neon(data: &[u8], target_val: f64, op: NeonOp, results: &mut 
     let len = data.len();
     let mut offset = 0;
 
+    // SAFETY: AArch64 NEON is mandatory on ARMv8-A; every vector load checks `offset + 16 <= len`
+    // against `data`, and `vld1q_f64`/`vst1q_u64` support unaligned pointers.
     unsafe {
         let target_vec = vdupq_n_f64(target_val);
         let eps_vec = vdupq_n_f64(1e-9);
@@ -1186,7 +1872,7 @@ fn scan_range_buffer_f64_neon(data: &[u8], min_val: f64, max_val: f64, results: 
 }
 
 // ============================================================
-// Obscured / Anti-Cheat XOR-Pair Scanning
+// Obscured / XOR-Pair Scanning
 // ============================================================
 
 /// Scan buffer for 32-bit Obscured types (ObscuredInt / ObscuredFloat)
@@ -1196,6 +1882,8 @@ pub fn scan_buffer_obscured32(data: &[u8], target_bits: u32, results: &mut Vec<u
     const STEP: usize = 4;
 
     #[cfg(target_arch = "aarch64")]
+    // SAFETY: AArch64 NEON is mandatory on ARMv8-A; loop invariant `offset + 36 <= len` ensures
+    // both `vld2q_u32(ptr)` (bytes 0..32) and `vld2q_u32(ptr.add(1))` (bytes 4..36) stay in bounds.
     unsafe {
         use std::arch::aarch64::*;
         let target_vec = vdupq_n_u32(target_bits);
@@ -1254,6 +1942,8 @@ pub fn scan_buffer_obscured64(data: &[u8], target_bits: u64, results: &mut Vec<u
     const STEP: usize = 8;
 
     #[cfg(target_arch = "aarch64")]
+    // SAFETY: AArch64 NEON is mandatory on ARMv8-A; loop invariant `offset + 40 <= len` ensures
+    // both `vld2q_u64(ptr)` (bytes 0..32) and `vld2q_u64(ptr.add(1))` (bytes 8..40) stay in bounds.
     unsafe {
         use std::arch::aarch64::*;
         let target_vec = vdupq_n_u64(target_bits);
@@ -1305,9 +1995,10 @@ pub fn scan_buffer_obscured64(data: &[u8], target_bits: u64, results: &mut Vec<u
     }
 }
 
-fn scan_obscured_chunk(
+fn scan_obscured_worker(
     pid: u32,
-    chunk: &[(usize, &MemoryRegion)],
+    tasks: &[ScanTask],
+    next_task: &AtomicUsize,
     target_bits32: Option<u32>,
     target_bits64: Option<u64>,
     target_vtype: ValueType,
@@ -1315,68 +2006,70 @@ fn scan_obscured_chunk(
 ) -> Result<Vec<CompactMatch>, String> {
     let mut matches = Vec::new();
     let mut offsets_buf = Vec::new();
-    let mut chunk_buf: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
+    let mut kpm_buf = kpm::KpmReadBuffer::with_capacity(CHUNK_SIZE);
     let mut v2p = crate::v2p::V2pReader::new(pid)
         .map_err(|e| format!("Failed to initialize V2P reader for PID {pid}: {e}"))?;
 
-    for &(region_idx, region) in chunk {
-        let mut addr = region.start;
-        while addr < region.end {
-            let chunk_len = ((region.end - addr) as usize).min(CHUNK_SIZE);
-            if chunk_len < step {
+    loop {
+        if is_scan_cancelled() {
+            return Err("Scan cancelled".to_string());
+        }
+
+        let task_idx = next_task.fetch_add(1, Ordering::Relaxed);
+        let Some(&task) = tasks.get(task_idx) else {
+            break;
+        };
+
+        let read_len = (task.read_end - task.read_start) as usize;
+        if read_len < step {
+            continue;
+        }
+
+        let present_ranges = v2p.get_present_ranges(
+            task.read_start,
+            task.read_end,
+            crate::v2p::PAGE_FLAG_PRESENT,
+        )?;
+
+        for (start_addr, end_addr) in present_ranges {
+            if is_scan_cancelled() {
+                return Err("Scan cancelled".to_string());
+            }
+            if start_addr >= task.emit_end {
                 break;
             }
-
-            let present_ranges = v2p.get_present_ranges(
-                addr,
-                addr + chunk_len as u64,
-                crate::v2p::PAGE_FLAG_PRESENT,
-            )?;
-
-            for (start_addr, end_addr) in present_ranges {
-                let range_len = (end_addr - start_addr) as usize;
-                if range_len < step {
-                    continue;
-                }
-
-                if chunk_buf.len() < range_len {
-                    chunk_buf.resize(range_len, 0);
-                }
-
-                if crate::kpm::read_memory(pid, start_addr, &mut chunk_buf[..range_len]).is_ok() {
-                    let block_data = &chunk_buf[..range_len];
-
-                    offsets_buf.clear();
-                    if let Some(t32) = target_bits32 {
-                        scan_buffer_obscured32(block_data, t32, &mut offsets_buf);
-                    } else if let Some(t64) = target_bits64 {
-                        scan_buffer_obscured64(block_data, t64, &mut offsets_buf);
-                    }
-
-                    for &off in &offsets_buf {
-                        let match_addr = start_addr + off as u64;
-                        let raw_val = if let Some(t32) = target_bits32 {
-                            t32 as u64
-                        } else {
-                            target_bits64.unwrap_or(0)
-                        };
-
-                        matches.push(CompactMatch {
-                            address: match_addr,
-                            raw_value: raw_val,
-                            region_idx: region_idx as u32,
-                            value_type: target_vtype,
-                        });
-                    }
-                }
+            let range_len = (end_addr - start_addr) as usize;
+            if range_len < step {
+                continue;
             }
 
-            let overlap = if addr + (chunk_len as u64) < region.end {
-                step.saturating_sub(1)
-            } else {
-                0
-            };
-            addr += (chunk_len.saturating_sub(overlap).max(1)) as u64;
+            if let Ok(block_data) = kpm_buf.read(pid, start_addr, range_len) {
+                offsets_buf.clear();
+                if let Some(t32) = target_bits32 {
+                    scan_buffer_obscured32(block_data, t32, &mut offsets_buf);
+                } else if let Some(t64) = target_bits64 {
+                    scan_buffer_obscured64(block_data, t64, &mut offsets_buf);
+                }
+
+                for &off in &offsets_buf {
+                    let match_addr = start_addr + off as u64;
+                    if match_addr >= task.emit_end {
+                        continue;
+                    }
+                    let raw_val = if let Some(t32) = target_bits32 {
+                        t32 as u64
+                    } else {
+                        target_bits64.unwrap_or(0)
+                    };
+
+                    matches.push(CompactMatch {
+                        address: match_addr,
+                        raw_value: raw_val,
+                        region_idx: task.region_idx as u32,
+                        value_type: target_vtype,
+                    });
+                }
+            }
         }
     }
 
@@ -1389,6 +2082,8 @@ pub fn scan_obscured(
     target_value_str: &str,
     obscured_type: ObscuredType,
 ) -> Result<ScanSession, String> {
+    reset_scan_cancel();
+
     let s = target_value_str.trim();
     let (target_bits32, target_bits64) = match obscured_type {
         ObscuredType::ObscuredInt => {
@@ -1419,37 +2114,33 @@ pub fn scan_obscured(
         ObscuredType::ObscuredLong => ValueType::Long,
     };
 
-    let indexed_regions: Vec<(usize, &MemoryRegion)> = regions.iter().enumerate().collect();
-    let worker_count = if indexed_regions.len() <= 1 {
-        1
-    } else {
-        std::thread::available_parallelism()
-            .map(|p| p.get())
-            .unwrap_or(4)
-            .min(indexed_regions.len())
-            .min(8)
-    };
+    let tasks = build_scan_tasks(regions, CHUNK_SIZE, step.saturating_sub(1));
+    let worker_count = optimal_worker_count(tasks.len());
+    let next_task = AtomicUsize::new(0);
 
-    let mut matches = if worker_count <= 1 {
-        scan_obscured_chunk(
+    let mut matches = if tasks.is_empty() {
+        Vec::new()
+    } else if worker_count <= 1 {
+        scan_obscured_worker(
             pid,
-            &indexed_regions,
+            &tasks,
+            &next_task,
             target_bits32,
             target_bits64,
             target_vtype,
             step,
         )?
     } else {
-        let chunk_size = indexed_regions.len().div_ceil(worker_count);
-        let chunks: Vec<&[(usize, &MemoryRegion)]> = indexed_regions.chunks(chunk_size).collect();
-
         std::thread::scope(|s| {
-            let mut handles = Vec::with_capacity(chunks.len());
-            for chunk in chunks {
+            let mut handles = Vec::with_capacity(worker_count);
+            for _ in 0..worker_count {
+                let tasks_ref = &tasks;
+                let next_task_ref = &next_task;
                 let handle = s.spawn(move || {
-                    scan_obscured_chunk(
+                    scan_obscured_worker(
                         pid,
-                        chunk,
+                        tasks_ref,
+                        next_task_ref,
                         target_bits32,
                         target_bits64,
                         target_vtype,
@@ -1518,67 +2209,71 @@ pub fn scan_buffer_big_double_to(data: &[u8], target: &BigDouble, results: &mut 
     }
 }
 
-fn scan_big_double_chunk(
+fn scan_big_double_worker(
     pid: u32,
-    chunk: &[(usize, &MemoryRegion)],
+    tasks: &[ScanTask],
+    next_task: &AtomicUsize,
     target: &BigDouble,
     step: usize,
 ) -> Result<Vec<CompactMatch>, String> {
     let mut matches = Vec::new();
     let mut offsets_buf = Vec::new();
-    let mut chunk_buf: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
+    let mut kpm_buf = kpm::KpmReadBuffer::with_capacity(CHUNK_SIZE);
     let mut v2p = crate::v2p::V2pReader::new(pid)
         .map_err(|e| format!("Failed to initialize V2P reader for PID {pid}: {e}"))?;
 
-    for &(region_idx, region) in chunk {
-        let mut addr = region.start;
-        while addr < region.end {
-            let chunk_len = ((region.end - addr) as usize).min(CHUNK_SIZE);
-            if chunk_len < step {
+    loop {
+        if is_scan_cancelled() {
+            return Err("Scan cancelled".to_string());
+        }
+
+        let task_idx = next_task.fetch_add(1, Ordering::Relaxed);
+        let Some(&task) = tasks.get(task_idx) else {
+            break;
+        };
+
+        let read_len = (task.read_end - task.read_start) as usize;
+        if read_len < step {
+            continue;
+        }
+
+        let present_ranges = v2p.get_present_ranges(
+            task.read_start,
+            task.read_end,
+            crate::v2p::PAGE_FLAG_PRESENT,
+        )?;
+
+        for (start_addr, end_addr) in present_ranges {
+            if is_scan_cancelled() {
+                return Err("Scan cancelled".to_string());
+            }
+            if start_addr >= task.emit_end {
                 break;
             }
-
-            let present_ranges = v2p.get_present_ranges(
-                addr,
-                addr + chunk_len as u64,
-                crate::v2p::PAGE_FLAG_PRESENT,
-            )?;
-
-            for (start_addr, end_addr) in present_ranges {
-                let range_len = (end_addr - start_addr) as usize;
-                if range_len < step {
-                    continue;
-                }
-
-                if chunk_buf.len() < range_len {
-                    chunk_buf.resize(range_len, 0);
-                }
-
-                if crate::kpm::read_memory(pid, start_addr, &mut chunk_buf[..range_len]).is_ok() {
-                    let block_data = &chunk_buf[..range_len];
-                    offsets_buf.clear();
-                    scan_buffer_big_double_to(block_data, target, &mut offsets_buf);
-
-                    for &off in &offsets_buf {
-                        let match_addr = start_addr + off as u64;
-                        let raw_val = target.mantissa.to_bits();
-
-                        matches.push(CompactMatch {
-                            address: match_addr,
-                            raw_value: raw_val,
-                            region_idx: region_idx as u32,
-                            value_type: ValueType::Double,
-                        });
-                    }
-                }
+            let range_len = (end_addr - start_addr) as usize;
+            if range_len < step {
+                continue;
             }
 
-            let overlap = if addr + (chunk_len as u64) < region.end {
-                step.saturating_sub(1)
-            } else {
-                0
-            };
-            addr += (chunk_len.saturating_sub(overlap).max(1)) as u64;
+            if let Ok(block_data) = kpm_buf.read(pid, start_addr, range_len) {
+                offsets_buf.clear();
+                scan_buffer_big_double_to(block_data, target, &mut offsets_buf);
+
+                for &off in &offsets_buf {
+                    let match_addr = start_addr + off as u64;
+                    if match_addr >= task.emit_end {
+                        continue;
+                    }
+                    let raw_val = target.mantissa.to_bits();
+
+                    matches.push(CompactMatch {
+                        address: match_addr,
+                        raw_value: raw_val,
+                        region_idx: task.region_idx as u32,
+                        value_type: ValueType::Double,
+                    });
+                }
+            }
         }
     }
 
@@ -1590,31 +2285,36 @@ pub fn scan_big_double(
     regions: &[MemoryRegion],
     target_str: &str,
 ) -> Result<ScanSession, String> {
+    reset_scan_cancel();
+
     let target = BigDouble::parse(target_str)?;
-    let step = 12;
+    let min_struct_size = 12;
+    let max_struct_size = 16;
 
-    let indexed_regions: Vec<(usize, &MemoryRegion)> = regions.iter().enumerate().collect();
-    let worker_count = if indexed_regions.len() <= 1 {
-        1
+    let tasks = build_scan_tasks(regions, CHUNK_SIZE, max_struct_size - 1);
+    let worker_count = optimal_worker_count(tasks.len());
+    let next_task = AtomicUsize::new(0);
+
+    let mut matches = if tasks.is_empty() {
+        Vec::new()
+    } else if worker_count <= 1 {
+        scan_big_double_worker(pid, &tasks, &next_task, &target, min_struct_size)?
     } else {
-        std::thread::available_parallelism()
-            .map(|p| p.get())
-            .unwrap_or(4)
-            .min(indexed_regions.len())
-            .min(8)
-    };
-
-    let mut matches = if worker_count <= 1 {
-        scan_big_double_chunk(pid, &indexed_regions, &target, step)?
-    } else {
-        let chunk_size = indexed_regions.len().div_ceil(worker_count);
-        let chunks: Vec<&[(usize, &MemoryRegion)]> = indexed_regions.chunks(chunk_size).collect();
-
         std::thread::scope(|s| {
-            let mut handles = Vec::with_capacity(chunks.len());
-            for chunk in chunks {
+            let mut handles = Vec::with_capacity(worker_count);
+            for _ in 0..worker_count {
+                let tasks_ref = &tasks;
+                let next_task_ref = &next_task;
                 let target_ref = &target;
-                let handle = s.spawn(move || scan_big_double_chunk(pid, chunk, target_ref, step));
+                let handle = s.spawn(move || {
+                    scan_big_double_worker(
+                        pid,
+                        tasks_ref,
+                        next_task_ref,
+                        target_ref,
+                        min_struct_size,
+                    )
+                });
                 handles.push(handle);
             }
 
@@ -1647,81 +2347,77 @@ pub fn scan_big_double(
 // Range Scan
 // ============================================================
 
-fn scan_range_chunk(
+fn scan_range_worker(
     pid: u32,
-    chunk: &[(usize, &MemoryRegion)],
+    tasks: &[ScanTask],
+    next_task: &AtomicUsize,
     valid_targets: &[(ValueType, Vec<u8>, Vec<u8>)],
     min_step: usize,
-    max_step: usize,
 ) -> Result<Vec<CompactMatch>, String> {
     let mut matches = Vec::new();
     let mut offsets_buf: Vec<usize> = Vec::new();
-    let mut chunk_buf: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
+    let mut kpm_buf = kpm::KpmReadBuffer::with_capacity(CHUNK_SIZE);
     let mut v2p = crate::v2p::V2pReader::new(pid)
         .map_err(|e| format!("Failed to initialize V2P reader for PID {pid}: {e}"))?;
 
-    for &(region_idx, region) in chunk {
-        let mut addr = region.start;
-        while addr < region.end {
-            let chunk_len = ((region.end - addr) as usize).min(CHUNK_SIZE);
-            if chunk_len < min_step {
+    loop {
+        if is_scan_cancelled() {
+            return Err("Scan cancelled".to_string());
+        }
+
+        let task_idx = next_task.fetch_add(1, Ordering::Relaxed);
+        let Some(&task) = tasks.get(task_idx) else {
+            break;
+        };
+
+        let read_len = (task.read_end - task.read_start) as usize;
+        if read_len < min_step {
+            continue;
+        }
+
+        let present_ranges = v2p.get_present_ranges(
+            task.read_start,
+            task.read_end,
+            crate::v2p::PAGE_FLAG_PRESENT,
+        )?;
+
+        for (start_addr, end_addr) in present_ranges {
+            if is_scan_cancelled() {
+                return Err("Scan cancelled".to_string());
+            }
+            if start_addr >= task.emit_end {
                 break;
             }
+            let range_len = (end_addr - start_addr) as usize;
+            if range_len < min_step {
+                continue;
+            }
 
-            let present_ranges = v2p.get_present_ranges(
-                addr,
-                addr + chunk_len as u64,
-                crate::v2p::PAGE_FLAG_PRESENT,
-            )?;
+            if let Ok(block_data) = kpm_buf.read(pid, start_addr, range_len) {
+                for (vt, min_bytes, max_bytes) in valid_targets {
+                    let step = vt.size();
+                    if range_len < step {
+                        continue;
+                    }
 
-            for (start_addr, end_addr) in present_ranges {
-                let range_len = (end_addr - start_addr) as usize;
-                if range_len < min_step {
-                    continue;
-                }
+                    offsets_buf.clear();
+                    scan_range_buffer_to(block_data, min_bytes, max_bytes, *vt, &mut offsets_buf);
 
-                if chunk_buf.len() < range_len {
-                    chunk_buf.resize(range_len, 0);
-                }
-
-                if crate::kpm::read_memory(pid, start_addr, &mut chunk_buf[..range_len]).is_ok() {
-                    let block_data = &chunk_buf[..range_len];
-
-                    for (vt, min_bytes, max_bytes) in valid_targets {
-                        let step = vt.size();
-                        if range_len < step {
+                    for &off in &offsets_buf {
+                        let match_addr = start_addr + off as u64;
+                        if match_addr >= task.emit_end {
                             continue;
                         }
-
-                        offsets_buf.clear();
-                        scan_range_buffer_to(
-                            block_data,
-                            min_bytes,
-                            max_bytes,
-                            *vt,
-                            &mut offsets_buf,
-                        );
-
-                        for &off in &offsets_buf {
-                            let match_addr = start_addr + off as u64;
-                            let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
-                            matches.push(CompactMatch {
-                                address: match_addr,
-                                raw_value: raw_val,
-                                region_idx: region_idx as u32,
-                                value_type: *vt,
-                            });
-                        }
+                        let raw_val = bytes_to_raw_u64(&block_data[off..off + step], *vt);
+                        matches.push(CompactMatch {
+                            address: match_addr,
+                            raw_value: raw_val,
+                            region_idx: task.region_idx as u32,
+                            value_type: *vt,
+                        });
                     }
                 }
             }
-
-            let overlap = if addr + (chunk_len as u64) < region.end {
-                max_step.saturating_sub(1)
-            } else {
-                0
-            };
-            addr += (chunk_len.saturating_sub(overlap).max(1)) as u64;
         }
     }
 
@@ -1731,171 +2427,25 @@ fn scan_range_chunk(
 fn try_kernel_scan_range(
     pid: u32,
     regions: &[MemoryRegion],
+    sorted_regions: &[(u64, u64, u32)],
     vt: ValueType,
     min_bytes: &[u8],
     max_bytes: &[u8],
-) -> Option<Vec<CompactMatch>> {
-    if !kpm::is_feature_supported(kpm::HMKPM_FEATURE_SCAN_KERNEL) {
-        return None;
-    }
-
-    let (scan_type, criteria) = match vt {
-        ValueType::Byte => {
-            let min = min_bytes.first().copied()? as i8 as i64;
-            let max = max_bytes.first().copied()? as i8 as i64;
-            (
-                kpm::HMKPM_SCAN_TYPE_I8,
-                kpm::HmkpmScanCriteria {
-                    range_i: kpm::HmkpmScanCriteriaRangeI { min, max },
-                },
-            )
-        }
-        ValueType::Short => {
-            let min = i16::from_le_bytes(min_bytes[..2].try_into().ok()?) as i64;
-            let max = i16::from_le_bytes(max_bytes[..2].try_into().ok()?) as i64;
-            (
-                kpm::HMKPM_SCAN_TYPE_I16,
-                kpm::HmkpmScanCriteria {
-                    range_i: kpm::HmkpmScanCriteriaRangeI { min, max },
-                },
-            )
-        }
-        ValueType::Int => {
-            let min = i32::from_le_bytes(min_bytes[..4].try_into().ok()?) as i64;
-            let max = i32::from_le_bytes(max_bytes[..4].try_into().ok()?) as i64;
-            (
-                kpm::HMKPM_SCAN_TYPE_I32,
-                kpm::HmkpmScanCriteria {
-                    range_i: kpm::HmkpmScanCriteriaRangeI { min, max },
-                },
-            )
-        }
-        ValueType::Long => {
-            let min = i64::from_le_bytes(min_bytes[..8].try_into().ok()?);
-            let max = i64::from_le_bytes(max_bytes[..8].try_into().ok()?);
-            (
-                kpm::HMKPM_SCAN_TYPE_I64,
-                kpm::HmkpmScanCriteria {
-                    range_i: kpm::HmkpmScanCriteriaRangeI { min, max },
-                },
-            )
-        }
-        ValueType::Float => {
-            let min = u32::from_le_bytes(min_bytes[..4].try_into().ok()?) as u64;
-            let max = u32::from_le_bytes(max_bytes[..4].try_into().ok()?) as u64;
-            (
-                kpm::HMKPM_SCAN_TYPE_F32,
-                kpm::HmkpmScanCriteria {
-                    range_u: kpm::HmkpmScanCriteriaRangeU { min, max },
-                },
-            )
-        }
-        ValueType::Double => {
-            let min = u64::from_le_bytes(min_bytes[..8].try_into().ok()?);
-            let max = u64::from_le_bytes(max_bytes[..8].try_into().ok()?);
-            (
-                kpm::HMKPM_SCAN_TYPE_F64,
-                kpm::HmkpmScanCriteria {
-                    range_u: kpm::HmkpmScanCriteriaRangeU { min, max },
-                },
-            )
-        }
-        ValueType::Float16 => return None,
+) -> Result<Vec<CompactMatch>, String> {
+    let Some((scan_type, criteria)) = range_bytes_to_kernel_criteria(vt, min_bytes, max_bytes)?
+    else {
+        return Ok(Vec::new());
     };
-
-    let step = vt.size();
-    let mut all_matches = Vec::new();
-    let max_per_call = kpm::HMKPM_MAX_SCAN_MATCHES;
-    let mut pending_ranges = prepare_scan_ranges(regions);
-    const BATCH_WINDOW: u64 = 65536;
-    let mut block_buf = Vec::with_capacity(BATCH_WINDOW as usize + step);
-
-    while !pending_ranges.is_empty() {
-        let batch_len = pending_ranges.len().min(kpm::HMKPM_MAX_SCAN_RANGES);
-        let batch = &pending_ranges[..batch_len];
-
-        match kpm::scan_kernel(
-            pid,
-            scan_type,
-            kpm::HMKPM_SCAN_OP_RANGE,
-            step as u8,
-            criteria,
-            None,
-            None,
-            batch,
-            max_per_call,
-        ) {
-            Ok((addrs, total_matches_found)) => {
-                let addrs_count = addrs.len();
-
-                // Batch-read matched values in 64KB windows to minimize syscall overhead
-                let mut i = 0;
-                while i < addrs.len() {
-                    let base = addrs[i];
-                    let mut j = i;
-                    while j < addrs.len() && addrs[j] < base + BATCH_WINDOW && addrs[j] >= base {
-                        j += 1;
-                    }
-
-                    let block_len = (addrs[j - 1] - base) as usize + step;
-                    if block_buf.len() < block_len {
-                        block_buf.resize(block_len, 0);
-                    }
-
-                    let read_ok = kpm::read_memory(pid, base, &mut block_buf[..block_len]).is_ok();
-                    let mut single_buf = [0u8; 8];
-
-                    for &addr in &addrs[i..j] {
-                        let region_idx = regions
-                            .iter()
-                            .position(|r| addr >= r.start && addr < r.end)
-                            .unwrap_or(0);
-                        let raw_val = if read_ok {
-                            let off = (addr - base) as usize;
-                            if off + step <= block_len {
-                                bytes_to_raw_u64(&block_buf[off..off + step], vt)
-                            } else {
-                                0
-                            }
-                        } else if kpm::read_memory(pid, addr, &mut single_buf[..step]).is_ok() {
-                            bytes_to_raw_u64(&single_buf[..step], vt)
-                        } else {
-                            0
-                        };
-
-                        all_matches.push(CompactMatch {
-                            address: addr,
-                            raw_value: raw_val,
-                            region_idx: region_idx as u32,
-                            value_type: vt,
-                        });
-                    }
-                    i = j;
-                }
-
-                // If matches were truncated by the kernel buffer limit, resume from last_match_addr + step
-                if addrs_count >= max_per_call && total_matches_found > addrs_count as u64 {
-                    if let Some(&last_addr) = addrs.last() {
-                        let next_start = last_addr.saturating_add(step as u64);
-                        pending_ranges = advance_scan_ranges(&pending_ranges, next_start);
-                    } else {
-                        pending_ranges.drain(..batch_len);
-                    }
-                } else {
-                    pending_ranges.drain(..batch_len);
-                }
-            }
-            Err(e) => {
-                logger::warn(
-                    "Scanner",
-                    &format!("Kernel range scan failed ({e}), falling back to NEON SIMD"),
-                );
-                return None;
-            }
-        }
-    }
-
-    Some(all_matches)
+    run_kernel_scan_batches(
+        pid,
+        regions,
+        sorted_regions,
+        vt,
+        scan_type,
+        kpm::HMKPM_SCAN_OP_RANGE,
+        criteria,
+        None,
+    )
 }
 
 pub fn scan_range(
@@ -1905,6 +2455,8 @@ pub fn scan_range(
     max_value_str: &str,
     value_types: &[ValueType],
 ) -> Result<ScanSession, String> {
+    reset_scan_cancel();
+
     if value_types.is_empty() {
         return Err("No value types specified".into());
     }
@@ -1928,20 +2480,57 @@ pub fn scan_range(
         ));
     }
 
-    // Try in-kernel direct range scan if engine mode is Kernel or Auto and all targets are supported
     let engine_mode = get_scan_engine_mode();
-    if (engine_mode == ScanEngineMode::Kernel as u8 || engine_mode == ScanEngineMode::Auto as u8)
-        && !regions.is_empty()
-    {
+    if engine_mode == ScanEngineMode::Kernel as u8 {
+        if regions.is_empty() {
+            return Ok(ScanSession {
+                regions: Vec::new(),
+                matches: Vec::new(),
+                active_types: value_types.to_vec(),
+            });
+        }
+
+        let sorted_regions = build_sorted_region_index(regions);
+        let mut kernel_matches = Vec::new();
+        for (vt, min_bytes, max_bytes) in &valid_targets {
+            let partial =
+                try_kernel_scan_range(pid, regions, &sorted_regions, *vt, min_bytes, max_bytes)?;
+            kernel_matches.extend(partial);
+        }
+
+        kernel_matches.sort_by(|a, b| {
+            a.address
+                .cmp(&b.address)
+                .then_with(|| a.value_type.cmp(&b.value_type))
+        });
+        kernel_matches.dedup_by(|a, b| a.address == b.address && a.value_type == b.value_type);
+
+        return Ok(ScanSession {
+            regions: regions.to_vec(),
+            matches: kernel_matches,
+            active_types: value_types.to_vec(),
+        });
+    }
+
+    if engine_mode == ScanEngineMode::Auto as u8 && !regions.is_empty() {
+        let sorted_regions = build_sorted_region_index(regions);
         let mut kernel_matches = Vec::new();
         let mut kernel_success = true;
 
         for (vt, min_bytes, max_bytes) in &valid_targets {
-            if let Some(partial) = try_kernel_scan_range(pid, regions, *vt, min_bytes, max_bytes) {
-                kernel_matches.extend(partial);
-            } else {
-                kernel_success = false;
-                break;
+            match try_kernel_scan_range(pid, regions, &sorted_regions, *vt, min_bytes, max_bytes) {
+                Ok(partial) => kernel_matches.extend(partial),
+                Err(e) => {
+                    if is_scan_cancelled() {
+                        return Err("Scan cancelled".to_string());
+                    }
+                    logger::info(
+                        "Scanner",
+                        &format!("Auto range mode falling back to NEON SIMD: {e}"),
+                    );
+                    kernel_success = false;
+                    break;
+                }
             }
         }
 
@@ -1972,29 +2561,23 @@ pub fn scan_range(
         .max()
         .unwrap_or(8);
 
-    let indexed_regions: Vec<(usize, &MemoryRegion)> = regions.iter().enumerate().collect();
-    let worker_count = if indexed_regions.len() <= 1 {
-        1
-    } else {
-        std::thread::available_parallelism()
-            .map(|p| p.get())
-            .unwrap_or(4)
-            .min(indexed_regions.len())
-            .min(8)
-    };
+    let tasks = build_scan_tasks(regions, CHUNK_SIZE, max_step.saturating_sub(1));
+    let worker_count = optimal_worker_count(tasks.len());
+    let next_task = AtomicUsize::new(0);
 
-    let mut matches = if worker_count <= 1 {
-        scan_range_chunk(pid, &indexed_regions, &valid_targets, min_step, max_step)?
+    let mut matches = if tasks.is_empty() {
+        Vec::new()
+    } else if worker_count <= 1 {
+        scan_range_worker(pid, &tasks, &next_task, &valid_targets, min_step)?
     } else {
-        let chunk_size = indexed_regions.len().div_ceil(worker_count);
-        let chunks: Vec<&[(usize, &MemoryRegion)]> = indexed_regions.chunks(chunk_size).collect();
-
         std::thread::scope(|s| {
-            let mut handles = Vec::with_capacity(chunks.len());
-            for chunk in chunks {
+            let mut handles = Vec::with_capacity(worker_count);
+            for _ in 0..worker_count {
+                let tasks_ref = &tasks;
+                let next_task_ref = &next_task;
                 let valid_targets_ref = &valid_targets;
                 let handle = s.spawn(move || {
-                    scan_range_chunk(pid, chunk, valid_targets_ref, min_step, max_step)
+                    scan_range_worker(pid, tasks_ref, next_task_ref, valid_targets_ref, min_step)
                 });
                 handles.push(handle);
             }
@@ -2093,150 +2676,198 @@ pub fn scan_range_buffer_to(
 // Group Scan (Heterogeneous & Uniform)
 // ============================================================
 
+fn scan_group_worker(
+    pid: u32,
+    tasks: &[ScanTask],
+    next_task: &AtomicUsize,
+    first_item: &GroupTargetItem,
+    remaining_items: &[GroupTargetItem],
+    distance: usize,
+    remaining_size: usize,
+) -> Result<Vec<CompactMatch>, String> {
+    let first_step = first_item.value_type.size();
+    let mut matches = Vec::new();
+    let mut first_match_offsets = Vec::new();
+    let mut kpm_buf = kpm::KpmReadBuffer::with_capacity(CHUNK_SIZE);
+    let mut v2p = crate::v2p::V2pReader::new(pid)
+        .map_err(|e| format!("Failed to initialize V2P reader for PID {pid}: {e}"))?;
+
+    loop {
+        if is_scan_cancelled() {
+            return Err("Scan cancelled".to_string());
+        }
+
+        let task_idx = next_task.fetch_add(1, Ordering::Relaxed);
+        let Some(&task) = tasks.get(task_idx) else {
+            break;
+        };
+
+        let read_len = (task.read_end - task.read_start) as usize;
+        if read_len < first_step {
+            continue;
+        }
+
+        let present_ranges = v2p.get_present_ranges(
+            task.read_start,
+            task.read_end,
+            crate::v2p::PAGE_FLAG_PRESENT,
+        )?;
+
+        for (start_addr, end_addr) in present_ranges {
+            if is_scan_cancelled() {
+                return Err("Scan cancelled".to_string());
+            }
+            if start_addr >= task.emit_end {
+                break;
+            }
+            let range_len = (end_addr - start_addr) as usize;
+            if range_len < first_step {
+                continue;
+            }
+
+            if let Ok(data) = kpm_buf.read(pid, start_addr, range_len) {
+                let emit_limit = (task.emit_end.saturating_sub(start_addr) as usize)
+                    .saturating_add(first_step.saturating_sub(1))
+                    .min(data.len());
+
+                first_match_offsets.clear();
+                scan_buffer_to(
+                    &data[..emit_limit],
+                    &first_item.target_bytes,
+                    first_item.value_type,
+                    ScanOperator::Equal,
+                    &mut first_match_offsets,
+                );
+
+                for &first_off in &first_match_offsets {
+                    let match_addr = start_addr + first_off as u64;
+                    if match_addr >= task.emit_end {
+                        continue;
+                    }
+
+                    let search_end = first_off
+                        .saturating_add(distance)
+                        .saturating_add(remaining_size)
+                        .min(data.len());
+
+                    let mut all_found = true;
+                    let mut prev_off = first_off;
+
+                    for rem_item in remaining_items {
+                        let mut found = false;
+                        let rem_step = rem_item.value_type.size();
+                        let mut scan_off = prev_off + first_step;
+
+                        // Step by 1 byte so heterogeneous structs with custom padding or packed layouts are never skipped
+                        while scan_off + rem_step <= search_end {
+                            if compare_values(
+                                &data[scan_off..scan_off + rem_step],
+                                &rem_item.target_bytes,
+                                rem_item.value_type,
+                                ScanOperator::Equal,
+                            ) {
+                                found = true;
+                                prev_off = scan_off;
+                                break;
+                            }
+                            scan_off += 1;
+                        }
+                        if !found {
+                            all_found = false;
+                            break;
+                        }
+                    }
+
+                    if all_found {
+                        let raw_val = bytes_to_raw_u64(
+                            &data[first_off..first_off + first_step],
+                            first_item.value_type,
+                        );
+                        matches.push(CompactMatch {
+                            address: match_addr,
+                            raw_value: raw_val,
+                            region_idx: task.region_idx as u32,
+                            value_type: first_item.value_type,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(matches)
+}
+
 pub fn scan_group(
     pid: u32,
     regions: &[MemoryRegion],
     group_spec: &str,
     default_value_type: ValueType,
 ) -> Result<ScanSession, String> {
+    reset_scan_cancel();
+
     let (target_items, distance) = parse_group_spec(group_spec, default_value_type)?;
     let first_item = &target_items[0];
     let remaining_items = &target_items[1..];
-    let first_step = first_item.value_type.size();
     let remaining_size: usize = remaining_items
         .iter()
         .map(|item| item.value_type.size())
         .sum();
 
-    let estimated = regions
-        .iter()
-        .map(|r| r.end.saturating_sub(r.start))
-        .sum::<u64>() as usize
-        / first_step
-        / 1000;
-    let mut matches = Vec::with_capacity(estimated.min(131_072));
-    let mut first_match_offsets = Vec::new();
-    let mut chunk_buf: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
-    let mut v2p = crate::v2p::V2pReader::new(pid)
-        .map_err(|e| format!("Failed to initialize V2P reader for PID {pid}: {e}"))?;
+    let overlap = distance.saturating_add(remaining_size);
+    let tasks = build_scan_tasks(regions, CHUNK_SIZE, overlap);
+    let worker_count = optimal_worker_count(tasks.len());
+    let next_task = AtomicUsize::new(0);
 
-    for (region_idx, region) in regions.iter().enumerate() {
-        let mut addr = region.start;
-        let mut overlap_buffer: Vec<u8> = Vec::new();
-
-        while addr < region.end {
-            let chunk_len = ((region.end - addr) as usize).min(CHUNK_SIZE);
-            if chunk_len < first_step && overlap_buffer.is_empty() {
-                break;
+    let mut matches = if tasks.is_empty() {
+        Vec::new()
+    } else if worker_count <= 1 {
+        scan_group_worker(
+            pid,
+            &tasks,
+            &next_task,
+            first_item,
+            remaining_items,
+            distance,
+            remaining_size,
+        )?
+    } else {
+        std::thread::scope(|s| {
+            let mut handles = Vec::with_capacity(worker_count);
+            for _ in 0..worker_count {
+                let tasks_ref = &tasks;
+                let next_task_ref = &next_task;
+                let handle = s.spawn(move || {
+                    scan_group_worker(
+                        pid,
+                        tasks_ref,
+                        next_task_ref,
+                        first_item,
+                        remaining_items,
+                        distance,
+                        remaining_size,
+                    )
+                });
+                handles.push(handle);
             }
 
-            let present_ranges = v2p.get_present_ranges(
-                addr,
-                addr + chunk_len as u64,
-                crate::v2p::PAGE_FLAG_PRESENT,
-            )?;
-
-            for (start_addr, end_addr) in present_ranges {
-                let range_len = (end_addr - start_addr) as usize;
-                if range_len < first_step && overlap_buffer.is_empty() {
-                    continue;
-                }
-
-                if chunk_buf.len() < range_len {
-                    chunk_buf.resize(range_len, 0);
-                }
-
-                if crate::kpm::read_memory(pid, start_addr, &mut chunk_buf[..range_len]).is_ok() {
-                    let block_slice = &chunk_buf[..range_len];
-
-                    let (data_cow, overlap_len): (std::borrow::Cow<[u8]>, usize) =
-                        if overlap_buffer.is_empty() {
-                            (std::borrow::Cow::Borrowed(block_slice), 0)
-                        } else {
-                            let mut full = overlap_buffer.clone();
-                            full.extend_from_slice(block_slice);
-                            let olen = overlap_buffer.len();
-                            (std::borrow::Cow::Owned(full), olen)
-                        };
-                    let data = &data_cow[..];
-
-                    let effective_start_addr = start_addr.saturating_sub(overlap_len as u64);
-                    let processable_len = if addr + chunk_len as u64 == region.end {
-                        data.len()
-                    } else {
-                        data.len().saturating_sub(distance + remaining_size)
-                    };
-
-                    first_match_offsets.clear();
-                    scan_buffer_to(
-                        &data[..processable_len.min(data.len())],
-                        &first_item.target_bytes,
-                        first_item.value_type,
-                        ScanOperator::Equal,
-                        &mut first_match_offsets,
-                    );
-
-                    for &first_off in &first_match_offsets {
-                        let search_end = first_off
-                            .saturating_add(distance)
-                            .saturating_add(remaining_size)
-                            .min(data.len());
-
-                        let mut all_found = true;
-                        let mut prev_off = first_off;
-
-                        for rem_item in remaining_items {
-                            let mut found = false;
-                            let rem_step = rem_item.value_type.size();
-                            let mut scan_off = prev_off + first_step;
-
-                            // Step by 1 byte so heterogeneous structs with custom padding or packed layouts are never skipped
-                            while scan_off + rem_step <= search_end {
-                                if compare_values(
-                                    &data[scan_off..scan_off + rem_step],
-                                    &rem_item.target_bytes,
-                                    rem_item.value_type,
-                                    ScanOperator::Equal,
-                                ) {
-                                    found = true;
-                                    prev_off = scan_off;
-                                    break;
-                                }
-                                scan_off += 1;
-                            }
-                            if !found {
-                                all_found = false;
-                                break;
-                            }
-                        }
-
-                        if all_found {
-                            let match_addr = effective_start_addr + first_off as u64;
-                            let raw_val = bytes_to_raw_u64(
-                                &data[first_off..first_off + first_step],
-                                first_item.value_type,
-                            );
-                            matches.push(CompactMatch {
-                                address: match_addr,
-                                raw_value: raw_val,
-                                region_idx: region_idx as u32,
-                                value_type: first_item.value_type,
-                            });
-                        }
-                    }
-
-                    if start_addr + (range_len as u64) < region.end {
-                        let overlap_start = data.len().saturating_sub(distance + remaining_size);
-                        overlap_buffer = data[overlap_start..].to_vec();
-                    } else {
-                        overlap_buffer.clear();
-                    }
-                }
+            let mut all_matches = Vec::new();
+            for handle in handles {
+                let partial = handle
+                    .join()
+                    .map_err(|_| "Worker thread panicked during group scan".to_string())??;
+                all_matches.extend(partial);
             }
+            Ok::<Vec<CompactMatch>, String>(all_matches)
+        })?
+    };
 
-            addr += chunk_len as u64;
-        }
-    }
+    matches.sort_by(|a, b| {
+        a.address
+            .cmp(&b.address)
+            .then_with(|| a.value_type.cmp(&b.value_type))
+    });
+    matches.dedup_by(|a, b| a.address == b.address && a.value_type == b.value_type);
 
     Ok(ScanSession {
         regions: regions.to_vec(),
@@ -2249,12 +2880,244 @@ pub fn scan_group(
 // Next Scan / Refine Filtering
 // ============================================================
 
+fn scan_op_to_refine_op(scan_op: u8) -> Option<u8> {
+    match scan_op {
+        kpm::HMKPM_SCAN_OP_EXACT => Some(kpm::HMKPM_REFINE_OP_EXACT),
+        kpm::HMKPM_SCAN_OP_NEQ => Some(kpm::HMKPM_REFINE_OP_NEQ),
+        kpm::HMKPM_SCAN_OP_RANGE => Some(kpm::HMKPM_REFINE_OP_RANGE),
+        kpm::HMKPM_SCAN_OP_NOT_RANGE => Some(kpm::HMKPM_REFINE_OP_NOT_RANGE),
+        kpm::HMKPM_SCAN_OP_MASK => Some(kpm::HMKPM_REFINE_OP_MASK),
+        _ => None,
+    }
+}
+
+fn try_kernel_refine_matches(
+    pid: u32,
+    session: &ScanSession,
+    target_value_str: &str,
+    operator: ScanOperator,
+) -> Result<ScanSession, String> {
+    if !kpm::is_feature_supported(kpm::HMKPM_FEATURE_SCAN_REFINE) {
+        return Err("HMKPM_FEATURE_SCAN_REFINE not supported".to_string());
+    }
+
+    let delta_refine_op = match operator {
+        ScanOperator::Changed => Some(kpm::HMKPM_REFINE_OP_CHANGED),
+        ScanOperator::Unchanged => Some(kpm::HMKPM_REFINE_OP_UNCHANGED),
+        ScanOperator::Increased => Some(kpm::HMKPM_REFINE_OP_INCREASED),
+        ScanOperator::Decreased => Some(kpm::HMKPM_REFINE_OP_DECREASED),
+        ScanOperator::Equal
+        | ScanOperator::NotEqual
+        | ScanOperator::Greater
+        | ScanOperator::Less
+        | ScanOperator::GreaterEqual
+        | ScanOperator::LessEqual => None,
+        _ => {
+            return Err(format!(
+                "In-kernel refine does not support operator '{operator:?}'"
+            ));
+        }
+    };
+
+    if session.active_types.contains(&ValueType::Float16)
+        || session
+            .matches
+            .iter()
+            .any(|m| m.value_type == ValueType::Float16)
+    {
+        return Err("In-kernel refine does not support float16".to_string());
+    }
+
+    let mut grouped: std::collections::HashMap<ValueType, Vec<kpm::HmkpmScanValMatch>> =
+        std::collections::HashMap::with_capacity(session.active_types.len());
+    for m in &session.matches {
+        grouped
+            .entry(m.value_type)
+            .or_default()
+            .push(kpm::HmkpmScanValMatch {
+                va: m.address,
+                value: m.raw_value,
+            });
+    }
+
+    let sorted_regions = build_sorted_region_index(&session.regions);
+    let mut updated_matches = Vec::with_capacity(session.matches.len().min(65536));
+
+    for (vt, candidates) in grouped {
+        if is_scan_cancelled() {
+            return Err("Scan cancelled".to_string());
+        }
+
+        let (scan_type, refine_op, criteria) = if let Some(dop) = delta_refine_op {
+            let st = value_type_to_kernel_scan_type(vt)?;
+            (
+                st,
+                dop,
+                kpm::HmkpmScanCriteria {
+                    exact: kpm::HmkpmScanCriteriaExact { val: 0, mask: 0 },
+                },
+            )
+        } else {
+            let Ok(tb) = value_str_to_bytes(target_value_str, vt) else {
+                continue;
+            };
+            let Some((st, scan_op, crit)) = operator_to_kernel_criteria(vt, &tb, operator)? else {
+                continue;
+            };
+            let rop = scan_op_to_refine_op(scan_op)
+                .ok_or_else(|| format!("Unsupported kernel refine scan_op {scan_op}"))?;
+            (st, rop, crit)
+        };
+
+        for chunk in candidates.chunks(kpm::HMKPM_MAX_REFINE_COUNT) {
+            if is_scan_cancelled() {
+                return Err("Scan cancelled".to_string());
+            }
+            let mut work = chunk.to_vec();
+            let matched =
+                kpm::scan_refine_values(pid, scan_type, refine_op, criteria, &mut work, 0)?;
+            updated_matches.reserve(matched);
+            for pair in work {
+                let region_idx = find_region_idx(&sorted_regions, pair.va);
+                updated_matches.push(CompactMatch {
+                    address: pair.va,
+                    raw_value: pair.value,
+                    region_idx,
+                    value_type: vt,
+                });
+            }
+        }
+    }
+
+    updated_matches.sort_by(|a, b| {
+        a.address
+            .cmp(&b.address)
+            .then_with(|| a.value_type.cmp(&b.value_type))
+    });
+
+    Ok(ScanSession {
+        regions: session.regions.clone(),
+        matches: updated_matches,
+        active_types: session.active_types.clone(),
+    })
+}
+
+fn try_kernel_refine_range(
+    pid: u32,
+    session: &ScanSession,
+    min_str: &str,
+    max_str: &str,
+) -> Result<ScanSession, String> {
+    if !kpm::is_feature_supported(kpm::HMKPM_FEATURE_SCAN_REFINE) {
+        return Err("HMKPM_FEATURE_SCAN_REFINE not supported".to_string());
+    }
+
+    if session.active_types.contains(&ValueType::Float16)
+        || session
+            .matches
+            .iter()
+            .any(|m| m.value_type == ValueType::Float16)
+    {
+        return Err("In-kernel range refine does not support float16".to_string());
+    }
+
+    let mut grouped: std::collections::HashMap<ValueType, Vec<kpm::HmkpmScanValMatch>> =
+        std::collections::HashMap::with_capacity(session.active_types.len());
+    for m in &session.matches {
+        grouped
+            .entry(m.value_type)
+            .or_default()
+            .push(kpm::HmkpmScanValMatch {
+                va: m.address,
+                value: m.raw_value,
+            });
+    }
+
+    let sorted_regions = build_sorted_region_index(&session.regions);
+    let mut updated_matches = Vec::with_capacity(session.matches.len().min(65536));
+
+    for (vt, candidates) in grouped {
+        if is_scan_cancelled() {
+            return Err("Scan cancelled".to_string());
+        }
+
+        let (Ok(min_b), Ok(max_b)) = (
+            value_str_to_bytes(min_str, vt),
+            value_str_to_bytes(max_str, vt),
+        ) else {
+            continue;
+        };
+
+        let Some((scan_type, criteria)) = range_bytes_to_kernel_criteria(vt, &min_b, &max_b)?
+        else {
+            continue;
+        };
+
+        for chunk in candidates.chunks(kpm::HMKPM_MAX_REFINE_COUNT) {
+            if is_scan_cancelled() {
+                return Err("Scan cancelled".to_string());
+            }
+            let mut work = chunk.to_vec();
+            let matched = kpm::scan_refine_values(
+                pid,
+                scan_type,
+                kpm::HMKPM_REFINE_OP_RANGE,
+                criteria,
+                &mut work,
+                0,
+            )?;
+            updated_matches.reserve(matched);
+            for pair in work {
+                let region_idx = find_region_idx(&sorted_regions, pair.va);
+                updated_matches.push(CompactMatch {
+                    address: pair.va,
+                    raw_value: pair.value,
+                    region_idx,
+                    value_type: vt,
+                });
+            }
+        }
+    }
+
+    updated_matches.sort_by(|a, b| {
+        a.address
+            .cmp(&b.address)
+            .then_with(|| a.value_type.cmp(&b.value_type))
+    });
+
+    Ok(ScanSession {
+        regions: session.regions.clone(),
+        matches: updated_matches,
+        active_types: session.active_types.clone(),
+    })
+}
+
 pub fn filter_matches(
     pid: u32,
     session: &ScanSession,
     target_value_str: &str,
     operator: ScanOperator,
 ) -> Result<ScanSession, String> {
+    reset_scan_cancel();
+
+    let engine_mode = get_scan_engine_mode();
+    if (engine_mode == ScanEngineMode::Kernel as u8 || engine_mode == ScanEngineMode::Auto as u8)
+        && !session.matches.is_empty()
+    {
+        match try_kernel_refine_matches(pid, session, target_value_str, operator) {
+            Ok(refined) => return Ok(refined),
+            Err(e) => {
+                if is_scan_cancelled() {
+                    return Err("Scan cancelled".to_string());
+                }
+                logger::debug(
+                    "Scanner",
+                    &format!("Refine falling back to userspace KPM read loop: {e}"),
+                );
+            }
+        }
+    }
+
     const BATCH_WINDOW: u64 = 65536;
     let items = &session.matches;
     let mut updated_matches = Vec::with_capacity(items.len());
@@ -2281,9 +3144,12 @@ pub fn filter_matches(
     }
 
     let mut i = 0;
-    let mut block_buf = Vec::with_capacity(BATCH_WINDOW as usize + max_step);
+    let mut kpm_buf = kpm::KpmReadBuffer::with_capacity(BATCH_WINDOW as usize + max_step);
 
     while i < items.len() {
+        if is_scan_cancelled() {
+            return Err("Scan cancelled".to_string());
+        }
         let base = items[i].address;
         let region_idx = items[i].region_idx;
         let mut j = i;
@@ -2297,28 +3163,22 @@ pub fn filter_matches(
         }
 
         let block_len = (items[j - 1].address - base) as usize + max_step;
-        if block_buf.len() < block_len {
-            block_buf.resize(block_len, 0);
-        }
-
-        let read_ok = kpm::read_memory(pid, base, &mut block_buf[..block_len]).is_ok();
+        let block_slice = kpm_buf.read(pid, base, block_len).ok();
 
         for m in &items[i..j] {
             let step = m.value_type.size();
             let mut single_buf = [0u8; 8];
-            let current_bytes = if read_ok {
+            let current_bytes = if let Some(block) = block_slice {
                 let off = (m.address - base) as usize;
-                if off + step <= block_len {
-                    &block_buf[off..off + step]
+                if off + step <= block.len() {
+                    &block[off..off + step]
                 } else {
                     continue;
                 }
+            } else if kpm::read_memory(pid, m.address, &mut single_buf[..step]).is_ok() {
+                &single_buf[..step]
             } else {
-                if kpm::read_memory(pid, m.address, &mut single_buf[..step]).is_ok() {
-                    &single_buf[..step]
-                } else {
-                    continue;
-                }
+                continue;
             };
 
             let target_bytes = match targets_by_type.get(&m.value_type) {
@@ -2367,6 +3227,26 @@ pub fn filter_range_matches(
     min_str: &str,
     max_str: &str,
 ) -> Result<ScanSession, String> {
+    reset_scan_cancel();
+
+    let engine_mode = get_scan_engine_mode();
+    if (engine_mode == ScanEngineMode::Kernel as u8 || engine_mode == ScanEngineMode::Auto as u8)
+        && !session.matches.is_empty()
+    {
+        match try_kernel_refine_range(pid, session, min_str, max_str) {
+            Ok(refined) => return Ok(refined),
+            Err(e) => {
+                if is_scan_cancelled() {
+                    return Err("Scan cancelled".to_string());
+                }
+                logger::debug(
+                    "Scanner",
+                    &format!("Range refine falling back to userspace KPM read loop: {e}"),
+                );
+            }
+        }
+    }
+
     const BATCH_WINDOW: u64 = 65536;
     let items = &session.matches;
     let mut updated_matches = Vec::with_capacity(items.len());
@@ -2393,9 +3273,12 @@ pub fn filter_range_matches(
     }
 
     let mut i = 0;
-    let mut block_buf = Vec::with_capacity(BATCH_WINDOW as usize + max_step);
+    let mut kpm_buf = kpm::KpmReadBuffer::with_capacity(BATCH_WINDOW as usize + max_step);
 
     while i < items.len() {
+        if is_scan_cancelled() {
+            return Err("Scan cancelled".to_string());
+        }
         let base = items[i].address;
         let region_idx = items[i].region_idx;
         let mut j = i;
@@ -2409,28 +3292,22 @@ pub fn filter_range_matches(
         }
 
         let block_len = (items[j - 1].address - base) as usize + max_step;
-        if block_buf.len() < block_len {
-            block_buf.resize(block_len, 0);
-        }
-
-        let read_ok = kpm::read_memory(pid, base, &mut block_buf[..block_len]).is_ok();
+        let block_slice = kpm_buf.read(pid, base, block_len).ok();
 
         for m in &items[i..j] {
             let step = m.value_type.size();
             let mut single_buf = [0u8; 8];
-            let current_bytes = if read_ok {
+            let current_bytes = if let Some(block) = block_slice {
                 let off = (m.address - base) as usize;
-                if off + step <= block_len {
-                    &block_buf[off..off + step]
+                if off + step <= block.len() {
+                    &block[off..off + step]
                 } else {
                     continue;
                 }
+            } else if kpm::read_memory(pid, m.address, &mut single_buf[..step]).is_ok() {
+                &single_buf[..step]
             } else {
-                if kpm::read_memory(pid, m.address, &mut single_buf[..step]).is_ok() {
-                    &single_buf[..step]
-                } else {
-                    continue;
-                }
+                continue;
             };
 
             let (min_bytes, max_bytes) = match ranges_by_type.get(&m.value_type) {
@@ -2465,6 +3342,8 @@ pub fn filter_obscured_matches(
     target_value_str: &str,
     obscured_type: ObscuredType,
 ) -> Result<ScanSession, String> {
+    reset_scan_cancel();
+
     let s = target_value_str.trim();
     let (target_bits32, target_bits64) = match obscured_type {
         ObscuredType::ObscuredInt => {
@@ -2493,9 +3372,12 @@ pub fn filter_obscured_matches(
     let mut updated_matches = Vec::with_capacity(items.len());
 
     let mut i = 0;
-    let mut block_buf = Vec::with_capacity(BATCH_WINDOW as usize + step);
+    let mut kpm_buf = kpm::KpmReadBuffer::with_capacity(BATCH_WINDOW as usize + step);
 
     while i < items.len() {
+        if is_scan_cancelled() {
+            return Err("Scan cancelled".to_string());
+        }
         let base = items[i].address;
         let region_idx = items[i].region_idx;
         let mut j = i;
@@ -2509,18 +3391,14 @@ pub fn filter_obscured_matches(
         }
 
         let block_len = (items[j - 1].address - base) as usize + step;
-        if block_buf.len() < block_len {
-            block_buf.resize(block_len, 0);
-        }
-
-        let read_ok = kpm::read_memory(pid, base, &mut block_buf[..block_len]).is_ok();
+        let block_slice = kpm_buf.read(pid, base, block_len).ok();
 
         for m in &items[i..j] {
             let mut single_buf = [0u8; 16];
-            let buf_slice: &[u8] = if read_ok {
+            let buf_slice: &[u8] = if let Some(block) = block_slice {
                 let off = (m.address - base) as usize;
-                if off + step <= block_len {
-                    &block_buf[off..off + step]
+                if off + step <= block.len() {
+                    &block[off..off + step]
                 } else {
                     continue;
                 }
@@ -2572,6 +3450,8 @@ pub fn filter_big_double_matches(
     session: &ScanSession,
     target_str: &str,
 ) -> Result<ScanSession, String> {
+    reset_scan_cancel();
+
     let target = BigDouble::parse(target_str)?;
     const BATCH_WINDOW: u64 = 65536;
     const MAX_STRUCT_SIZE: usize = 16;
@@ -2579,9 +3459,12 @@ pub fn filter_big_double_matches(
     let mut updated_matches = Vec::with_capacity(items.len());
 
     let mut i = 0;
-    let mut block_buf = Vec::with_capacity(BATCH_WINDOW as usize + MAX_STRUCT_SIZE);
+    let mut kpm_buf = kpm::KpmReadBuffer::with_capacity(BATCH_WINDOW as usize + MAX_STRUCT_SIZE);
 
     while i < items.len() {
+        if is_scan_cancelled() {
+            return Err("Scan cancelled".to_string());
+        }
         let base = items[i].address;
         let region_idx = items[i].region_idx;
         let mut j = i;
@@ -2595,20 +3478,16 @@ pub fn filter_big_double_matches(
         }
 
         let block_len = (items[j - 1].address - base) as usize + MAX_STRUCT_SIZE;
-        if block_buf.len() < block_len {
-            block_buf.resize(block_len, 0);
-        }
-
-        let read_ok = kpm::read_memory(pid, base, &mut block_buf[..block_len]).is_ok();
+        let block_slice = kpm_buf.read(pid, base, block_len).ok();
 
         for m in &items[i..j] {
             let mut single_buf = [0u8; 16];
-            let buf_slice: &[u8] = if read_ok {
+            let buf_slice: &[u8] = if let Some(block) = block_slice {
                 let off = (m.address - base) as usize;
-                if off + MAX_STRUCT_SIZE <= block_len {
-                    &block_buf[off..off + MAX_STRUCT_SIZE]
-                } else if off + 12 <= block_len {
-                    &block_buf[off..off + 12]
+                if off + MAX_STRUCT_SIZE <= block.len() {
+                    &block[off..off + MAX_STRUCT_SIZE]
+                } else if off + 12 <= block.len() {
+                    &block[off..off + 12]
                 } else {
                     continue;
                 }
@@ -2844,39 +3723,81 @@ mod tests {
     }
 
     #[test]
-    fn test_advance_scan_ranges() {
-        let ranges = vec![
-            kpm::HmkpmScanRange {
-                start_va: 0x1000,
-                size: 0x1000, // 0x1000..0x2000
-            },
-            kpm::HmkpmScanRange {
-                start_va: 0x3000,
-                size: 0x2000, // 0x3000..0x5000
-            },
-            kpm::HmkpmScanRange {
-                start_va: 0x6000,
-                size: 0x1000, // 0x6000..0x7000
-            },
-        ];
+    fn test_operator_to_kernel_criteria_bounds_and_ops() {
+        // Equal -> HMKPM_SCAN_OP_EXACT
+        let (st, op, crit) =
+            operator_to_kernel_criteria(ValueType::Int, &42i32.to_le_bytes(), ScanOperator::Equal)
+                .unwrap()
+                .unwrap();
+        assert_eq!(st, kpm::HMKPM_SCAN_TYPE_I32);
+        assert_eq!(op, kpm::HMKPM_SCAN_OP_EXACT);
+        // SAFETY: `op == EXACT` populates `crit.exact`.
+        assert_eq!(unsafe { crit.exact.val }, 42);
 
-        // Advance to mid-second-range: 0x3800
-        let advanced = advance_scan_ranges(&ranges, 0x3800);
-        assert_eq!(advanced.len(), 2);
-        assert_eq!(advanced[0].start_va, 0x3800);
-        assert_eq!(advanced[0].size, 0x1800); // 0x3800..0x5000
-        assert_eq!(advanced[1].start_va, 0x6000);
-        assert_eq!(advanced[1].size, 0x1000);
+        // NotEqual -> HMKPM_SCAN_OP_NEQ
+        let (st, op, _) = operator_to_kernel_criteria(
+            ValueType::Int,
+            &(-5i32).to_le_bytes(),
+            ScanOperator::NotEqual,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(st, kpm::HMKPM_SCAN_TYPE_I32);
+        assert_eq!(op, kpm::HMKPM_SCAN_OP_NEQ);
 
-        // Advance to exact end of second-range: 0x5000
-        let advanced2 = advance_scan_ranges(&ranges, 0x5000);
-        assert_eq!(advanced2.len(), 1);
-        assert_eq!(advanced2[0].start_va, 0x6000);
-        assert_eq!(advanced2[0].size, 0x1000);
+        // Greater on i32::MAX -> empty range Ok(None)
+        assert!(
+            operator_to_kernel_criteria(
+                ValueType::Int,
+                &i32::MAX.to_le_bytes(),
+                ScanOperator::Greater
+            )
+            .unwrap()
+            .is_none()
+        );
 
-        // Advance past all ranges: 0x8000
-        let advanced3 = advance_scan_ranges(&ranges, 0x8000);
-        assert!(advanced3.is_empty());
+        // Less on i8::MIN -> empty range Ok(None)
+        assert!(
+            operator_to_kernel_criteria(
+                ValueType::Byte,
+                &i8::MIN.to_le_bytes(),
+                ScanOperator::Less
+            )
+            .unwrap()
+            .is_none()
+        );
+
+        // Greater on Float 0.0 -> (next_up(0.0), +inf)
+        let (st, op, crit) = operator_to_kernel_criteria(
+            ValueType::Float,
+            &0.0f32.to_le_bytes(),
+            ScanOperator::Greater,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(st, kpm::HMKPM_SCAN_TYPE_F32);
+        assert_eq!(op, kpm::HMKPM_SCAN_OP_RANGE);
+        // SAFETY: `op == RANGE` on F32 populates `crit.range_u`.
+        unsafe {
+            assert_eq!(crit.range_u.min, 0.0f32.next_up().to_bits() as u64);
+            assert_eq!(crit.range_u.max, f32::INFINITY.to_bits() as u64);
+        }
+
+        // NaN ordered comparison -> Ok(None)
+        assert!(
+            operator_to_kernel_criteria(
+                ValueType::Float,
+                &f32::NAN.to_le_bytes(),
+                ScanOperator::Greater
+            )
+            .unwrap()
+            .is_none()
+        );
+
+        // Float16 rejected
+        assert!(
+            operator_to_kernel_criteria(ValueType::Float16, &[0, 0], ScanOperator::Equal).is_err()
+        );
     }
 
     #[test]
@@ -2920,5 +3841,116 @@ mod tests {
         assert_eq!(matches[0].value_type, ValueType::Int);
         assert_eq!(matches[1].address, 0x1000);
         assert_eq!(matches[1].value_type, ValueType::Float);
+    }
+
+    #[test]
+    fn test_find_region_idx_binary_search() {
+        let regions = vec![
+            MemoryRegion {
+                start: 0x5000,
+                end: 0x7000,
+                permissions: "rw-p".into(),
+                offset: 0,
+                path: "[heap]".into(),
+                merged_count: 1,
+            },
+            MemoryRegion {
+                start: 0x1000,
+                end: 0x3000,
+                permissions: "rw-p".into(),
+                offset: 0,
+                path: "[anon]".into(),
+                merged_count: 1,
+            },
+            MemoryRegion {
+                start: 0x9000,
+                end: 0xA000,
+                permissions: "rw-p".into(),
+                offset: 0,
+                path: "libgame.so".into(),
+                merged_count: 1,
+            },
+        ];
+
+        let sorted = build_sorted_region_index(&regions);
+        assert_eq!(find_region_idx(&sorted, 0x1000), 1);
+        assert_eq!(find_region_idx(&sorted, 0x2FFF), 1);
+        assert_eq!(find_region_idx(&sorted, 0x5000), 0);
+        assert_eq!(find_region_idx(&sorted, 0x6FFF), 0);
+        assert_eq!(find_region_idx(&sorted, 0x9500), 2);
+        // Out of range / gap defaults cleanly to 0
+        assert_eq!(find_region_idx(&sorted, 0x3000), 0);
+        assert_eq!(find_region_idx(&sorted, 0x0500), 0);
+    }
+
+    #[test]
+    fn test_build_scan_tasks_coverage_alignment_and_overlap() {
+        let region_size = 10 * 1024 * 1024u64; // 10 MiB single region
+        let regions = vec![MemoryRegion {
+            start: 0x1000_0000,
+            end: 0x1000_0000 + region_size,
+            permissions: "rw-p".into(),
+            offset: 0,
+            path: "[anon]".into(),
+            merged_count: 1,
+        }];
+
+        let overlap = 15usize;
+        let tasks = build_scan_tasks(&regions, CHUNK_SIZE, overlap);
+        assert_eq!(tasks.len(), 3);
+
+        // Verify contiguous non-overlapping emit ranges covering the full 10 MiB region
+        let mut cursor = regions[0].start;
+        for (i, t) in tasks.iter().enumerate() {
+            assert_eq!(t.region_idx, 0);
+            assert_eq!(t.emit_start, cursor);
+            assert_eq!(t.read_start, t.emit_start);
+            assert_eq!(
+                t.read_start % 4096,
+                0,
+                "task start must remain 4 KiB-aligned"
+            );
+            assert!(t.emit_end > t.emit_start);
+            assert!(
+                (t.read_end - t.read_start) as usize <= CHUNK_SIZE,
+                "read span must never exceed CHUNK_SIZE"
+            );
+            if i + 1 < tasks.len() {
+                assert_eq!(t.read_end, t.emit_end + overlap as u64);
+            } else {
+                assert_eq!(t.read_end, regions[0].end);
+            }
+            cursor = t.emit_end;
+        }
+        assert_eq!(cursor, regions[0].end);
+    }
+
+    #[test]
+    fn test_reserve_unknown_slots_respects_cap() {
+        let counter = AtomicUsize::new(0);
+        assert_eq!(reserve_unknown_slots(&counter, 60, 100), 60);
+        assert_eq!(reserve_unknown_slots(&counter, 60, 100), 40);
+        assert_eq!(reserve_unknown_slots(&counter, 10, 100), 0);
+        assert_eq!(counter.load(Ordering::Acquire), 100);
+    }
+
+    #[test]
+    fn test_scan_cancellation_flag() {
+        reset_scan_cancel();
+        assert!(!is_scan_cancelled());
+        cancel_scan();
+        assert!(is_scan_cancelled());
+        reset_scan_cancel();
+        assert!(!is_scan_cancelled());
+    }
+
+    #[test]
+    fn test_strict_kernel_mode_rejects_unsupported_operator() {
+        let prev = get_scan_engine_mode();
+        set_scan_engine_mode(ScanEngineMode::Kernel as u8);
+        let res = scan_regions(1234, &[], "100", &[ValueType::Int], ScanOperator::Unknown);
+        set_scan_engine_mode(prev);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Strict Kernel scan mode"));
     }
 }

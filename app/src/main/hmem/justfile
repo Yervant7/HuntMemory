@@ -12,3 +12,6 @@ clean-build-android:
 
 lint:
     cargo clippy --target aarch64-linux-android -- -D warnings
+
+test-host:
+    cargo test --target "$(rustc -vV | sed -n 's/^host: //p')" --all-targets

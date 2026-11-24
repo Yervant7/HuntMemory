@@ -22,7 +22,6 @@ package com.yervant.huntmem.ui.overlay.tabs
 
 import android.content.Context
 import android.content.res.Configuration
-import androidx.annotation.Keep
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,12 +44,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
+import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -67,11 +78,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material3.PrimaryScrollableTabRow
@@ -84,9 +90,9 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -106,6 +112,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yervant.huntmem.R
 import com.yervant.huntmem.backend.AttachedProcessRepository
+import com.yervant.huntmem.backend.MemoryEngine
 import com.yervant.huntmem.backend.MemoryScanManager
 import com.yervant.huntmem.backend.NativeBridge
 import com.yervant.huntmem.backend.ShellProcessProvider
@@ -116,8 +123,11 @@ import com.yervant.huntmem.ui.keyboard.VirtualTextField
 import com.yervant.huntmem.ui.theme.ComponentStyles
 import com.yervant.huntmem.ui.theme.MonospaceAddressStyle
 import com.yervant.huntmem.ui.theme.MonospaceValueStyle
+import com.yervant.huntmem.ui.theme.SuccessEmerald
+import com.yervant.huntmem.ui.theme.TertiaryAmber
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -126,10 +136,20 @@ import java.util.UUID
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
+ * Snapshot of UI control values saved alongside a native session history checkpoint.
+ */
+data class UiHistoryEntry(
+    val inputVal: String,
+    val operatorIdx: Int,
+    val step: Int,
+    val isSaved: Boolean
+)
+
+/**
  * State container for an independent memory scan tab session.
  *
  * @property id Unique UUID identifying this session in native core memory caches.
- * @property title Tab display title.
+ * @property title Reactive tab display title.
  * @property matches Thread-safe list of active memory scan matches.
  * @property scanInputVal Reactive text input state for search expressions.
  * @property valueTypeSelectedOptionIdx Dropdown selection index for primary value type.
@@ -142,7 +162,7 @@ import kotlin.time.Duration.Companion.milliseconds
  */
 data class TabState(
     val id: UUID = UUID.randomUUID(),
-    var title: String,
+    val title: MutableState<String>,
     val matches: MutableList<MatchInfo> = mutableListOf(),
     val scanInputVal: MutableState<String> = mutableStateOf(""),
     val valueTypeSelectedOptionIdx: MutableState<Int> = mutableIntStateOf(0),
@@ -151,65 +171,169 @@ data class TabState(
     val initialScanDone: MutableState<Boolean> = mutableStateOf(false),
     val matchesStatusText: MutableState<String> = mutableStateOf(""),
     val totalMatchesCount: MutableState<Int> = mutableIntStateOf(0),
-    val currentMatchesList: MutableState<List<MatchInfo>> = mutableStateOf(emptyList())
+    val currentMatchesList: MutableState<List<MatchInfo>> = mutableStateOf(emptyList()),
+    val undoCount: MutableState<Int> = mutableIntStateOf(0),
+    val isCurrentSaved: MutableState<Boolean> = mutableStateOf(false),
+    val savedCheckpointsCount: MutableState<Int> = mutableIntStateOf(0),
+    val refinementStep: MutableState<Int> = mutableIntStateOf(0),
+    val uiHistoryStack: MutableList<UiHistoryEntry> = mutableListOf(),
+    val isSelectionMode: MutableState<Boolean> = mutableStateOf(false),
+    val selectedAddresses: MutableState<Set<Long>> = mutableStateOf(emptySet())
 )
 
-private val tabs = mutableStateListOf<TabState>()
-private val selectedTabIndex = mutableIntStateOf(0)
+/**
+ * Reactive state holder for memory scan tabs and ongoing scan status scoped to the active overlay session.
+ */
+object MemoryScanRepository {
+    val tabs = mutableStateListOf<TabState>()
+    val selectedTabIndex = mutableIntStateOf(0)
+    val isScanOnGoing: MutableState<Boolean> = mutableStateOf(false)
+    val isRefreshOnGoing: MutableState<Boolean> = mutableStateOf(false)
 
-private fun addTab(context: Context) {
+    fun onOverlayDestroyed(scope: CoroutineScope) {
+        MemoryEngine.cancelScan()
+        val sessionIds = tabs.map { it.id.toString() }
+        tabs.clear()
+        selectedTabIndex.intValue = 0
+        isScanOnGoing.value = false
+        isRefreshOnGoing.value = false
+        if (sessionIds.isNotEmpty()) {
+            scope.launch(Dispatchers.IO + NonCancellable) {
+                for (sid in sessionIds) {
+                    runCatching { NativeBridge.clearSession(sid) }
+                }
+            }
+        }
+    }
+}
+
+private val tabs get() = MemoryScanRepository.tabs
+private val selectedTabIndex get() = MemoryScanRepository.selectedTabIndex
+
+private fun addTab(
+    context: Context,
+    customTitle: String? = null,
+    selectedTypes: Set<String> = setOf("int"),
+    valueTypeIdx: Int = 0,
+    scanInput: String = ""
+): TabState {
     val newTabIndex = tabs.size
     val newTab = TabState(
-        title = context.getString(R.string.memory_menu_default_tab_title, newTabIndex + 1),
+        title = mutableStateOf(
+            customTitle ?: context.getString(R.string.memory_menu_default_tab_title, newTabIndex + 1)
+        ),
+        scanInputVal = mutableStateOf(scanInput),
+        valueTypeSelectedOptionIdx = mutableIntStateOf(valueTypeIdx),
+        selectedTypes = mutableStateOf(selectedTypes),
         matchesStatusText = mutableStateOf(context.getString(R.string.memory_menu_status_no_matches))
     )
     tabs.add(newTab)
     selectedTabIndex.intValue = newTabIndex
+    return newTab
 }
 
 private fun ensureInitialTab(context: Context) {
+    ensureSettingsLoaded(context)
     if (tabs.isEmpty()) {
         addTab(context)
     }
 }
 
-private val isScanOnGoing: MutableState<Boolean> = mutableStateOf(false)
-private val isRefreshOnGoing: MutableState<Boolean> = mutableStateOf(false)
+private val isScanOnGoing: MutableState<Boolean> get() = MemoryScanRepository.isScanOnGoing
+private val isRefreshOnGoing: MutableState<Boolean> get() = MemoryScanRepository.isRefreshOnGoing
 
 private val initialOperatorOptions = listOf("=", "!=", ">", "<", ">=", "<=", "? Unknown")
 private val refineOperatorOptions = listOf("=", "!=", ">", "<", ">=", "<=", "▲ Increased", "▼ Decreased", "~ Changed", "= Unchanged", "+ Increased by", "- Decreased by")
 private val valueTypes: List<String> = listOf("byte", "short", "float16", "int", "long", "float", "double", "bigdouble", "obscured_int", "obscured_float")
 
+typealias MatchInfo = com.yervant.huntmem.backend.MatchInfo
+
+private sealed class CopyToTabRequest {
+    abstract val sourceTab: TabState
+
+    data class CloneAll(override val sourceTab: TabState) : CopyToTabRequest()
+    data class CopyItems(override val sourceTab: TabState, val addresses: List<Long>) : CopyToTabRequest()
+}
+
 /**
- * Data structure representing an individual memory scan match.
- *
- * @property id Unique identifier string for Compose LazyColumn keys.
- * @property pid Target process PID.
- * @property address Virtual memory address.
- * @property prevValue Last observed value formatted as string or numeric.
- * @property valueType Value type name (e.g. "int", "float", "byte").
- * @property size Size in bytes of the value type.
- * @property memoryRegion Memory map path or anonymous region name.
- * @property regionType Region code tag (e.g. "A", "CA", "JH").
- * @property regionStart Starting address of containing virtual memory region.
- * @property regionEnd Ending address of containing virtual memory region.
- * @property permissions Region protection string (e.g. "rw-p", "r-xp").
+ * Shared guided banner shown when no target process is currently attached.
  */
-@Keep
-@Immutable
-data class MatchInfo(
-    val id: String,
-    val pid: Int,
-    val address: Long,
-    val prevValue: Any,
-    val valueType: String,
-    val size: Int,
-    val memoryRegion: String = "",
-    val regionType: String = "",
-    val regionStart: Long = 0,
-    val regionEnd: Long = 0,
-    val permissions: String = "",
-)
+@Composable
+internal fun NoProcessAttachedBanner(
+    onSelectProcessClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = TertiaryAmber.copy(alpha = 0.14f)
+        ),
+        border = BorderStroke(1.dp, TertiaryAmber.copy(alpha = 0.5f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = TertiaryAmber,
+                modifier = Modifier.size(18.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.no_process_banner_title),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = TertiaryAmber,
+                    fontSize = 10.5.sp
+                )
+                Text(
+                    text = stringResource(R.string.no_process_banner_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 9.5.sp,
+                    lineHeight = 12.sp
+                )
+            }
+            Button(
+                onClick = onSelectProcessClick,
+                shape = RoundedCornerShape(6.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = TertiaryAmber,
+                    contentColor = Color.Black
+                )
+            ) {
+                Text(
+                    text = stringResource(R.string.no_process_banner_action),
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+private suspend fun syncTabHistoryState(tabState: TabState) {
+    val sessionId = tabState.id.toString()
+    val (undoCnt, savedNow) = withContext(Dispatchers.IO) {
+        Pair(
+            MemoryEngine.getSessionUndoCount(sessionId),
+            MemoryEngine.isSessionSaved(sessionId)
+        )
+    }
+    tabState.undoCount.value = undoCnt
+    tabState.isCurrentSaved.value = savedNow
+    tabState.savedCheckpointsCount.value =
+        tabState.uiHistoryStack.count { it.isSaved } + (if (savedNow) 1 else 0)
+}
 
 /**
  * Resolves current scan parameters (input, selected types, operator) for the active tab.
@@ -248,7 +372,8 @@ fun getCurrentScanOption(): ScanOptions {
 fun MemoryScanTab(
     context: Context,
     dialogCallback: DialogCallback,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onNavigateToProcesses: () -> Unit = {}
 ) {
     ensureInitialTab(context)
 
@@ -257,7 +382,7 @@ fun MemoryScanTab(
         LaunchedEffect(currentTab.id, currentTab.currentMatchesList.value.isNotEmpty()) {
             while (isActive) {
                 val matchCount = synchronized(currentTab.matches) { currentTab.matches.size }
-                if (matchCount in 1..99) {
+                if (matchCount in 1..200) {
                     refreshValues(context, dialogCallback, currentTab, userInitiated = false)
                 }
                 delay(1500L.milliseconds)
@@ -278,6 +403,7 @@ fun MemoryScanTab(
             coroutineScope = coroutineScope,
             context = context,
             dialogCallback = dialogCallback,
+            onNavigateToProcesses = onNavigateToProcesses,
             modifier = Modifier.padding(padding)
         )
     }
@@ -307,7 +433,10 @@ suspend fun refreshValues(
         return
     }
 
-    if (!ShellProcessProvider().isProcessRunning(pid.toString())) {
+    val isRunning = withContext(Dispatchers.IO) {
+        ShellProcessProvider().isProcessRunning(pid.toString())
+    }
+    if (!isRunning) {
         if (userInitiated) {
             dialogCallback.showInfoDialog(err, context.getString(R.string.memory_menu_process_not_exist_error), {}, {})
         }
@@ -327,9 +456,8 @@ suspend fun refreshValues(
                 context.getString(R.string.memory_menu_info_dialog_title),
                 context.getString(R.string.memory_menu_process_changed_info), {}, {}
             )
-            tabState.matches.clear()
-            tabState.currentMatchesList.value = emptyList()
-            tabState.matchesStatusText.value = context.getString(R.string.memory_menu_status_no_matches)
+            resetMatches(context, tabState)
+            tabState.initialScanDone.value = false
             return
         }
         snapshot = tabState.matches.toList()
@@ -341,13 +469,14 @@ suspend fun refreshValues(
     try {
         val updatedMatches = withContext(Dispatchers.IO) {
             val mem = MemoryScanManager()
-            mem.updateMatchValues(tabState.id.toString())
+            mem.updateMatchValues(tabState.id.toString(), limit = snapshot.size.coerceAtLeast(100))
         }
 
         if (updatedMatches.isNotEmpty()) {
+            val merged = mergePreviousValues(snapshot, updatedMatches)
             synchronized(tabState.matches) {
                 tabState.matches.clear()
-                tabState.matches.addAll(updatedMatches)
+                tabState.matches.addAll(merged)
             }
             updateMatches(context, tabState)
         }
@@ -365,13 +494,17 @@ fun MemoryMenu(
     coroutineScope: CoroutineScope,
     context: Context,
     dialogCallback: DialogCallback,
+    onNavigateToProcesses: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val isAttached: Boolean = (AttachedProcessRepository.getAttachedPid() != null)
+    val attachedPid by AttachedProcessRepository.attachedProcessPid.collectAsState()
+    val isAttached = attachedPid != null
     val showErrorDialog = remember { mutableStateOf(false) }
     val errorDialogMsg = remember { mutableStateOf("") }
     val showValueTypeDialog = remember { mutableStateOf(false) }
     val showSyntaxHelpDialog = remember { mutableStateOf(false) }
+    var copyToTabRequest by remember { mutableStateOf<CopyToTabRequest?>(null) }
+    var isLoadingMore by remember { mutableStateOf(false) }
 
     LaunchedEffect(showErrorDialog.value) {
         if (showErrorDialog.value) {
@@ -386,9 +519,16 @@ fun MemoryMenu(
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
+            if (!isAttached) {
+                NoProcessAttachedBanner(
+                    onSelectProcessClick = onNavigateToProcesses,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                )
+            }
+
             // Tab Selector Bar
             PrimaryScrollableTabRow(
-                selectedTabIndex = selectedTabIndex.intValue,
+                selectedTabIndex = selectedTabIndex.intValue.coerceIn(0, (tabs.size - 1).coerceAtLeast(0)),
                 edgePadding = 4.dp,
                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                 contentColor = MaterialTheme.colorScheme.primary,
@@ -396,6 +536,11 @@ fun MemoryMenu(
             ) {
                 tabs.forEachIndexed { index, tab ->
                     val isSelected = selectedTabIndex.intValue == index
+                    val tabLabel = if (tab.initialScanDone.value) {
+                        "${tab.title.value} (${tab.totalMatchesCount.value})"
+                    } else {
+                        tab.title.value
+                    }
                     Tab(
                         selected = isSelected,
                         onClick = { selectedTabIndex.intValue = index },
@@ -405,7 +550,7 @@ fun MemoryMenu(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = tab.title,
+                                    text = tabLabel,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
@@ -415,10 +560,15 @@ fun MemoryMenu(
                                     IconButton(
                                         onClick = {
                                             val tabToRemove = tabs[index]
+                                            val sessionIdToClear = tabToRemove.id.toString()
                                             tabs.remove(tabToRemove)
-                                            NativeBridge.clearSession(tabToRemove.id.toString())
-                                            if (selectedTabIndex.intValue >= index && selectedTabIndex.intValue > 0) {
+                                            if (selectedTabIndex.intValue >= tabs.size && selectedTabIndex.intValue > 0) {
+                                                selectedTabIndex.intValue = tabs.size - 1
+                                            } else if (selectedTabIndex.intValue > index) {
                                                 selectedTabIndex.intValue--
+                                            }
+                                            coroutineScope.launch(Dispatchers.IO) {
+                                                NativeBridge.clearSession(sessionIdToClear)
                                             }
                                         },
                                         modifier = Modifier.size(18.dp)
@@ -465,7 +615,13 @@ fun MemoryMenu(
                     MatchesTable(
                         modifier = matchesTableModifier,
                         matches = currentTab.currentMatchesList.value,
+                        totalMatchesCount = currentTab.totalMatchesCount.value,
                         matchesStatusText = currentTab.matchesStatusText.value,
+                        refinementStep = currentTab.refinementStep.value,
+                        savedCheckpointsCount = currentTab.savedCheckpointsCount.value,
+                        isSelectionMode = currentTab.isSelectionMode.value,
+                        selectedAddresses = currentTab.selectedAddresses.value,
+                        isLoadingMore = isLoadingMore,
                         onMatchClicked = { matchInfo: MatchInfo ->
                             addAddressToTable(matchInfo = matchInfo)
                             coroutineScope.launch {
@@ -474,17 +630,99 @@ fun MemoryMenu(
                             }
                         },
                         onCopyAllMatchesToAddressTable = {
-                            for (matchInfo in currentTab.currentMatchesList.value)
+                            for (matchInfo in currentTab.currentMatchesList.value) {
                                 addAddressToTable(matchInfo = matchInfo)
+                            }
                             coroutineScope.launch {
                                 val amat = context.getString(R.string.memory_menu_added_all_to_address_table_snackbar)
                                 snackbarHostState.showSnackbar(message = amat, duration = SnackbarDuration.Short)
                             }
+                        },
+                        onToggleSelectionMode = {
+                            val next = !currentTab.isSelectionMode.value
+                            currentTab.isSelectionMode.value = next
+                            if (!next) {
+                                currentTab.selectedAddresses.value = emptySet()
+                            }
+                        },
+                        onToggleItemSelection = { match ->
+                            val current = currentTab.selectedAddresses.value.toMutableSet()
+                            if (!current.add(match.address)) {
+                                current.remove(match.address)
+                            }
+                            currentTab.selectedAddresses.value = current
+                        },
+                        onSelectAllVisible = {
+                            val visibleAddrs = currentTab.currentMatchesList.value.map { it.address }.toSet()
+                            currentTab.selectedAddresses.value =
+                                if (currentTab.selectedAddresses.value.containsAll(visibleAddrs) && visibleAddrs.isNotEmpty()) {
+                                    emptySet()
+                                } else {
+                                    visibleAddrs
+                                }
+                        },
+                        onSendSelectedToEditor = {
+                            val selectedSet = currentTab.selectedAddresses.value
+                            val toSend = currentTab.currentMatchesList.value.filter { it.address in selectedSet }
+                            if (toSend.isNotEmpty()) {
+                                toSend.forEach { addAddressToTable(it) }
+                                currentTab.isSelectionMode.value = false
+                                currentTab.selectedAddresses.value = emptySet()
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        message = context.getString(
+                                            R.string.memory_menu_added_selected_to_address_table_snackbar,
+                                            toSend.size
+                                        ),
+                                        duration = SnackbarDuration.Short
+                                    )
+                                }
+                            }
+                        },
+                        onCopyMatchToTab = { match ->
+                            copyToTabRequest = CopyToTabRequest.CopyItems(currentTab, listOf(match.address))
+                        },
+                        onCopyToTabClicked = {
+                            val selected = currentTab.selectedAddresses.value
+                            copyToTabRequest = if (currentTab.isSelectionMode.value && selected.isNotEmpty()) {
+                                CopyToTabRequest.CopyItems(currentTab, selected.toList())
+                            } else {
+                                CopyToTabRequest.CloneAll(currentTab)
+                            }
+                        },
+                        onLoadMore = {
+                            val pid = attachedPid
+                            if (pid != null && !isLoadingMore) {
+                                isLoadingMore = true
+                                coroutineScope.launch {
+                                    try {
+                                        val offset = synchronized(currentTab.matches) { currentTab.matches.size }
+                                        val (total, pageMatches) = MemoryEngine.refreshResultsPage(
+                                            pid = pid,
+                                            sessionId = currentTab.id.toString(),
+                                            offset = offset,
+                                            limit = 100
+                                        )
+                                        if (pageMatches.isNotEmpty()) {
+                                            synchronized(currentTab.matches) {
+                                                val existingIds = currentTab.matches.map { it.id }.toHashSet()
+                                                for (m in pageMatches) {
+                                                    if (existingIds.add(m.id)) {
+                                                        currentTab.matches.add(m)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        currentTab.totalMatchesCount.value = total
+                                        updateMatches(context, currentTab)
+                                    } finally {
+                                        isLoadingMore = false
+                                    }
+                                }
+                            }
                         }
                     )
                     MatchesSetting(
-                        context = context,
-                        coroutineScope = coroutineScope,
                         modifier = matchesSettingModifier,
                         scanInputVal = currentTab.scanInputVal,
                         selectedTypes = currentTab.selectedTypes,
@@ -492,25 +730,34 @@ fun MemoryMenu(
                         onOpenSyntaxHelp = { showSyntaxHelpDialog.value = true },
                         operatorSelectedOptionIdx = currentTab.operatorSelectedOptionIdx,
                         initialScanDone = currentTab.initialScanDone.value,
+                        totalMatchesCount = currentTab.totalMatchesCount.value,
+                        undoCount = currentTab.undoCount.value,
+                        isCurrentSaved = currentTab.isCurrentSaved.value,
                         nextScanEnabled = isAttached && !isScanOnGoing.value && !isRefreshOnGoing.value,
                         nextScanClicked = {
                             coroutineScope.launch {
-                                if (!currentTab.initialScanDone.value) {
-                                    currentTab.title = currentTab.scanInputVal.value.ifBlank {
-                                        "? (Unknown)"
-                                    }
-                                }
+                                val wasInitial = !currentTab.initialScanDone.value
                                 onNextScanClicked(
                                     scanOptions = getCurrentScanOption(),
                                     onBeforeScanStart = { isScanOnGoing.value = true },
                                     onScanDone = {
                                         isScanOnGoing.value = false
+                                        if (wasInitial) {
+                                            currentTab.title.value = currentTab.scanInputVal.value.ifBlank {
+                                                "? (Unknown)"
+                                            }
+                                        }
                                         currentTab.initialScanDone.value = true
                                         updateMatches(context, currentTab)
                                     },
                                     onScanError = { e: Exception ->
                                         isScanOnGoing.value = false
-                                        errorDialogMsg.value = e.stackTraceToString()
+                                        errorDialogMsg.value = formatFriendlyScanError(
+                                            context = context,
+                                            error = e,
+                                            input = currentTab.scanInputVal.value,
+                                            valueType = getCurrentScanOption().valueType
+                                        )
                                         showErrorDialog.value = true
                                     },
                                     tabState = currentTab
@@ -519,14 +766,105 @@ fun MemoryMenu(
                         },
                         newScanEnabled = isAttached && currentTab.initialScanDone.value && !isScanOnGoing.value,
                         newScanClicked = {
-                            coroutineScope.launch {
-                                NativeBridge.clearSession(currentTab.id.toString())
-                                resetMatches(context, currentTab)
-                                updateMatches(context, currentTab)
-                                currentTab.initialScanDone.value = false
-                                currentTab.operatorSelectedOptionIdx.value = 0
+                            val sessionIdToClear = currentTab.id.toString()
+                            resetMatches(context, currentTab)
+                            updateMatches(context, currentTab)
+                            currentTab.initialScanDone.value = false
+                            currentTab.operatorSelectedOptionIdx.value = 0
+                            coroutineScope.launch(Dispatchers.IO) {
+                                NativeBridge.clearSession(sessionIdToClear)
                             }
                         },
+                        gotoClicked = {
+                            val inputValue = currentTab.scanInputVal.value.trim()
+                            coroutineScope.launch {
+                                val pid = attachedPid
+                                if (pid == null) {
+                                    errorDialogMsg.value = context.getString(R.string.memory_menu_friendly_error_no_process)
+                                    showErrorDialog.value = true
+                                    return@launch
+                                }
+                                val primaryType = getCurrentScanOption().valueType
+                                    .split(",", "|", ";")
+                                    .firstOrNull { it.isNotBlank() && it != "all" } ?: "int"
+                                val result = withContext(Dispatchers.IO) {
+                                    MemoryScanManager().createMatchFromOffset(inputValue, primaryType, pid)
+                                }
+                                if (result != null) {
+                                    synchronized(currentTab.matches) {
+                                        currentTab.matches.clear()
+                                        currentTab.matches.add(result)
+                                    }
+                                    currentTab.totalMatchesCount.value = 1
+                                    currentTab.refinementStep.value = 1
+                                    currentTab.initialScanDone.value = true
+                                    currentTab.title.value = inputValue
+                                    updateMatches(context, currentTab)
+                                } else {
+                                    errorDialogMsg.value = context.getString(
+                                        R.string.memory_menu_friendly_error_goto_failed,
+                                        inputValue
+                                    )
+                                    showErrorDialog.value = true
+                                }
+                            }
+                        },
+                        onSaveCheckpointClicked = {
+                            coroutineScope.launch {
+                                val saved = MemoryEngine.saveSessionCheckpoint(currentTab.id.toString())
+                                if (saved) {
+                                    currentTab.isCurrentSaved.value = true
+                                    currentTab.savedCheckpointsCount.value =
+                                        currentTab.uiHistoryStack.count { it.isSaved } + 1
+                                    snackbarHostState.showSnackbar(
+                                        message = context.getString(R.string.memory_menu_checkpoint_saved_snackbar),
+                                        duration = SnackbarDuration.Short
+                                    )
+                                }
+                            }
+                        },
+                        onUndoClicked = {
+                            val pid = attachedPid ?: return@MatchesSetting
+                            coroutineScope.launch {
+                                val result = MemoryEngine.undoSessionFast(
+                                    pid = pid,
+                                    sessionId = currentTab.id.toString(),
+                                    limit = 100
+                                )
+                                result.onSuccess { (count, restoredMatches) ->
+                                    synchronized(currentTab.matches) {
+                                        currentTab.matches.clear()
+                                        currentTab.matches.addAll(restoredMatches)
+                                    }
+                                    currentTab.totalMatchesCount.value = count
+                                    currentTab.isSelectionMode.value = false
+                                    currentTab.selectedAddresses.value = emptySet()
+
+                                    val poppedUi = currentTab.uiHistoryStack.removeLastOrNull()
+                                    if (poppedUi != null) {
+                                        currentTab.scanInputVal.value = poppedUi.inputVal
+                                        currentTab.operatorSelectedOptionIdx.value = poppedUi.operatorIdx
+                                        currentTab.refinementStep.value = poppedUi.step
+                                    } else if (currentTab.refinementStep.value > 1) {
+                                        currentTab.refinementStep.value--
+                                    }
+                                    syncTabHistoryState(currentTab)
+                                    updateMatches(context, currentTab)
+                                    snackbarHostState.showSnackbar(
+                                        message = context.getString(R.string.memory_menu_undo_restored_snackbar, count),
+                                        duration = SnackbarDuration.Short
+                                    )
+                                }.onFailure { err ->
+                                    errorDialogMsg.value = formatFriendlyScanError(
+                                        context = context,
+                                        error = err,
+                                        input = currentTab.scanInputVal.value,
+                                        valueType = getCurrentScanOption().valueType
+                                    )
+                                    showErrorDialog.value = true
+                                }
+                            }
+                        }
                     )
                 }
 
@@ -537,8 +875,8 @@ fun MemoryMenu(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     content(
-                        Modifier.weight(0.68f).padding(horizontal = 6.dp, vertical = 2.dp),
-                        Modifier.weight(0.32f).padding(horizontal = 6.dp, vertical = 2.dp),
+                        Modifier.weight(0.66f).padding(horizontal = 6.dp, vertical = 2.dp),
+                        Modifier.weight(0.34f).padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }
             } else {
@@ -574,7 +912,145 @@ fun MemoryMenu(
                 onDismiss = { showSyntaxHelpDialog.value = false }
             )
         }
+
+        copyToTabRequest?.let { req ->
+            val pid = attachedPid
+            val existingTabs = tabs.filter { it.id != req.sourceTab.id }
+            CopyToSearchTabDialog(
+                request = req,
+                existingTabs = existingTabs,
+                onSelectNewTab = {
+                    val src = req.sourceTab
+                    val suffixTitle = if (req is CopyToTabRequest.CloneAll) {
+                        "${src.title.value} (2)"
+                    } else {
+                        null
+                    }
+                    val newTab = addTab(
+                        context = context,
+                        customTitle = suffixTitle,
+                        selectedTypes = src.selectedTypes.value,
+                        valueTypeIdx = src.valueTypeSelectedOptionIdx.value,
+                        scanInput = if (req is CopyToTabRequest.CloneAll) src.scanInputVal.value else ""
+                    )
+                    copyToTabRequest = null
+                    coroutineScope.launch {
+                        executeCopyToTab(
+                            context = context,
+                            pid = pid,
+                            request = req,
+                            targetTab = newTab,
+                            snackbarHostState = snackbarHostState
+                        )
+                    }
+                },
+                onSelectExistingTab = { targetTab ->
+                    copyToTabRequest = null
+                    val targetIdx = tabs.indexOf(targetTab)
+                    if (targetIdx != -1) {
+                        selectedTabIndex.intValue = targetIdx
+                    }
+                    coroutineScope.launch {
+                        executeCopyToTab(
+                            context = context,
+                            pid = pid,
+                            request = req,
+                            targetTab = targetTab,
+                            snackbarHostState = snackbarHostState
+                        )
+                    }
+                },
+                onDismiss = { copyToTabRequest = null }
+            )
+        }
     }
+}
+
+private suspend fun executeCopyToTab(
+    context: Context,
+    pid: Int?,
+    request: CopyToTabRequest,
+    targetTab: TabState,
+    snackbarHostState: SnackbarHostState
+) {
+    val srcTab = request.sourceTab
+    val effectivePid = pid ?: AttachedProcessRepository.getAttachedPid()
+    if (effectivePid == null) {
+        snackbarHostState.showSnackbar(
+            message = context.getString(R.string.memory_menu_no_process_attached_error),
+            duration = SnackbarDuration.Short
+        )
+        return
+    }
+
+    val nativeResult = when (request) {
+        is CopyToTabRequest.CloneAll ->
+            MemoryEngine.cloneSessionFast(
+                pid = effectivePid,
+                sourceSessionId = srcTab.id.toString(),
+                targetSessionId = targetTab.id.toString(),
+                limit = 100
+            )
+        is CopyToTabRequest.CopyItems ->
+            MemoryEngine.copyMatchesToSessionFast(
+                pid = effectivePid,
+                sourceSessionId = srcTab.id.toString(),
+                targetSessionId = targetTab.id.toString(),
+                addresses = request.addresses.toLongArray(),
+                limit = 100
+            )
+    }
+
+    nativeResult.onSuccess { (count, copiedMatches) ->
+        synchronized(targetTab.matches) {
+            targetTab.matches.clear()
+            targetTab.matches.addAll(copiedMatches)
+        }
+        targetTab.totalMatchesCount.value = count
+        targetTab.initialScanDone.value = true
+        if (request is CopyToTabRequest.CloneAll) {
+            targetTab.refinementStep.value = srcTab.refinementStep.value.coerceAtLeast(1)
+            targetTab.uiHistoryStack.clear()
+        } else if (targetTab.refinementStep.value == 0) {
+            targetTab.refinementStep.value = 1
+        }
+        targetTab.selectedTypes.value = srcTab.selectedTypes.value
+        syncTabHistoryState(targetTab)
+        updateMatches(context, targetTab)
+    }.onFailure {
+        // Fallback when source tab only contains local direct-address matches without a native session
+        val fallbackItems = synchronized(srcTab.matches) {
+            when (request) {
+                is CopyToTabRequest.CloneAll -> srcTab.matches.toList()
+                is CopyToTabRequest.CopyItems -> {
+                    val addrSet = request.addresses.toHashSet()
+                    srcTab.matches.filter { it.address in addrSet }
+                }
+            }
+        }
+        synchronized(targetTab.matches) {
+            val existingKeys = targetTab.matches.map { it.address to it.valueType }.toHashSet()
+            for (item in fallbackItems) {
+                if (existingKeys.add(item.address to item.valueType)) {
+                    targetTab.matches.add(item.copy(id = "${targetTab.id}-${item.address}"))
+                }
+            }
+            targetTab.totalMatchesCount.value = targetTab.matches.size
+        }
+        targetTab.initialScanDone.value = targetTab.totalMatchesCount.value > 0
+        if (targetTab.refinementStep.value == 0 && targetTab.initialScanDone.value) {
+            targetTab.refinementStep.value = 1
+        }
+        updateMatches(context, targetTab)
+    }
+
+    srcTab.isSelectionMode.value = false
+    srcTab.selectedAddresses.value = emptySet()
+
+    snackbarHostState.showSnackbar(
+        message = context.getString(R.string.memory_menu_copied_to_tab_snackbar, targetTab.title.value),
+        duration = SnackbarDuration.Short
+    )
 }
 
 /**
@@ -587,6 +1063,13 @@ fun resetMatches(context: Context, tabState: TabState) {
     tabState.totalMatchesCount.value = 0
     tabState.currentMatchesList.value = emptyList()
     tabState.matchesStatusText.value = context.getString(R.string.memory_menu_status_no_matches)
+    tabState.undoCount.value = 0
+    tabState.isCurrentSaved.value = false
+    tabState.savedCheckpointsCount.value = 0
+    tabState.refinementStep.value = 0
+    tabState.uiHistoryStack.clear()
+    tabState.isSelectionMode.value = false
+    tabState.selectedAddresses.value = emptySet()
 }
 
 /**
@@ -620,9 +1103,22 @@ fun updateMatches(context: Context, tabState: TabState) {
 private fun MatchesTable(
     modifier: Modifier = Modifier,
     matches: List<MatchInfo>,
+    totalMatchesCount: Int,
     matchesStatusText: String,
+    refinementStep: Int,
+    savedCheckpointsCount: Int,
+    isSelectionMode: Boolean,
+    selectedAddresses: Set<Long>,
+    isLoadingMore: Boolean,
     onMatchClicked: (MatchInfo) -> Unit,
-    onCopyAllMatchesToAddressTable: () -> Unit
+    onCopyAllMatchesToAddressTable: () -> Unit,
+    onToggleSelectionMode: () -> Unit,
+    onToggleItemSelection: (MatchInfo) -> Unit,
+    onSelectAllVisible: () -> Unit,
+    onSendSelectedToEditor: () -> Unit,
+    onCopyMatchToTab: (MatchInfo) -> Unit,
+    onCopyToTabClicked: () -> Unit,
+    onLoadMore: () -> Unit
 ) {
     Card(
         modifier = modifier,
@@ -639,29 +1135,189 @@ private fun MatchesTable(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)
             ) {
-                Text(
-                    text = matchesStatusText,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = matchesStatusText,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (refinementStep > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(3.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.memory_menu_step_badge, refinementStep),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 8.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                    if (savedCheckpointsCount > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(3.dp),
+                            color = SuccessEmerald.copy(alpha = 0.16f)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.memory_menu_checkpoints_badge, savedCheckpointsCount),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SuccessEmerald,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
                 if (matches.isNotEmpty()) {
-                    Button(
-                        onClick = onCopyAllMatchesToAddressTable,
-                        modifier = Modifier.height(26.dp),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        shape = RoundedCornerShape(4.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(12.dp))
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(stringResource(R.string.memory_menu_copy_all_button), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        OutlinedButton(
+                            onClick = onToggleSelectionMode,
+                            modifier = Modifier.height(26.dp),
+                            contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp),
+                            shape = RoundedCornerShape(4.dp),
+                            border = BorderStroke(
+                                0.5.dp,
+                                if (isSelectionMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                            )
+                        ) {
+                            Icon(
+                                imageVector = if (isSelectionMode) Icons.Default.Check else Icons.Default.Checklist,
+                                contentDescription = null,
+                                modifier = Modifier.size(11.dp),
+                                tint = if (isSelectionMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(
+                                text = stringResource(
+                                    if (isSelectionMode) R.string.memory_menu_select_mode_cancel
+                                    else R.string.memory_menu_select_mode_button
+                                ),
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isSelectionMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (!isSelectionMode) {
+                            Button(
+                                onClick = onCopyToTabClicked,
+                                modifier = Modifier.height(26.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                shape = RoundedCornerShape(4.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            ) {
+                                Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(11.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(stringResource(R.string.memory_menu_copy_to_tab_button), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = onCopyAllMatchesToAddressTable,
+                                modifier = Modifier.height(26.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                shape = RoundedCornerShape(4.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            ) {
+                                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(11.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(stringResource(R.string.memory_menu_copy_all_button), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }
+
+            if (isSelectionMode && matches.isNotEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(5.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = onSelectAllVisible,
+                                modifier = Modifier.height(24.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.SelectAll, contentDescription = null, modifier = Modifier.size(11.dp))
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(stringResource(R.string.memory_menu_select_all_visible), fontSize = 9.sp)
+                            }
+                            Text(
+                                text = stringResource(R.string.memory_menu_selected_count_label, selectedAddresses.size),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 9.5.sp
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Button(
+                                onClick = onCopyToTabClicked,
+                                enabled = selectedAddresses.isNotEmpty(),
+                                modifier = Modifier.height(24.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                shape = RoundedCornerShape(4.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            ) {
+                                Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(11.dp))
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(stringResource(R.string.memory_menu_copy_to_tab_button), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = onSendSelectedToEditor,
+                                enabled = selectedAddresses.isNotEmpty(),
+                                modifier = Modifier.height(24.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                shape = RoundedCornerShape(4.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                )
+                            ) {
+                                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(11.dp))
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(stringResource(R.string.memory_menu_send_selected_to_editor), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
             HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
 
             if (matches.isEmpty()) {
@@ -683,7 +1339,52 @@ private fun MatchesTable(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     items(items = matches, key = { match -> match.id }) { match ->
-                        MatchItem(match, onMatchClicked)
+                        MatchItem(
+                            match = match,
+                            isSelectionMode = isSelectionMode,
+                            isSelected = match.address in selectedAddresses,
+                            onClick = {
+                                if (isSelectionMode) {
+                                    onToggleItemSelection(match)
+                                } else {
+                                    onMatchClicked(match)
+                                }
+                            },
+                            onCopyToTab = { onCopyMatchToTab(match) }
+                        )
+                    }
+                    if (matches.size < totalMatchesCount) {
+                        item(key = "load_more_footer") {
+                            val nextBatch = (totalMatchesCount - matches.size).coerceAtMost(100)
+                            OutlinedButton(
+                                onClick = onLoadMore,
+                                enabled = !isLoadingMore,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp)
+                                    .height(32.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                if (isLoadingMore) {
+                                    CircularProgressIndicator(
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                } else {
+                                    Text(
+                                        text = stringResource(
+                                            R.string.memory_menu_load_more_button,
+                                            nextBatch,
+                                            matches.size,
+                                            totalMatchesCount
+                                        ),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -692,20 +1393,38 @@ private fun MatchesTable(
 }
 
 /**
- * Individual match card row displaying address, region tag, value, and type badge.
+ * Individual match card row displaying address, region tag, value, live delta badge, and copy action.
  */
 @Composable
 private fun MatchItem(
     match: MatchInfo,
-    onClick: (MatchInfo) -> Unit = {}
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onClick: (MatchInfo) -> Unit = {},
+    onCopyToTab: (MatchInfo) -> Unit = {}
 ) {
     val displayedRegion = match.memoryRegion.substringAfterLast('/', match.memoryRegion)
+    val prevVal = match.previousValue
+    val hasDelta = prevVal != null && prevVal.toString() != match.prevValue.toString()
 
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick(match) },
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+            }
+        ),
+        border = BorderStroke(
+            width = if (isSelected || hasDelta) 1.dp else 0.5.dp,
+            color = when {
+                isSelected -> MaterialTheme.colorScheme.primary
+                hasDelta -> SuccessEmerald.copy(alpha = 0.65f)
+                else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+            }
+        ),
         shape = RoundedCornerShape(4.dp)
     ) {
         Row(
@@ -713,6 +1432,14 @@ private fun MatchItem(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (isSelectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onClick(match) },
+                    modifier = Modifier.size(18.dp).padding(end = 6.dp)
+                )
+            }
+
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -745,39 +1472,81 @@ private fun MatchItem(
                     }
                 }
 
-                val valueText = stringResource(R.string.memory_menu_match_item_value_label, match.prevValue.toString())
-                Text(
-                    text = valueText,
-                    style = MonospaceValueStyle.copy(fontSize = 11.sp),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val valueText = stringResource(R.string.memory_menu_match_item_value_label, match.prevValue.toString())
+                    Text(
+                        text = valueText,
+                        style = MonospaceValueStyle.copy(
+                            fontSize = 11.sp,
+                            fontWeight = if (hasDelta) FontWeight.Bold else FontWeight.Normal
+                        ),
+                        color = if (hasDelta) SuccessEmerald else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (hasDelta) {
+                        Surface(
+                            shape = RoundedCornerShape(3.dp),
+                            color = SuccessEmerald.copy(alpha = 0.18f)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.memory_menu_previous_value_badge, prevVal.toString()),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = SuccessEmerald,
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
             }
 
-            Surface(
-                shape = RoundedCornerShape(3.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text(
-                    text = match.valueType.uppercase(),
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                    fontSize = 9.sp
-                )
+                Surface(
+                    shape = RoundedCornerShape(3.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                ) {
+                    Text(
+                        text = match.valueType.uppercase(),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                        fontSize = 9.sp
+                    )
+                }
+
+                if (!isSelectionMode) {
+                    IconButton(
+                        onClick = { onCopyToTab(match) },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = stringResource(R.string.memory_menu_copy_item_to_tab_cd),
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 /**
- * Interactive control panel providing scan input text fields, operator selectors, type pickers, and scan buttons.
+ * Interactive control panel providing scan input text fields, operator selectors, type pickers,
+ * checkpoint controls, undo action, and scan triggers.
  */
 @Composable
 private fun MatchesSetting(
-    context: Context,
-    coroutineScope: CoroutineScope,
     modifier: Modifier = Modifier,
     scanInputVal: MutableState<String>,
     selectedTypes: MutableState<Set<String>>,
@@ -785,11 +1554,22 @@ private fun MatchesSetting(
     onOpenSyntaxHelp: () -> Unit,
     operatorSelectedOptionIdx: MutableState<Int>,
     initialScanDone: Boolean,
+    totalMatchesCount: Int,
+    undoCount: Int,
+    isCurrentSaved: Boolean,
     nextScanEnabled: Boolean,
     nextScanClicked: () -> Unit,
     newScanEnabled: Boolean,
     newScanClicked: () -> Unit,
+    gotoClicked: () -> Unit,
+    onSaveCheckpointClicked: () -> Unit,
+    onUndoClicked: () -> Unit
 ) {
+    val currentOps = if (initialScanDone) refineOperatorOptions else initialOperatorOptions
+    val safeOpIdx = operatorSelectedOptionIdx.value.coerceIn(0, (currentOps.size - 1).coerceAtLeast(0))
+    val selectedOp = currentOps.getOrElse(safeOpIdx) { "=" }
+    val requiresValue = doesOperatorRequireValue(selectedOp, !initialScanDone)
+
     Card(
         modifier = modifier,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -807,11 +1587,22 @@ private fun MatchesSetting(
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 VirtualTextField(
-                    value = scanInputVal.value,
+                    value = if (requiresValue) scanInputVal.value else "",
                     onValueChange = { scanInputVal.value = it },
+                    enabled = requiresValue,
                     keyboardType = KeyboardType.HEXADECIMAL,
                     label = { Text(stringResource(R.string.memory_menu_scan_value_label), fontSize = 10.sp) },
-                    placeholder = { Text(stringResource(R.string.memory_menu_scan_value_placeholder), fontSize = 10.sp) },
+                    placeholder = {
+                        Text(
+                            text = stringResource(
+                                if (requiresValue) R.string.memory_menu_scan_value_placeholder
+                                else R.string.memory_menu_value_not_required_placeholder
+                            ),
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(6.dp)
                 )
@@ -828,43 +1619,23 @@ private fun MatchesSetting(
                     )
                 }
 
-                val currentOps = if (initialScanDone) refineOperatorOptions else initialOperatorOptions
                 CustomDropdown(
                     options = currentOps,
-                    selectedIndex = operatorSelectedOptionIdx.value.coerceIn(0, (currentOps.size - 1).coerceAtLeast(0)),
+                    selectedIndex = safeOpIdx,
                     onOptionSelected = { operatorSelectedOptionIdx.value = it },
-                    modifier = Modifier.widthIn(min = 72.dp, max = 92.dp)
+                    modifier = Modifier.widthIn(min = 72.dp, max = 96.dp)
                 )
 
-                val isGotoExpression = scanInputVal.value.startsWith("0x", ignoreCase = true) ||
+                val isGotoExpression = requiresValue && (
+                    scanInputVal.value.startsWith("0x", ignoreCase = true) ||
                         scanInputVal.value.startsWith("[") ||
                         scanInputVal.value.contains(".so") ||
                         scanInputVal.value.startsWith("lib", ignoreCase = true)
+                    )
 
                 if (isGotoExpression && scanInputVal.value.isNotBlank()) {
                     Button(
-                        onClick = {
-                            val currentTab = tabs.getOrNull(selectedTabIndex.intValue) ?: return@Button
-                            val inputValue = currentTab.scanInputVal.value
-
-                            coroutineScope.launch {
-                                val pid = AttachedProcessRepository.getAttachedPid()
-                                if (pid != null) {
-                                    val result = MemoryScanManager().createMatchFromOffset(inputValue, null, pid)
-                                    if (result != null) {
-                                        synchronized(currentTab.matches) {
-                                            currentTab.matches.clear()
-                                            currentTab.matches.add(result)
-                                        }
-                                        currentTab.totalMatchesCount.value = 1
-                                    }
-                                }
-
-                                currentTab.initialScanDone.value = true
-                                currentTab.title = inputValue
-                                updateMatches(context, currentTab)
-                            }
-                        },
+                        onClick = gotoClicked,
                         modifier = Modifier.height(38.dp),
                         shape = RoundedCornerShape(6.dp),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
@@ -876,6 +1647,31 @@ private fun MatchesSetting(
                         Text(stringResource(id = R.string.memory_menu_goto_button), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+            }
+
+            // Operator explanation hint bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Lightbulb,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                    modifier = Modifier.size(12.dp)
+                )
+                Text(
+                    text = stringResource(getOperatorHintResId(selectedOp)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 9.5.sp,
+                    lineHeight = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
             // Row 2: Type Selector Pill + Action Buttons
@@ -908,6 +1704,82 @@ private fun MatchesSetting(
                     onClick = nextScanClicked,
                     modifier = Modifier.weight(1f)
                 )
+            }
+
+            // Row 3: Save Checkpoint & Undo Controls (available once a scan session exists)
+            if (initialScanDone) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    val saveEnabled = nextScanEnabled && totalMatchesCount > 0 && !isCurrentSaved
+                    OutlinedButton(
+                        onClick = onSaveCheckpointClicked,
+                        enabled = saveEnabled,
+                        modifier = Modifier.weight(1f).height(30.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        border = BorderStroke(
+                            0.5.dp,
+                            if (isCurrentSaved) SuccessEmerald.copy(alpha = 0.7f)
+                            else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isCurrentSaved) SuccessEmerald.copy(alpha = 0.14f) else Color.Transparent,
+                            contentColor = if (isCurrentSaved) SuccessEmerald else MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = if (isCurrentSaved) Icons.Default.Check else Icons.Default.BookmarkAdd,
+                            contentDescription = null,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = stringResource(
+                                if (isCurrentSaved) R.string.memory_menu_checkpoint_saved_button
+                                else R.string.memory_menu_save_checkpoint_button
+                            ),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onUndoClicked,
+                        enabled = nextScanEnabled && undoCount > 0,
+                        modifier = Modifier.weight(1f).height(30.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        border = BorderStroke(
+                            0.5.dp,
+                            if (undoCount > 0) TertiaryAmber.copy(alpha = 0.6f)
+                            else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (undoCount > 0) TertiaryAmber else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Undo,
+                            contentDescription = null,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (undoCount > 0) {
+                                stringResource(R.string.memory_menu_undo_button_with_count, undoCount)
+                            } else {
+                                stringResource(R.string.memory_menu_undo_button)
+                            },
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                    }
+                }
             }
         }
     }
@@ -1095,8 +1967,8 @@ private val allTypeOptionItems = listOf(
     TypeOptionItem("float", "4 Bytes", "Single float"),
     TypeOptionItem("double", "8 Bytes", "Double float"),
     TypeOptionItem("bigdouble", "16 Bytes", "Mantissa/Exp"),
-    TypeOptionItem("obscured_int", "8 Bytes", "ACTk XOR Int"),
-    TypeOptionItem("obscured_float", "8 Bytes", "ACTk XOR Float"),
+    TypeOptionItem("obscured_int", "8 Bytes", "XOR-Pair Int"),
+    TypeOptionItem("obscured_float", "8 Bytes", "XOR-Pair Float"),
 )
 
 private data class SearchHelpCategory(
@@ -1157,7 +2029,7 @@ private fun SearchHelpDialog(
                 descRes = R.string.search_help_cat_goto_desc,
                 icon = Icons.AutoMirrored.Filled.ArrowForward,
                 accentColor = Color(0xFF6366F1),
-                examples = listOf("0x7FFF12345678", "libil2cpp.so + 0x12345")
+                examples = listOf("0x7FFF12345678", "libnative.so + 0x12345")
             )
         )
     }
@@ -1596,6 +2468,170 @@ private fun TypeOptionCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Dialog enabling the user to clone the active search session or copy selected matches
+ * to a new or existing search tab.
+ */
+@Composable
+private fun CopyToSearchTabDialog(
+    request: CopyToTabRequest,
+    existingTabs: List<TabState>,
+    onSelectNewTab: () -> Unit,
+    onSelectExistingTab: (TabState) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val description = when (request) {
+        is CopyToTabRequest.CloneAll -> stringResource(
+            R.string.memory_menu_copy_to_tab_dialog_desc_all,
+            request.sourceTab.totalMatchesCount.value
+        )
+        is CopyToTabRequest.CopyItems -> stringResource(
+            R.string.memory_menu_copy_to_tab_dialog_desc_items,
+            request.addresses.size
+        )
+    }
+
+    CustomDialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .padding(ComponentStyles.Dialog.contentPadding)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.memory_menu_copy_to_tab_dialog_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.overlay_ui_close_menu_icon_description),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 10.5.sp
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+            // Option 1: New Search Tab
+            Surface(
+                onClick = onSelectNewTab,
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.memory_menu_copy_to_new_tab_option),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 11.5.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.memory_menu_copy_to_new_tab_subtitle),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 9.5.sp
+                        )
+                    }
+                }
+            }
+
+            // Existing Search Tabs
+            existingTabs.forEach { targetTab ->
+                Surface(
+                    onClick = { onSelectExistingTab(targetTab) },
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(
+                                    R.string.memory_menu_copy_to_existing_tab_option,
+                                    targetTab.title.value,
+                                    targetTab.totalMatchesCount.value
+                                ),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = stringResource(R.string.memory_menu_copy_to_existing_tab_subtitle),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 9.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.overlay_ui_dialog_cancel_button), fontSize = 11.sp)
+                }
             }
         }
     }

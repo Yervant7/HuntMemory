@@ -10,7 +10,7 @@
 │ UI Layer (App Process)                                                  │
 │ - Jetpack Compose Floating Overlay UI                                   │
 │ - Virtual Keyboards (QWERTY / Numeric / Hexadecimal)                   │
-│ - Lua 5.4 Engine + LuaCanvasOverlay (DrawScope GPU Rendering / gg.* API)│
+│ - Lua 5.4 Engine + LuaCanvasOverlay (DrawScope GPU Rendering / hmem.*)  │
 └────────────────────────────────────┬────────────────────────────────────┘
                                      │ AIDL / IPC (libsu)
                                      ▼
@@ -26,7 +26,7 @@
 │ - ARM NEON SIMD Vectorized Scanning Engine                              │
 │ - Zero-Copy Ringbuffers, Chunked Iterators, Freeze Loop Manager        │
 └────────────────────────────────────┬────────────────────────────────────┘
-                                     │ SYS_GETRESUID / SuperCall
+                                     │ SYS_GETRESUID (HMKPM Channel)
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ Kernel Space (HMKPM - KernelPatch Module)                               │
@@ -67,16 +67,16 @@
 
 ## 4. Kernel Interface & HMKPM Communication
 
-* **HMKPM Syscall Protocol:** All kernel memory reads, writes, and batch translations must route through the `SYS_GETRESUID` syscall hook using the verified magic key (`HMKPM_MAGIC = 0x00484D4B504D`).
-* **Pagemap Optimization:** Read `/proc/[pid]/pagemap` (`PM_PRESENT` bit 63 / `PM_SWAP` bit 62) to filter out uncommitted anonymous pages and accelerate scans without blind zero fallbacks.
-* **No Deprecated User-space Fallbacks:** Do NOT use `/proc/[pid]/mem`, `process_vm_readv`/`process_vm_writev`, `ptrace`, or `/data/local/tmp` binary drops.
-* **0% SELinux Touch:** Preserve SELinux integrity. Rely exclusively on kernel-level memory manipulation.
+* **HMKPM Syscall Protocol:** All kernel memory reads, writes, and batch translations must route through the `SYS_GETRESUID` kernel interface using the verified magic key (`HMKPM_MAGIC = 0x00484D4B504D`).
+* **Zero-FD V2P Page Residency Inspection:** Use `v2p.rs` (`HMKPM_MAGIC_V2P_BATCH`) to query physical page residency (`PAGE_FLAG_PRESENT`) and filter uncommitted anonymous pages exclusively through kernel MMU translation with zero procfs file descriptors.
+* **Direct MMU Kernel I/O Only:** Rely exclusively on direct MMU kernel memory I/O via HMKPM.
+* **Preserve SELinux Integrity:** Do not modify SELinux policies or enforcement mode. Rely exclusively on direct MMU kernel memory I/O via HMKPM.
 
 ---
 
 ## 5. Kotlin, Jetpack Compose & Service Guidelines
 
-* **Threading & Coroutines:** Heavy tasks (memory scans, pagemap parsing, freeze polling, process listing) must run exclusively on `Dispatchers.IO` or `Dispatchers.Default`, never on the Main/UI thread.
+* **Threading & Coroutines:** Heavy tasks (memory scans, V2P page residency queries, freeze polling, process listing) must run exclusively on `Dispatchers.IO` or `Dispatchers.Default`, never on the Main/UI thread.
 * **Service Lifecycles:** Overlay services must strictly satisfy foreground service requirements (`LifecycleService`, `SavedStateRegistryOwner`, `ViewModelStoreOwner`, foreground service type `specialUse`).
 * **Lua 5.4 & Canvas Integration:** Lua script execution must run asynchronously, dispatching drawing commands to `LuaCanvasOverlay` using Compose `DrawScope`.
 

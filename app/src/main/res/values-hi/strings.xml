@@ -130,7 +130,7 @@
     <string name="memory_menu_preset_reset">रीसेट</string>
     <string name="memory_menu_syntax_help_title">खोज तकनीक और सिंटैक्स सहायता</string>
     <string name="memory_menu_syntax_help_button_cd">खोज सिंटैक्स सहायता</string>
-    <string name="memory_menu_syntax_help_text"><b>1. मैन्टिसा / घातांक (वैज्ञानिक / BigDouble):</b>\n• <i>1.5e6</i> या <i>1.5,6</i> या <i>1.5:6</i>\n• प्रकार: BigDouble चुनें या <i>bigdouble:1.5,6</i> लिखें\n\n<b>2. एन्क्रिप्टेड मान (Anti-Cheat XOR):</b>\n• Obscured Int या Obscured Float चुनें\n• या उपसर्ग: <i>xor:1000</i> या <i>obscured:1000</i>\n\n<b>3. फ़्लोट सहनशीलता / एप्सिलॉन:</b>\n• निरपेक्ष अंतर: <i>100.0 +- 0.5</i>\n• प्रतिशत अंतर: <i>100 +- 2%</i>\n\n<b>4. स्केल्ड फिक्स्ड-पॉइंट:</b>\n• गुणक सूत्र: <i>10.5 * 1000</i> (10500 खोजता है)\n• या उपसर्ग: <i>scaled:10.5:1000</i>\n\n<b>5. विषम संरचना समूह:</b>\n• मिश्रित प्रकार: <i>f64:1.5; i64:6 : 16</i>\n• या: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
+    <string name="memory_menu_syntax_help_text"><b>1. मैन्टिसा / घातांक (वैज्ञानिक / BigDouble):</b>\n• <i>1.5e6</i> या <i>1.5,6</i> या <i>1.5:6</i>\n• प्रकार: BigDouble चुनें या <i>bigdouble:1.5,6</i> लिखें\n\n<b>2. एन्क्रिप्टेड मान (XOR-Keypair):</b>\n• Obscured Int या Obscured Float चुनें\n• या उपसर्ग: <i>xor:1000</i> या <i>obscured:1000</i>\n\n<b>3. फ़्लोट सहनशीलता / एप्सिलॉन:</b>\n• निरपेक्ष अंतर: <i>100.0 +- 0.5</i>\n• प्रतिशत अंतर: <i>100 +- 2%</i>\n\n<b>4. स्केल्ड फिक्स्ड-पॉइंट:</b>\n• गुणक सूत्र: <i>10.5 * 1000</i> (10500 खोजता है)\n• या उपसर्ग: <i>scaled:10.5:1000</i>\n\n<b>5. विषम संरचना समूह:</b>\n• मिश्रित प्रकार: <i>f64:1.5; i64:6 : 16</i>\n• या: <i>f32:100.0; i32:50; byte:1 : 32</i></string>
     <string name="memory_menu_new_scan_button">नया स्कैन</string>
     <string name="memory_menu_new_search_button_initial">नई खोज</string>
     <string name="memory_menu_refine_button">परिष्कृत करें</string>
@@ -162,7 +162,7 @@
 
     <!-- Disclaimer Screen -->
     <string name="disclaimer_title">अस्वीकरण</string>
-    <string name="disclaimer_text">HuntMemory में आपका स्वागत है।\n\nयह एक मेमोरी पढ़ने और संपादित करने का उपकरण है जो आपके अपने अनुप्रयोगों और प्रक्रियाओं में विकास, डिबगिंग और सीखने के उद्देश्यों के लिए है।\n\nइस एप्लिकेशन का उपयोग अवैध गतिविधियों के लिए करना सख्त वर्जित है, जैसे कि ऑनलाइन गेम में धोखाधड़ी, अन्य एप्लिकेशन का अनधिकृत संशोधन, या कोई अन्य कार्रवाई जो तीसरे पक्ष की सेवा की शर्तों या वर्तमान कानून का उल्लंघन करती है।\n\nजारी रखकर, आप स्वीकार करते हैं और सहमत होते हैं कि आप अपने कार्यों के लिए पूरी तरह जिम्मेदार हैं। इस उपकरण के उपयोग से होने वाले किसी भी दुरुपयोग, क्षति या नकारात्मक परिणामों के लिए डेवलपर जिम्मेदार नहीं हैं।</string>
+    <string name="disclaimer_text">HuntMemory में आपका स्वागत है।\n\nयह एक मेमोरी पढ़ने और संपादित करने का उपकरण है जो आपके अपने अनुप्रयोगों और प्रक्रियाओं में विकास, डिबगिंग और सीखने के उद्देश्यों के लिए है।\n\nइस एप्लिकेशन का उपयोग गैरकानूनी गतिविधियों, अन्य अनुप्रयोगों के अनधिकृत संशोधन, या किसी भी ऐसी कार्रवाई के लिए करना सख्त वर्जित है जो तीसरे पक्ष की सेवा की शर्तों या वर्तमान कानून का उल्लंघन करती है।\n\nजारी रखकर, आप स्वीकार करते हैं और सहमत होते हैं कि आप अपने कार्यों के लिए पूरी तरह जिम्मेदार हैं। इस उपकरण के उपयोग से होने वाले किसी भी दुरुपयोग, क्षति या नकारात्मक परिणामों के लिए डेवलपर जिम्मेदार नहीं हैं।</string>
     <string name="disclaimer_accept_button">स्वीकार करें और जारी रखें</string>
     <string name="disclaimer_scroll_down_hint">अधिक पढ़ने के लिए नीचे स्क्रॉल करें</string>
 
@@ -227,10 +227,10 @@
     <string name="search_help_try_hint">सुझाव: खोज बार में सीधे डालने के लिए किसी भी उदाहरण पर टैप करें।</string>
     <string name="search_help_cat_basic_title">सटीक और फ़्लोट सहनशीलता</string>
     <string name="search_help_cat_basic_desc">सटीक संख्याएँ या पूर्ण/प्रतिशत अंतर के साथ फ़्लोटिंग मान खोजें।</string>
-    <string name="search_help_cat_obscured_title">अस्पष्ट और एंटी-चीट (XOR)</string>
-    <string name="search_help_cat_obscured_desc">गतिशील XOR कुंजियों का उपयोग करके एंटी-चीट इंजन (जैसे ACTk) द्वारा सुरक्षित एन्क्रिप्टेड चर स्कैन करता है।</string>
+    <string name="search_help_cat_obscured_title">अस्पष्ट और XOR-कीपेयर</string>
+    <string name="search_help_cat_obscured_desc">गतिशील XOR कुंजी-मान जोड़ों के साथ एन्कोड किए गए अस्पष्ट चर को स्कैन करता है।</string>
     <string name="search_help_cat_bigdouble_title">वैज्ञानिक और बिगडबल</string>
-    <string name="search_help_cat_bigdouble_desc">मेंटिसा और घातांक के रूप में संग्रहीत विशाल मान (वृद्धिशील और निष्क्रिय खेलों में आम)।</string>
+    <string name="search_help_cat_bigdouble_desc">मेंटिसा और घातांक के रूप में संग्रहीत बड़े मान (वैज्ञानिक और उच्च-श्रेणी संख्यात्मक रनटाइम में उपयोग किए जाते हैं)।</string>
     <string name="search_help_cat_scaled_title">स्केल्ड फिक्स्ड-पॉइंट</string>
     <string name="search_help_cat_scaled_desc">दशमलव जो आंतरिक रूप से पूर्णांक के रूप में संग्रहीत होते हैं (उदा. 10.5 * 1000 -> 10500)।</string>
     <string name="search_help_cat_group_title">स्ट्रक्चर और ग्रुप सर्च</string>
@@ -273,7 +273,7 @@
     <string name="main_screen_status_popup_permission_missing">पॉप-अप अनुपलब्ध</string>
     <string name="oem_compat_banner_title">%1$s अनुकूलन</string>
     <string name="oem_compat_hyperos_desc">कस्टम ROM का पता चला। ओवरले बंद होने से रोकने के लिए \"पॉप-अप विंडो दिखाएं\" और \"ऑटो-स्टार्ट\" की अनुमति दें।</string>
-    <string name="oem_compat_battery_desc">बैकग्राउंड बैटरी प्रतिबंध गेमप्ले के दौरान ओवरले को बंद कर सकते हैं।</string>
+    <string name="oem_compat_battery_desc">बैकग्राउंड बैटरी प्रतिबंध भारी अग्रभूमि सत्रों के दौरान ओवरले को बंद कर सकते हैं।</string>
     <string name="oem_compat_status_granted">अनुमति प्राप्त</string>
     <string name="oem_compat_status_missing">अनुपलब्ध</string>
     <string name="oem_compat_status_unrestricted">अप्रतिबंधित</string>
@@ -289,7 +289,7 @@
     <string name="oem_compat_dialog_item_overlay_title">1. पॉप-अप और ओवरले विंडो</string>
     <string name="oem_compat_dialog_item_overlay_desc">HyperOS/MIUI पर, सुरक्षा ऐप में \"बैकग्राउंड में पॉप-अप विंडो दिखाएं\" की अनुमति दें।</string>
     <string name="oem_compat_dialog_item_autostart_title">2. ऑटो-स्टार्ट और बैकग्राउंड गतिविधि</string>
-    <string name="oem_compat_dialog_item_autostart_desc">ऑटो-स्टार्ट सक्षम करने से भारी गेमिंग के दौरान ऐप बंद नहीं होता।</string>
+    <string name="oem_compat_dialog_item_autostart_desc">ऑटो-स्टार्ट सक्षम करने से उच्च मेमोरी उपयोग वाले ऐप्स के दौरान HuntMemory बंद नहीं होता।</string>
     <string name="oem_compat_dialog_item_battery_title">3. अप्रतिबंधित बैटरी सेवर</string>
     <string name="oem_compat_dialog_item_battery_desc">निरंतर स्कैनिंग के लिए बैटरी सेवर को \"कोई प्रतिबंध नहीं\" पर सेट करें।</string>
     <string name="oem_compat_dialog_dismiss">समझ गया</string>

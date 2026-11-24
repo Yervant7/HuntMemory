@@ -387,15 +387,11 @@ impl ScanOperator {
         {
             return Ok(ScanOperator::Decreased);
         }
+        if clean.contains("unchanged") || clean == "==prev" || clean == "= unchanged" {
+            return Ok(ScanOperator::Unchanged);
+        }
         if clean.contains("changed") || clean == "!=prev" || clean == "~ changed" || clean == "~" {
             return Ok(ScanOperator::Changed);
-        }
-        if clean.contains("unchanged")
-            || clean == "==prev"
-            || clean == "=疏 unchanged"
-            || clean == "= unchanged"
-        {
-            return Ok(ScanOperator::Unchanged);
         }
 
         match clean.as_str() {
@@ -529,6 +525,59 @@ impl ScanSession {
 
         result
     }
+
+    /// Reads live process memory for the requested page window `[offset..offset + limit)`
+    /// via batched kernel read without mutating the baseline `raw_value` stored in the session.
+    pub fn get_page_live(&self, pid: u32, offset: usize, limit: usize) -> Vec<ScanMatch> {
+        let total = self.matches.len();
+        if offset >= total {
+            return Vec::new();
+        }
+        let end = (offset + limit).min(total);
+        let slice = &self.matches[offset..end];
+        let mut result = Vec::with_capacity(slice.len());
+
+        let batch_results = if pid > 0 {
+            let reqs: Vec<(u64, usize)> = slice
+                .iter()
+                .map(|m| (m.address, m.value_type.size()))
+                .collect();
+            crate::kpm::read_batch(pid, &reqs).ok()
+        } else {
+            None
+        };
+
+        for (i, m) in slice.iter().enumerate() {
+            let region = self.regions.get(m.region_idx as usize);
+            let vtype = m.value_type;
+            let size = vtype.size();
+            let mut val_bytes = m.raw_value.to_le_bytes();
+
+            if let Some(ref batch) = batch_results {
+                if let Some(live_bytes) = batch.get(i)
+                    && live_bytes.len() == size
+                {
+                    val_bytes[..size].copy_from_slice(live_bytes);
+                }
+            } else if pid > 0 {
+                let _ = crate::kpm::read_memory(pid, m.address, &mut val_bytes[..size]);
+            }
+
+            let val_str = bytes_to_value_str(&val_bytes[..size], vtype);
+
+            result.push(ScanMatch {
+                address: m.address,
+                value: val_str,
+                region_start: region.map(|r| r.start).unwrap_or(0),
+                region_end: region.map(|r| r.end).unwrap_or(0),
+                permissions: region.map(|r| r.permissions.clone()).unwrap_or_default(),
+                path: region.map(|r| r.path.clone()).unwrap_or_default(),
+                value_type: vtype.as_str().to_string(),
+            });
+        }
+
+        result
+    }
 }
 
 /// Binary serializer for MemoryRegion lists:
@@ -617,12 +666,6 @@ pub fn encode_matches_page_binary(
         buf.extend_from_slice(&path_bytes[..path_len as usize]);
     }
     buf
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ScanResult {
-    pub matches: Vec<ScanMatch>,
-    pub count: usize,
 }
 
 pub fn parse_int_flexible<T>(value: &str) -> Result<T, String>
@@ -1427,5 +1470,73 @@ mod tests {
 
         assert!(!d_eq);
         assert!(d_ne);
+    }
+
+    #[test]
+    fn test_scan_operator_parsing_english_only() {
+        assert_eq!(
+            ScanOperator::from_str("equal").unwrap(),
+            ScanOperator::Equal
+        );
+        assert_eq!(
+            ScanOperator::from_str("==prev").unwrap(),
+            ScanOperator::Unchanged
+        );
+        assert_eq!(
+            ScanOperator::from_str("= unchanged").unwrap(),
+            ScanOperator::Unchanged
+        );
+        assert_eq!(
+            ScanOperator::from_str("unchanged").unwrap(),
+            ScanOperator::Unchanged
+        );
+        assert_eq!(
+            ScanOperator::from_str("changed").unwrap(),
+            ScanOperator::Changed
+        );
+        assert_eq!(
+            ScanOperator::from_str("!=prev").unwrap(),
+            ScanOperator::Changed
+        );
+        assert_eq!(
+            ScanOperator::from_str("unknown").unwrap(),
+            ScanOperator::Unknown
+        );
+    }
+
+    #[test]
+    fn test_scan_session_get_page_live_fallback() {
+        let session = ScanSession {
+            regions: vec![MemoryRegion {
+                start: 0x1000,
+                end: 0x2000,
+                permissions: "rw-p".to_string(),
+                offset: 0,
+                path: "[heap]".to_string(),
+                merged_count: 1,
+            }],
+            matches: vec![
+                CompactMatch {
+                    address: 0x1000,
+                    raw_value: 256,
+                    region_idx: 0,
+                    value_type: ValueType::Int,
+                },
+                CompactMatch {
+                    address: 0x1004,
+                    raw_value: 512,
+                    region_idx: 0,
+                    value_type: ValueType::Int,
+                },
+            ],
+            active_types: vec![ValueType::Int],
+        };
+
+        let page = session.get_page_live(0, 0, 10);
+        assert_eq!(page.len(), 2);
+        assert_eq!(page[0].address, 0x1000);
+        assert_eq!(page[0].value, "256");
+        assert_eq!(page[1].address, 0x1004);
+        assert_eq!(page[1].value, "512");
     }
 }

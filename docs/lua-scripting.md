@@ -1,8 +1,6 @@
 # Lua Scripting Engine & API Reference
 
-HuntMemory integrates a high-performance **Lua 5.4 scripting engine** (powered by `mlua` in Rust) allowing automation of memory scans, real-time memory manipulation, pointer resolution, dynamic Jetpack Compose overlay menus, and on-screen **Canvas ESP / HUD rendering**.
-
-Additionally, HuntMemory provides an out-of-the-box **GameGuardian (`gg.*`) API compatibility layer**, enabling existing GameGuardian Lua scripts to run directly on ARM64 Android with direct MMU kernel speed.
+HuntMemory integrates a high-performance **Lua 5.4 scripting engine** (powered by `mlua` in Rust) allowing automation of memory scans, real-time memory inspection and editing, pointer resolution, dynamic Jetpack Compose overlay menus, and on-screen **2D Canvas telemetry rendering**.
 
 ---
 
@@ -22,7 +20,7 @@ graph TD
         subgraph Rust_Mlua ["Rust Engine (script.rs)"]
             MLUA["mlua (Lua 5.4 Runtime & Sandboxed Environment)"]
             HMEM_API["hmem.* Native API Registry"]
-            GG_API["gg.* GameGuardian Compatibility Layer"]
+            CANVAS_API["canvas.* 2D Overlay API"]
             CB["ScriptUiCallback Trait Dispatcher"]
         end
     end
@@ -31,8 +29,9 @@ graph TD
     AIDL --> JNI
     JNI --> MLUA
     MLUA --> HMEM_API
-    MLUA --> GG_API
-    HMEM_API -- "Dialogs / Menus / Canvas JSON" --> CB
+    MLUA --> CANVAS_API
+    HMEM_API -- "Dialogs / Menus / Canvas Binary" --> CB
+    CANVAS_API -- "Canvas Binary Packets" --> CB
     CB -- "IPC Return / Callbacks" --> Bridge
     Bridge --> Canvas_UI
     Bridge --> UI_Tab
@@ -110,12 +109,13 @@ local res_range = hmem.search_range("session_1", "50", "100", "float")
 local res_group = hmem.search_group("session_1", "100;200;300:16", "int")
 
 -- Array of Bytes (AoB) / Signature Search with Wildcards
-local aob_matches = hmem.search_aob("session_1", "00 20 40 ? ? 90 00", 100)
-for _, addr in ipairs(aob_matches) do
-    print(string.format("AoB Match: 0x%X", addr))
+local aob_res = hmem.search_pattern("session_1", "00 20 40 ? ? 90 00")
+print("Found " .. aob_res.count .. " AoB matches")
+for _, item in ipairs(aob_res.matches) do
+    print(string.format("AoB Match: 0x%X", item.address))
 end
 
--- Anti-Cheat Obscured Search
+-- XOR-Keypair Obscured Search
 local res_obs = hmem.search_obscured("session_1", "999", "obscured_int")
 
 -- BigDouble Scientific Search
@@ -140,7 +140,7 @@ hmem.clear_session("session_1")
 
 ```lua
 -- Add address to freeze loop
-hmem.freeze_add(0x7F001234, "9999", "int", "Player Health")
+hmem.freeze_add(0x7F001234, "9999", "int", "Sample Counter")
 
 -- Check active freeze status
 local is_active = hmem.freeze_is_running()
@@ -166,15 +166,15 @@ hmem.freeze_start()
 
 ```lua
 -- Resolve module base address
-local libil2cpp = hmem.get_module_base("libil2cpp.so")
-print(string.format("libil2cpp.so Base: 0x%X", libil2cpp))
+local libtarget = hmem.get_module_base("libtarget.so")
+print(string.format("libtarget.so Base: 0x%X", libtarget))
 
--- Resolve pointer chain: [[libil2cpp + 0x1A0] + 0x28] + 0x10
-local target_addr = hmem.resolve_pointer(libil2cpp + 0x1A0, { 0x28, 0x10 })
+-- Resolve pointer chain: [[libtarget + 0x1A0] + 0x28] + 0x10
+local target_addr = hmem.resolve_pointer(libtarget + 0x1A0, { 0x28, 0x10 })
 if target_addr then
     print(string.format("Target Address: 0x%X", target_addr))
-    local current_val = hmem.read_pointer(libil2cpp + 0x1A0, { 0x28, 0x10 }, "int")
-    hmem.write_pointer(libil2cpp + 0x1A0, { 0x28, 0x10 }, "9999", "int")
+    local current_val = hmem.read_pointer(libtarget + 0x1A0, { 0x28, 0x10 }, "int")
+    hmem.write_pointer(libtarget + 0x1A0, { 0x28, 0x10 }, "9999", "int")
 end
 ```
 
@@ -187,7 +187,7 @@ end
 local val = hmem.read_xor(0x7F001000, 0x12345678, "int")
 hmem.write_xor(0x7F001000, "5000", 0x12345678, "int")
 
--- Encode / Decode Anti-Cheat Toolkit Obscured Types
+-- Encode / Decode XOR-Keypair Obscured Types
 local encoded = hmem.encode_obscured("12345", "obscured_int", 0xAABBCCDD)
 print("Key: " .. encoded.key .. ", Hidden: " .. encoded.hidden)
 
@@ -214,23 +214,23 @@ Scripts can render interactive dialogs, toasts, prompt inputs, and dynamic menus
 hmem.toast("Scan completed successfully!")
 
 -- Alert Dialog (Pauses execution until dismissed)
-hmem.alert("Memory patch applied!", "Cheat Engine")
+hmem.alert("Operation completed!", "Sample Alert")
 
 -- Text / Numeric Prompt
-local user_input = hmem.prompt("Enter new gold amount:", "999999", "number")
+local user_input = hmem.prompt("Enter new counter value:", "999999", "number")
 
 -- Single Choice Dialog
-local choice_idx = hmem.choice("Select Character Class:", { "Warrior", "Mage", "Archer" })
+local choice_idx = hmem.choice("Select Profile:", { "Profile A", "Profile B", "Profile C" })
 if choice_idx then
     print("User selected index: " .. choice_idx)
 end
 
 -- Multi-Choice Dialog
-local selected = hmem.multi_choice("Enable Features:", { "Godmode", "Infinite Ammo", "Speedhack" }, { true, false, true })
+local selected = hmem.multi_choice("Enable Options:", { "Option A", "Option B", "Option C" }, { true, false, true })
 if selected then
-    print("Godmode: " .. tostring(selected[1]))
-    print("Infinite Ammo: " .. tostring(selected[2]))
-    print("Speedhack: " .. tostring(selected[3]))
+    print("Option A: " .. tostring(selected[1]))
+    print("Option B: " .. tostring(selected[2]))
+    print("Option C: " .. tostring(selected[3]))
 end
 ```
 
@@ -239,11 +239,11 @@ end
 Create fully customizable floating menus in the Compose overlay tab and respond to user clicks and toggle state changes:
 
 ```lua
-hmem.create_menu("God Mode Hub", {
-    { type = "header", label = "PLAYER MODIFIERS" },
-    { type = "button", id = "btn_heal", label = "⚡ Refill Health (100%)", color = "#4CAF50" },
-    { type = "toggle", id = "tog_freeze", label = "❄️ Freeze Health", checked = true },
-    { type = "button", id = "btn_coins", label = "💰 Add 1,000,000 Gold", color = "#FFC107" },
+hmem.create_menu("Diagnostic Control Hub", {
+    { type = "header", label = "RUNTIME CONTROLS" },
+    { type = "button", id = "btn_reset", label = "⚡ Reset Counter (100%)", color = "#4CAF50" },
+    { type = "toggle", id = "tog_freeze", label = "❄️ Freeze Value", checked = true },
+    { type = "button", id = "btn_preset", label = "🔧 Set Preset Value", color = "#FFC107" },
     { type = "divider" },
     { type = "button", id = "btn_exit", label = "❌ Close Menu", color = "#F44336" }
 })
@@ -253,8 +253,8 @@ while true do
     -- Wait for UI event (or timeout after 5000ms)
     local evt = hmem.wait_event(5000)
     if evt then
-        if evt.id == "btn_heal" then
-            hmem.toast("Health refilled!")
+        if evt.id == "btn_reset" then
+            hmem.toast("Counter reset!")
         elseif evt.id == "tog_freeze" then
             hmem.toast("Freeze toggle state: " .. tostring(evt.checked))
         elseif evt.id == "btn_exit" then
@@ -267,9 +267,9 @@ end
 
 ---
 
-## 🖥️ 4. Real-Time Canvas Overlay (ESP / HUD)
+## 🖥️ 4. Real-Time 2D Canvas Overlay
 
-HuntMemory provides a high-performance hardware-accelerated **Canvas Overlay** subsystem (`hmem.canvas` and global `canvas`) that renders directly over running 3D games or apps without window flickering.
+HuntMemory provides a high-performance hardware-accelerated **Canvas Overlay** subsystem (`hmem.canvas` and global `canvas`) that renders directly over running foreground applications without window flickering.
 
 ```mermaid
 graph LR
@@ -305,68 +305,9 @@ Colors accept:
 
 ---
 
-## 🎮 5. GameGuardian (`gg.*`) Compatibility Layer
+## 💡 5. Practical Script Examples
 
-HuntMemory includes seamless emulation of the GameGuardian scripting standard:
-
-### Supported Constants
-
-```lua
--- Types
-gg.TYPE_BYTE    -- 1
-gg.TYPE_WORD    -- 2 (Short / Int16)
-gg.TYPE_DWORD   -- 4 (Int32)
-gg.TYPE_QWORD   -- 32 (Int64)
-gg.TYPE_FLOAT   -- 16 (Float32)
-gg.TYPE_DOUBLE  -- 64 (Float64)
-gg.TYPE_AUTO    -- 127
-
--- Regions
-gg.REGION_ALL        -- 0xFFFFFFFF
-gg.REGION_ANONYMOUS  -- 32
-gg.REGION_C_ALLOC    -- 4
-gg.REGION_C_BSS      -- 8
-gg.REGION_C_DATA     -- 16
-gg.REGION_C_HEAP     -- 1
-gg.REGION_JAVA_HEAP  -- 2
-gg.REGION_STACK      -- 64
-gg.REGION_ASHMEM     -- 524288
-gg.REGION_CODE_APP   -- 16384
-gg.REGION_CODE_SYS   -- 32768
-```
-
-### GameGuardian Workflow Example
-
-```lua
-gg.alert("Starting GameGuardian compatible cheat script...")
-
--- Configure Search Memory Regions
-gg.setRanges(gg.REGION_ANONYMOUS | gg.REGION_C_ALLOC)
-
--- Initial Search
-gg.searchNumber("100", gg.TYPE_DWORD)
-
--- Refinement
-gg.sleep(500)
-gg.refineNumber("100", gg.TYPE_DWORD)
-
-local count = gg.getResultsCount()
-if count > 0 then
-    local results = gg.getResults(10)
-    gg.toast("Found " .. count .. " matches. Editing all to 99999...")
-    
-    -- Edit all results in batch
-    gg.editAll("99999", gg.TYPE_DWORD)
-else
-    gg.alert("No matching values found.")
-end
-```
-
----
-
-## 💡 6. Practical Script Examples
-
-### Example 1: Full Radar / ESP Overlay Loop
+### Example 1: Full Telemetry / 2D Canvas Overlay Loop
 
 ```lua
 local screen = canvas.get_screen_size()
@@ -376,38 +317,38 @@ local cy = screen.height / 2
 canvas.show()
 canvas.clear()
 
--- Draw crosshair and radar HUD
+-- Draw alignment crosshair and radial telemetry grid
 canvas.batch_draw({
     -- Center Crosshair
     { type = "line", x1 = cx - 20, y1 = cy, x2 = cx + 20, y2 = cy, stroke = 2.0, color = "#00FF00" },
     { type = "line", x1 = cx, y1 = cy - 20, x2 = cx, y2 = cy + 20, stroke = 2.0, color = "#00FF00" },
     
-    -- Radar Circle
+    -- Radial Grid Circle
     { type = "circle", cx = 150, cy = 150, radius = 100, stroke = 2.0, color = "#40FFFFFF", filled = false },
     { type = "circle", cx = 150, cy = 150, radius = 4, stroke = 0, color = "#00FF00", filled = true },
     
-    -- Player Entity Box Example
+    -- Simulated Bounding Box Example
     { type = "rect", x = cx - 50, y = cy - 100, width = 100, height = 200, stroke = 3.0, color = "#FF0000", filled = false },
-    { type = "text", text = "Enemy [100m]", x = cx, y = cy - 110, size = 16.0, color = "#FFFF00", align = "center" }
+    { type = "text", text = "Object [100m]", x = cx, y = cy - 110, size = 16.0, color = "#FFFF00", align = "center" }
 })
 ```
 
-### Example 2: Multi-Level Pointer Scanner & Freeze
+### Example 2: Multi-Level Pointer Resolution & Value Update
 
 ```lua
-local base = hmem.get_module_base("libunity.so")
+local base = hmem.get_module_base("libnative.so")
 if not base or base == 0 then
-    hmem.alert("libunity.so not found in process maps!", "Error")
+    hmem.alert("libnative.so not found in process maps!", "Error")
     return
 end
 
-local player_addr = hmem.resolve_pointer(base + 0x4D2F00, { 0x58, 0x10, 0x24 })
-if player_addr and player_addr ~= 0 then
-    hmem.toast(string.format("Player resolved at: 0x%X", player_addr))
+local counter_addr = hmem.resolve_pointer(base + 0x4D2F00, { 0x58, 0x10, 0x24 })
+if counter_addr and counter_addr ~= 0 then
+    hmem.toast(string.format("Address resolved at: 0x%X", counter_addr))
     
-    -- Set max health
-    hmem.write_int(player_addr, 9999)
-    hmem.alert("Health set to 9999!", "Success")
+    -- Update target counter
+    hmem.write_int(counter_addr, 9999)
+    hmem.alert("Counter set to 9999!", "Success")
 else
     hmem.toast("Failed to resolve pointer chain.")
 end

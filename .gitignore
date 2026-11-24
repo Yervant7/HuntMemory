@@ -15,6 +15,7 @@
 local.properties
 /.idea
 /site
+/external/
 .cache
 **/target/
 **/jniLibs/

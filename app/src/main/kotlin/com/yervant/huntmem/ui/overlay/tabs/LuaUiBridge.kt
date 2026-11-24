@@ -36,6 +36,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Data structures representing interactive UI components dynamically declared by Lua scripts.
@@ -312,6 +313,9 @@ object LuaUiBridge {
     @Suppress("unused")
     val screenHeight = _screenHeight.asStateFlow()
 
+    // Controls whether synchronous Lua dialogs may block awaiting user input.
+    private val dialogsEnabled = AtomicBoolean(false)
+
     // Action listeners for dynamic menu items
     private val menuListeners = ConcurrentHashMap<String, (Any?) -> Unit>()
 
@@ -330,8 +334,8 @@ object LuaUiBridge {
             LuaUiBridge.showToast(message ?: "")
         }
 
-        override fun showPrompt(title: String?, defaultValue: String?, keyboardType: String?): String {
-            return LuaUiBridge.showPrompt(title ?: "", defaultValue ?: "", keyboardType ?: "qwerty") ?: ""
+        override fun showPrompt(title: String?, defaultValue: String?, keyboardType: String?): String? {
+            return LuaUiBridge.showPrompt(title ?: "", defaultValue ?: "", keyboardType ?: "qwerty")
         }
 
         override fun showChoice(title: String?, itemsJson: String?): Int {
@@ -361,12 +365,6 @@ object LuaUiBridge {
         override fun canvasDrawBinary(bytes: ByteArray?) {
             if (bytes != null) {
                 LuaUiBridge.canvasDrawBinary(bytes)
-            }
-        }
-
-        override fun canvasDraw(commandsJson: String?) {
-            if (commandsJson != null) {
-                LuaUiBridge.canvasDraw(commandsJson)
             }
         }
 
@@ -402,7 +400,7 @@ object LuaUiBridge {
      *
      * @param type Event type ('click', 'toggle', 'input').
      * @param id Menu item identifier.
-     * @param value Optional payload value (e.g. boolean for toggle, string for input).
+     * @param value Optional data value (e.g. boolean for toggle, string for input).
      */
     fun pushMenuEvent(type: String, id: String, value: Any? = null) {
         val obj = JSONObject().apply {
@@ -454,7 +452,7 @@ object LuaUiBridge {
     /**
      * Parses a JSON string describing a dynamic menu and publishes it to the overlay UI.
      *
-     * @param menuJson JSON payload with title and array of item objects.
+     * @param menuJson JSON data with title and array of item objects.
      */
     @JvmStatic
     @Keep
@@ -560,11 +558,86 @@ object LuaUiBridge {
     }
 
     // --- Interactive Synchronous Dialogs called from JNI/Lua ---
-    // Note: These methods use runBlocking to wait for user interaction because Lua scripts execute
-    // on a background worker thread / JNI service thread, matching standard GameGuardian/Lua paradigms.
+    // Note: These methods block the Binder worker thread until the user responds or cancellation
+    // occurs via [cancelPendingDialog] / [setDialogsEnabled], preventing permanent Binder deadlocks.
 
     /**
-     * Displays a synchronous alert modal and suspends caller thread until acknowledged.
+     * Enables or disables synchronous Lua dialogs. Disabling immediately unblocks any waiting dialog.
+     */
+    fun setDialogsEnabled(enabled: Boolean) {
+        dialogsEnabled.set(enabled)
+        if (!enabled) {
+            cancelPendingDialog()
+        }
+    }
+
+    /**
+     * Completes and clears any currently active synchronous Lua dialog so blocked Binder threads
+     * return immediately instead of deadlocking on script cancellation or service teardown.
+     */
+    fun cancelPendingDialog() {
+        var current: LuaDialog?
+        do {
+            current = _activeDialog.value ?: return
+        } while (!_activeDialog.compareAndSet(current, null))
+        completeDialogAsCancelled(current)
+    }
+
+    /**
+     * Resets overlay-bound UI state when `OverlayService` is destroyed.
+     */
+    fun onOverlayDestroyed() {
+        setDialogsEnabled(false)
+        clearDynamicMenu()
+        canvasClear()
+        menuEventQueue.clear()
+    }
+
+    private fun completeDialogAsCancelled(dialog: LuaDialog) {
+        when (dialog) {
+            is LuaDialog.Alert -> dialog.deferred.complete(Unit)
+            is LuaDialog.Prompt -> dialog.deferred.complete(null)
+            is LuaDialog.Choice -> dialog.deferred.complete(null)
+            is LuaDialog.MultiChoice -> dialog.deferred.complete(null)
+        }
+    }
+
+    private fun <T> awaitDialog(
+        dialog: LuaDialog,
+        deferred: CompletableDeferred<T>,
+        cancelledValue: T
+    ): T {
+        if (!dialogsEnabled.get()) {
+            return cancelledValue
+        }
+
+        var previous: LuaDialog?
+        do {
+            previous = _activeDialog.value
+        } while (!_activeDialog.compareAndSet(previous, dialog))
+        previous?.let(::completeDialogAsCancelled)
+
+        // Close the TOCTOU window if dialogs were disabled right before publishing.
+        if (!dialogsEnabled.get()) {
+            if (_activeDialog.compareAndSet(dialog, null)) {
+                completeDialogAsCancelled(dialog)
+            }
+            return cancelledValue
+        }
+
+        return try {
+            runBlocking {
+                deferred.await()
+            }
+        } catch (_: Throwable) {
+            cancelledValue
+        } finally {
+            _activeDialog.compareAndSet(dialog, null)
+        }
+    }
+
+    /**
+     * Displays a synchronous alert modal and suspends caller thread until acknowledged or cancelled.
      *
      * @param title Dialog title.
      * @param message Message content.
@@ -573,11 +646,8 @@ object LuaUiBridge {
     @Keep
     fun showAlert(title: String, message: String) {
         val deferred = CompletableDeferred<Unit>()
-        _activeDialog.value = LuaDialog.Alert(title, message, deferred)
-        runBlocking {
-            deferred.await()
-        }
-        _activeDialog.value = null
+        val dialog = LuaDialog.Alert(title, message, deferred)
+        awaitDialog(dialog, deferred, Unit)
     }
 
     /**
@@ -597,7 +667,7 @@ object LuaUiBridge {
      * @param title Prompt title.
      * @param defaultValue Pre-filled text.
      * @param keyboardTypeStr Keyboard layout identifier ('numeric', 'hex', 'qwerty').
-     * @return User-entered string, or null if dismissed.
+     * @return User-entered string, or null if dismissed or cancelled.
      */
     @JvmStatic
     @Keep
@@ -608,12 +678,8 @@ object LuaUiBridge {
             "hex", "hexadecimal" -> KeyboardType.HEXADECIMAL
             else -> KeyboardType.QWERTY
         }
-        _activeDialog.value = LuaDialog.Prompt(title, defaultValue, kbType, deferred)
-        val result = runBlocking {
-            deferred.await()
-        }
-        _activeDialog.value = null
-        return result
+        val dialog = LuaDialog.Prompt(title, defaultValue, kbType, deferred)
+        return awaitDialog(dialog, deferred, null)
     }
 
     /**
@@ -621,7 +687,7 @@ object LuaUiBridge {
      *
      * @param title Dialog title.
      * @param itemsJson JSON array string of option items.
-     * @return 1-based index selected, or -1 if dismissed.
+     * @return 1-based index selected, or -1 if dismissed or cancelled.
      */
     @JvmStatic
     @Keep
@@ -637,11 +703,8 @@ object LuaUiBridge {
             return -1
         }
 
-        _activeDialog.value = LuaDialog.Choice(title, items, deferred)
-        val selectedIdx = runBlocking {
-            deferred.await()
-        }
-        _activeDialog.value = null
+        val dialog = LuaDialog.Choice(title, items, deferred)
+        val selectedIdx = awaitDialog(dialog, deferred, null)
         return selectedIdx ?: -1
     }
 
@@ -651,7 +714,7 @@ object LuaUiBridge {
      * @param title Dialog title.
      * @param itemsJson JSON array string of option items.
      * @param preselectedJson JSON array string of initial boolean selections.
-     * @return JSON array string of booleans, or "[]" if dismissed.
+     * @return JSON array string of booleans, or "[]" if dismissed or cancelled.
      */
     @JvmStatic
     @Keep
@@ -672,11 +735,8 @@ object LuaUiBridge {
             return "[]"
         }
 
-        _activeDialog.value = LuaDialog.MultiChoice(title, items, initialSelected, deferred)
-        val resultList = runBlocking {
-            deferred.await()
-        }
-        _activeDialog.value = null
+        val dialog = LuaDialog.MultiChoice(title, items, initialSelected, deferred)
+        val resultList = awaitDialog(dialog, deferred, null)
 
         return if (resultList != null) {
             val out = JSONArray()
@@ -702,7 +762,7 @@ object LuaUiBridge {
     /**
      * Decodes compact Little-Endian binary drawing commands directly emitted by the Rust Canvas engine.
      *
-     * @param data Binary payload conforming to the canvas binary protocol.
+     * @param data Binary packet conforming to the canvas binary protocol.
      */
     @JvmStatic
     @Keep
@@ -813,83 +873,6 @@ object LuaUiBridge {
             }
         } catch (e: Exception) {
             postLog("[Canvas Binary Error] Failed to parse draw commands: ${e.message}")
-        }
-    }
-
-    /**
-     * Parses a JSON array of drawing commands and updates the overlay Canvas state.
-     *
-     * @param commandsJson JSON array string of command objects.
-     */
-    @JvmStatic
-    @Keep
-    fun canvasDraw(commandsJson: String) {
-        try {
-            val arr = JSONArray(commandsJson)
-            val list = ArrayList<CanvasDrawCommand>(arr.length())
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                val color = parseColorFast(obj.optString("color", "#FFFFFFFF"))
-                when (obj.optString("type").lowercase()) {
-                    "text" -> {
-                        val align = when (obj.optString("align", "left").lowercase()) {
-                            "center" -> Paint.Align.CENTER
-                            "right" -> Paint.Align.RIGHT
-                            else -> Paint.Align.LEFT
-                        }
-                        list.add(
-                            CanvasDrawCommand.Text(
-                                text = obj.optString("text", ""),
-                                x = obj.optDouble("x", 0.0).toFloat(),
-                                y = obj.optDouble("y", 0.0).toFloat(),
-                                size = obj.optDouble("size", 14.0).toFloat(),
-                                color = color,
-                                align = align
-                            )
-                        )
-                    }
-                    "line" -> {
-                        list.add(
-                            CanvasDrawCommand.Line(
-                                x1 = obj.optDouble("x1", 0.0).toFloat(),
-                                y1 = obj.optDouble("y1", 0.0).toFloat(),
-                                x2 = obj.optDouble("x2", 0.0).toFloat(),
-                                y2 = obj.optDouble("y2", 0.0).toFloat(),
-                                strokeWidth = obj.optDouble("stroke", 2.0).toFloat(),
-                                color = color
-                            )
-                        )
-                    }
-                    "rect", "box" -> {
-                        list.add(
-                            CanvasDrawCommand.Rect(
-                                x = obj.optDouble("x", 0.0).toFloat(),
-                                y = obj.optDouble("y", 0.0).toFloat(),
-                                width = obj.optDouble("width", 0.0).toFloat(),
-                                height = obj.optDouble("height", 0.0).toFloat(),
-                                strokeWidth = obj.optDouble("stroke", 2.0).toFloat(),
-                                color = color,
-                                filled = obj.optBoolean("filled", false)
-                            )
-                        )
-                    }
-                    "circle" -> {
-                        list.add(
-                            CanvasDrawCommand.Circle(
-                                cx = obj.optDouble("cx", 0.0).toFloat(),
-                                cy = obj.optDouble("cy", 0.0).toFloat(),
-                                radius = obj.optDouble("radius", 10.0).toFloat(),
-                                strokeWidth = obj.optDouble("stroke", 2.0).toFloat(),
-                                color = color,
-                                filled = obj.optBoolean("filled", false)
-                            )
-                        )
-                    }
-                }
-            }
-            _canvasCommands.value = list
-        } catch (e: Exception) {
-            postLog("[Canvas Error] Failed to parse draw commands: ${e.message}")
         }
     }
 
